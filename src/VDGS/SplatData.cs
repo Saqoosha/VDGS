@@ -37,6 +37,8 @@ namespace VDGS
         {
             public int formatVersion;
             public int splatCount;
+            // -1 means the file predates this field, so the count is unknown.
+            public int chunkCount = -1;
             public float[] boundsMin;
             public float[] boundsMax;
             public string posFormat;
@@ -120,7 +122,7 @@ namespace VDGS
 
             // chunk.bin is optional: a scene built without chunking has none.
             d.ChunkData = ReadOptional(Path.Combine(dir, "chunk.bin"));
-            if (!AcceptChunks(d, dir, ref error)) return null;
+            if (!AcceptChunks(d, dir, ref error, meta.chunkCount)) return null;
             if (!ReadRequired(dir, "pos.bin", out var posBytes, ref error)) return null;
             if (!ReadRequired(dir, "other.bin", out var otherBytes, ref error)) return null;
             if (!ReadRequired(dir, "color.bin", out var colorBytes, ref error)) return null;
@@ -136,53 +138,55 @@ namespace VDGS
         /// <summary>
         /// Decide whether chunk.bin may be used, and refuse it when it cannot be trusted.
         ///
-        /// This matters far more than it looks. The shader applies chunk data purely on
-        /// "is a chunk buffer bound", with no check of the position format:
+        /// Chunked data stores positions, scales and colours as 0..1 weights inside each
+        /// chunk's box, and the shader turns them back into world values only when a
+        /// chunk buffer is bound:
         ///
         ///     if (chunkIdx &lt; _SplatChunkCount)
         ///         pos = lerp(chunk.posMin, chunk.posMax, pos);
         ///
-        /// With chunked data `pos` is a 0..1 weight inside the chunk box, so that is
-        /// correct. With Float32 data `pos` is already an absolute coordinate, and
-        /// feeding -23.2 to a lerp extrapolates it out of the world. Scale is worse:
-        /// it is lerped and then raised to the eighth power.
+        /// So a chunk.bin that does not belong to this data is catastrophic in both
+        /// directions, and silent in both. A leftover one applied to absolute positions
+        /// extrapolates the scene off into space and raises scale to the eighth power -
+        /// that is the "scattered debris" this cost a day to find. A missing one leaves
+        /// every splat at its 0..1 weight, collapsing the whole capture into a blob near
+        /// the origin.
         ///
-        /// So a stale chunk.bin left behind by an earlier, chunked conversion turns a
-        /// perfectly good scene into scattered debris - and nothing errors, because the
-        /// file is well formed. That is exactly what happened after switching to
-        /// VeryHigh: the deploy overwrote pos/other/color/sh and left chunk.bin in place.
-        /// A whole day went into suspecting the quaternions instead.
+        /// **posFormat does not answer this.** "Float32" is the storage width, not the
+        /// coordinate space: a chunked scene stores 0..1 weights in Float32 quite
+        /// happily, which a first attempt at this guard assumed away and broke every
+        /// chunked capture. Only the conversion knows, so it writes chunkCount into
+        /// meta.json and this compares against it.
         /// </summary>
-        private static bool AcceptChunks(SplatData d, string dir, ref string error)
+        private static bool AcceptChunks(SplatData d, string dir, ref string error, int declared)
         {
-            if (d.ChunkData == null || d.ChunkData.Length == 0)
+            var have = d.ChunkData == null ? 0 : d.ChunkData.Length / SplatRenderer.ChunkInfo.kSize;
+
+            if (declared < 0)
             {
-                d.ChunkData = null;
+                // Written before chunkCount existed. Fall back to the arithmetic: a
+                // chunk file that does not cover the splats cannot be this scene's.
+                var expected = (d.SplatCount + kChunkSize - 1) / kChunkSize;
+                if (have != 0 && have != expected)
+                {
+                    Debug.LogWarning("[VDGS] " + new DirectoryInfo(dir).Name +
+                        ": ignoring chunk.bin with " + have + " chunks; " + expected +
+                        " would be needed for " + d.SplatCount + " splats");
+                    d.ChunkData = null;
+                }
                 return true;
             }
 
-            if (d.PosFormat == VectorFormat.Float32)
+            if (have != declared)
             {
-                // Float32 positions are absolute, so chunks cannot apply. The file is a
-                // leftover; dropping it is right, but say so loudly - a scene silently
-                // shedding a file it shipped with is worth knowing about.
-                Debug.LogWarning("[VDGS] " + new DirectoryInfo(dir).Name +
-                    ": ignoring a stale chunk.bin (" + d.ChunkData.Length +
-                    " bytes) - posFormat is Float32, which stores absolute positions. " +
-                    "Delete it; the deploy should have.");
-                d.ChunkData = null;
-                return true;
-            }
-
-            int expected = (d.SplatCount + kChunkSize - 1) / kChunkSize;
-            int actual = d.ChunkData.Length / SplatRenderer.ChunkInfo.kSize;
-            if (actual != expected)
-            {
-                error = "chunk.bin holds " + actual + " chunks, expected " + expected +
-                        " for " + d.SplatCount + " splats - it is stale or truncated";
+                error = "chunk.bin holds " + have + " chunks but meta.json declares " +
+                        declared + (declared == 0
+                            ? " - delete the leftover file (the deploy should have)"
+                            : " - the file is stale or truncated");
                 return false;
             }
 
+            if (have == 0) d.ChunkData = null;
             return true;
         }
 

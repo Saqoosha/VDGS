@@ -146,12 +146,16 @@ public static class PlyExporter
         return newest;
     }
 
+    /// <summary>Stride of GaussianSplatAsset.ChunkInfo. The plugin spells this out too.</summary>
+    private const int kChunkInfoSize = 64;
+
     /// <summary>Writes meta.json + the five raw buffers the plugin expects.</summary>
     public static void Export(GaussianSplatAsset asset, string outDir)
     {
         Directory.CreateDirectory(outDir);
 
         WriteBytes(outDir, "chunk.bin", asset.chunkData);
+        var chunkCount = asset.chunkData == null ? 0 : asset.chunkData.Length / kChunkInfoSize;
         WriteBytes(outDir, "pos.bin", asset.posData);
         WriteBytes(outDir, "other.bin", asset.otherData);
         WriteBytes(outDir, "color.bin", asset.colorData);
@@ -163,6 +167,12 @@ public static class PlyExporter
             "{\n" +
             "  \"formatVersion\": " + asset.formatVersion + ",\n" +
             "  \"splatCount\": " + asset.splatCount + ",\n" +
+            // How many chunks this conversion actually produced. Whether positions are
+            // chunk-relative is decided by this, NOT by posFormat - "Float32" describes
+            // the storage width, and a chunked asset stores 0..1 weights in it. Writing
+            // the count lets the loader tell a legitimately chunkless scene from one
+            // whose chunk.bin went missing, and a stale leftover from a real one.
+            "  \"chunkCount\": " + chunkCount + ",\n" +
             "  \"boundsMin\": " + Vec(asset.boundsMin) + ",\n" +
             "  \"boundsMax\": " + Vec(asset.boundsMax) + ",\n" +
             "  \"posFormat\": \"" + asset.posFormat + "\",\n" +
