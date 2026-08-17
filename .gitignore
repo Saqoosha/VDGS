@@ -1,0 +1,27 @@
+# build output
+bin/
+obj/
+build/
+
+# reference assemblies pulled off the game install
+lib/
+
+# upstream checkout
+vendor/
+
+# decompiled game code (27MB dll -> 73MB of C#)
+research/decompiled/
+research/decompile.log
+
+# Unity
+unity/*/Library/
+unity/*/Temp/
+unity/*/Logs/
+unity/*/UserSettings/
+unity/*/obj/
+unity/*/*.sln
+unity/*/*.csproj
+unity/*/Assets/GaussianAssets/
+
+*.user
+.DS_Store

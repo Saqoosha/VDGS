@@ -1,0 +1,405 @@
+# VDGS — 3D Gaussian Splatting inside VelociDrone
+
+VelociDrone に 3D Gaussian Splatting シーンを読み込む mod。BepInEx プラグインとして
+コードを注入し、実行時に splat データをレンダリングする。
+
+## 状態：実データで動作確認済み（2026-08-17）
+
+| シーン | splats | 確認内容 |
+|---|---|---|
+| testcube（合成） | 640 | 軸・色・スケール・深度、すべて設計通り |
+| luigi（実データ） | 14,526 | 変換・描画 OK |
+| bonsai（実データ） | **1,157,141** | 屋内シーンが実写の質感で描画 |
+
+3つ同時（計 117 万 splats）を RTX 3060 で描画してクラッシュなし。ドローン機体との
+前後関係（深度）も半透明ブレンドも破綻していない。
+
+スクリーンショット: `build/shots/first.png`（テストキューブ）、`build/shots/real.png`（実データ）。
+
+```
+shader 'Gaussian Splatting/Render Splats'  supported=True
+compute 'SplatUtilities'                   supported=True
+=> shaders READY
+```
+
+### 実測パフォーマンス（RTX 3060、2026-08-17）
+
+```
+time      fps    avg_ms  worst_ms  splats   scenes
+02:28:08  17.2   58.17   2885.15   1172307  3     ← スポーン直後（GPU バッファ確保）
+02:28:13  60.0   16.67     16.67   1172307  3     ← 安定後
+```
+
+**117 万 splats で 60 FPS 張り付き、worst frame も 16.67ms。** 60.0 ちょうどなのは VSync の
+上限に当たっているためで、実際の余力はこれより上。
+
+スポーン直後の 1 フレームだけ 2.9 秒かかる（`GraphicsBuffer.SetData` で 50MB 超を
+アップロードするため）。飛行中に F8 を押すと必ずスタッターになるので、
+本番では飛ぶ前にスポーンさせること。
+
+フレームタイムは `<game>/vdgs-perf.log` に 5 秒ごとに追記される。
+
+## ターゲット環境
+
+### Windows 機（開発・実行のメイン）
+
+Tailscale 経由の SSH。`ssh user@windows-box`（ユーザー名 `a`、ホスト `w`、デフォルトシェルは **PowerShell**）。
+
+| 項目 | 値 |
+|---|---|
+| ゲームパス | `%USERPROFILE%\Downloads\Velocidrone Windows Launcher\app` |
+| ユーザーデータ | `%USERPROFILE%\AppData\LocalLow\velocidrone\velocidrone` |
+| Velocidrone | 1.16.0 |
+| Unity | 2021.3.45f2 (88f88f591b2e) |
+| スクリプティング | **Mono**（IL2CPP ではない） |
+| レンダーパイプライン | **Built-in RP**（URP/HDRP の DLL 無し。PostProcessing v2 + AmplifyColor + Bakery） |
+| GPU | RTX 3060 12GB |
+| 描画 API | **Direct3D 11** ← 3DGS には不足。D3D12/Vulkan が必要 |
+| exe | x64 |
+
+
+
+### Mac（M1 Max, ローカル）
+
+Velocidrone 1.17 がインストール済み：
+`~/Library/Application Support/PatchKit/Apps/<app-id>/Data/velocidrone.app`
+
+- arm64 thin、adhoc 署名、同じ Unity 2021.3.45f2
+- BepInEx は macOS universal ビルドがあるが arm64 での動作は**未検証**
+- Mac 版でも `settings.db` / AssetBundle 構造は Windows と同じ → 解析には使える
+
+## ゲーム内部構造（実測）
+
+### シーナリーは内蔵シーン、AssetBundle ではない
+
+`StreamingAssets/settings.db`（SQLite, 357MB）に目録がある。
+
+- `sceneries` テーブル（58行）: `name` が Unity のシーン名（`level0`〜`level50` に対応）、
+  `title` が UI 表示名。例: `BlankCanvas` → "Empty Scene Day"
+  → **新しいシーナリーの追加は不可能**。既存シーンに乗せるしかない
+- `trackprefabs` テーブル（3394行）: トラックエディタで配置できるオブジェクト。
+  `type` が AssetBundle 名（`trees`, `gates`, `barriers`, `bando`…）、`name` がバンドル内の
+  プレハブ名、`image` が `track_editior_thumbs` バンドル内のサムネ名
+
+### AssetBundle
+
+`StreamingAssets/assetbundles/` に素の AssetBundle が 30個（6.4GB）。`AssetBundle.LoadFromFile`
+で読まれる。`aa/` は Addressables（ドローンモデル用）。
+
+**AssetBundle だけでは 3DGS は描けない** — MonoBehaviour のクラスがゲーム側 DLL に無いため
+参照が壊れる。compute shader を dispatch する主体が存在しない。だからコード注入が要る。
+
+### Assembly-CSharp は難読化されている
+
+クラス名・メソッド名の一部（`ScenerySwapper+cngfgoinnio` のような形）に加えて、
+**文字列定数と数値定数がシャッフルされている**。デコンパイル結果に出てくる
+`Screen.width / 0` や、無関係な場所の `"/assetbundles/"` は嘘。
+
+→ **静的解析（ILSpy）の定数は信用しない。実行時リフレクションで調べること。**
+
+デコンパイル済みソース（267万行、gitignore 済み）: `research/decompiled/Assembly-CSharp.decompiled.cs`
+クラス名とメソッドの構造は読める。定数だけが嘘。
+
+### アンチチート
+
+`ACTk.Runtime.dll`（Anti-Cheat Toolkit）が同梱されている。Assembly-CSharp 側での
+使用有無は難読化のため未確認。**リーダーボードとマルチプレイでは使用しない。**
+ローカル飛行専用。
+
+## MOD の仕組み
+
+BepInEx 5.4.23.5 (win_x64) をゲームフォルダに展開。Doorstop 4 が `winhttp.dll` 経由で注入。
+
+**注入は動作確認済み**（`BepInEx/cache/` と `BepInEx/config/` が起動のたびに更新される）。
+
+BepInEx 5.4.23 は **ディスクログがデフォルト無効**。`BepInEx/config/BepInEx.cfg` に
+`[Logging.Disk]` セクションを手で足すと `BepInEx/LogOutput.log` が出るようになる
+（`Enabled = true`, `WriteUnityLog = true`）。Chainloader が一度も走っていない状態では
+そのセクション自体が生成されないので、**セクションの不在は「まだ Chainloader に到達していない」
+という診断情報になる**。
+
+プラグインは自前で `<game>/vdgs-probe.log` にも書く。
+
+### 実測済みランタイム値（2026-08-17、RTX 3060 / セッション1起動）
+
+```
+graphicsDeviceType = Direct3D11        ← 3DGS には不足
+shaderLevel        = 50                ← wave intrinsics には SM6 が必要
+supportsComputeShaders = True
+supportsAsyncCompute   = False
+colorSpace         = Linear
+usesReversedZBuffer = True
+graphicsUVStartsAtTop = True
+maxComputeWorkGroupSize = 1024
+ARGBFloat / ARGBHalf / RFloat / RInt   すべて supported
+```
+
+シーン遷移は `auth` → `bootstrap` → …。`auth` シーンのカメラは 1個
+（`Camera`, depth=0, cullingMask=0xFFFFF8FF, clear=SolidColor）。
+
+## 開発フロー
+
+```bash
+# 1. PLY -> VDGS フォーマット（Mac、Unity 2022.3.42f1）
+python3 tools/make_test_ply.py build/testdata/testcube.ply   # 合成テストデータ
+/Applications/Unity/Hub/Editor/2022.3.42f1/Unity.app/Contents/MacOS/Unity \
+  -batchmode -quit -nographics -projectPath unity/VDGSConverter \
+  -executeMethod PlyExporter.Run \
+  -vdgsInput <abs path>.ply -vdgsOutput <abs path>/build/splats/<name> \
+  -vdgsQuality Medium -logFile -
+
+# 2. プラグイン + splat データを w へ（Mac）
+bash tools/deploy.sh
+
+# 3. シェーダーバンドルを焼く（w 上で実行。macOS では不可能）
+ssh user@windows-box "powershell -ExecutionPolicy Bypass -File %USERPROFILE%\build-shaders-win.ps1"
+
+# 4. ゲームを起動（セッション1、D3D12 強制）
+ssh user@windows-box "powershell -ExecutionPolicy Bypass -File %USERPROFILE%\vdgs-run-interactive.ps1 -GameArgs '-force-d3d12'"
+```
+
+**ゲームは必ず `-force-d3d12` で起動する。** 素の D3D11 では splat シェーダーが動かない。
+
+### Windows 側の Unity
+
+`unity` CLI（1.0.0-beta.5）を `%USERPROFILE%\AppData\Local\Unity\bin\unity.exe` に導入済み。
+インストーラは PowerShell 版を使う（bash 版は Windows を検出して拒否する）：
+
+```powershell
+$env:UNITY_CLI_CHANNEL = 'beta'
+irm https://public-cdn.cloud.unity3d.com/hub/prod/cli/install.ps1 | iex
+```
+
+Editor は `%USERPROFILE%\UnityEditors\2021.3.45f2`。2つ罠がある：
+
+- **`Start-Process` で起動したインストーラは SSH 切断で死ぬ**（7GB のダウンロードが 41% で消えた）。
+  タスクスケジューラ経由で起動すること
+- **デフォルトの `C:\Program Files\Unity\Hub\Editor` は UAC 昇格が要る。**
+  `unity install-path --set %USERPROFILE%\UnityEditors` でユーザー領域に変えてもなお昇格を求めるので、
+  タスクは `-RunLevel Highest` で登録する（`-RunLevel Limited` だと誰も答えられない UAC
+  プロンプトが出て `ELEVATION_CANCELLED` になる）
+
+### scp の罠
+
+ゲームパスにスペースが含まれ、リモートのデフォルトシェルが PowerShell。
+**PowerShell はバックスラッシュをエスケープとして扱わない**ので、`scp` に
+`Velocidrone\ Windows\ Launcher` を渡すとファイルが黙って消える（エラーも出ない）。
+
+→ スペースを含まない `%USERPROFILE%/vdgs-stage/` に scp し、`Copy-Item` で設置する。
+`tools/deploy.sh` がこれをやっている。
+
+### SSH からゲームを起動できない（セッション 0 の壁）
+
+SSH シェルは **セッション 0** で動く。ユーザーのデスクトップ（explorer）は **セッション 1**。
+セッション 0 にはウィンドウステーションが無いため DirectX がスワップチェーンを作れず、
+Unity は起動途中で死ぬ。症状：
+
+```
+Screen: DX11 could not switch resolution (1280x720 fs=0 hz=0)
+- Completed reload, in 0.111 seconds      ← 正常時は 8.186 秒
+```
+
+Mono のアセンブリロードすら完了しないので、**BepInEx の Chainloader も走らない**。
+プラグインが読まれないように見えるが、原因は BepInEx ではない。
+
+`-screen-fullscreen 0` でも回避できない。解決策はセッション 1 で起動すること：
+
+```powershell
+$principal = New-ScheduledTaskPrincipal -UserId (whoami).Trim() -LogonType Interactive -RunLevel Limited
+Register-ScheduledTask -TaskName 'VDGS-Launch' -Action $action -Principal $principal
+Start-ScheduledTask -TaskName 'VDGS-Launch'
+```
+
+`-UserId` に `"$env:USERDOMAIN\$env:USERNAME"` を使うと `No mapping between account names
+and security IDs was done` で失敗する（SSH セッションでは `USERDOMAIN` が空）。
+`(whoami).Trim()` は `DOMAIN\user` を返すので確実。
+
+**副作用：ゲームがユーザーの物理画面に立ち上がる。** 作業中の相手に断りなくやらないこと。
+
+### 参照アセンブリ
+
+`lib/`（gitignore）に Windows 機から回収済み：
+- `lib/bepinex/` — BepInEx.dll, 0Harmony.dll ほか
+- `lib/unity/` — UnityEngine*.dll 71個 + Assembly-CSharp.dll
+
+再取得するなら `scp` のダウンロード方向は `user@windows-box:%USERPROFILE%/Downloads/Velocidrone\ Windows\ Launcher/app/...`
+で通る（アップロード方向だけが壊れる）。
+
+## バックアップ
+
+`%USERPROFILE%\vdgs-backup\<timestamp>\`（2.8GB）に取得済み：
+
+- `Managed/` — DLL 注入対象
+- `Data-loose/` — `globalgamemanagers` など Data 直下の 50MB 未満のファイル
+- `settings.db` — trackprefabs / sceneries テーブル
+- `assetbundle-manifests/`
+- `LocalLow-velocidrone/` — **ラップタイム記録。再取得不能。最優先**
+
+ゲーム本体 39GB（`level*` / `sharedassets*`）は PatchKit ランチャーで再取得できるため
+意図的にバックアップしていない。
+
+## テストデータ
+
+`tools/make_test_ply.py` が合成の 3DGS シーンを吐く。実データを待たずにパイプラインを
+検証するためのもので、軸のねじれ・色の誤り・スケール違いが一目で分かるように作ってある
+（+X 赤 / +Y 緑 / +Z 青 / 灰の床グリッド / 黄の原点マーカー）。
+
+実データの入手先（すべて `.ply`、Hugging Face から直接 curl できる）：
+
+| シーン | splat 数 | サイズ | URL |
+|---|---|---|---|
+| luigi | 14,526 | 1.0 MB | `datasets/dylanebert/3dgs/resolve/main/luigi/luigi.ply` |
+| bonsai | 1,157,141 | 287 MB | `datasets/dylanebert/3dgs/resolve/main/bonsai/point_cloud/iteration_7000/point_cloud.ply` |
+
+`dylanebert/3dgs` には bicycle / garden / kitchen / room / stump / counter / playroom もある。
+ただし多くは `.splat` 形式で、UnityGaussianSplatting は **`.ply` と `.spz` しか読まない**。
+`point_cloud/iteration_*/point_cloud.ply` を探すこと。
+
+`luigi.ply` は SH degree 0（`f_rest_*` を持たない）。それでも変換は通る。
+
+**COLMAP 由来のデータはスケールが任意。** luigi はバウンディングボックスが約 1.1 x 1.3 x 0.5 で、
+FPV から見るには小さすぎるため `placement.json` で 5 倍にしている。実データは毎回
+スケール合わせが要ると考えたほうがいい。
+
+## splat データのオンディスク形式（VDGS 独自）
+
+`GaussianSplatAsset` は ScriptableObject だが、中身は**メタ情報 + 5つの生バイナリ TextAsset**
+でしかない。AssetBundle 経由だと MonoBehaviour/ScriptableObject の型解決で詰まるので、
+同じ内容をプレーンなファイルとして置き、ランタイムで直接読む。
+
+```
+<game>/vdgs/
+  vdgs-shaders            AssetBundle（シェーダーのみ）
+  <name>/
+    meta.json
+    chunk.bin
+    pos.bin
+    other.bin
+    color.bin
+    sh.bin
+```
+
+`meta.json`:
+
+```json
+{
+  "formatVersion": 20231020,
+  "splatCount": 1234567,
+  "boundsMin": [0, 0, 0],
+  "boundsMax": [1, 1, 1],
+  "posFormat":   "Norm11",
+  "scaleFormat": "Norm11",
+  "colorFormat": "Norm8x4",
+  "shFormat":    "Norm6"
+}
+```
+
+- `formatVersion` は `GaussianSplatAsset.kCurrentVersion`（2023_10_20）と一致させる
+- `color.bin` は Texture2D にアップロードする。サイズは `CalcTextureSize(splatCount)`
+  （幅 2048 固定）と `ColorFormatToGraphics(colorFormat)` から決まる
+- `chunk.bin` は `ChunkInfo` の配列。空なら chunk 無し（ダミーバッファを作る）
+- 他の3つは `GraphicsBuffer.Target.Raw`、4バイト単位
+
+## プラグインの構成
+
+```
+src/VDGS/
+  Plugin.cs        BepInEx エントリ、シーン監視、キー操作
+  Probe.cs         ランタイム環境の実測ダンプ
+  ShaderBundle.cs  AssetBundle からシェーダーを取得
+  SplatData.cs     meta.json + 5バイナリのローダ
+  SplatRenderer.cs 描画本体（CommandBuffer + compute sort）
+  GpuSorting.cs    8bit radix sort（upstream からほぼ無改変）
+  SplatScene.cs    配置・位置合わせ・placement.json への永続化
+```
+
+upstream から**削った**もの：編集機能・selection・cutouts・URP/HDRP パス・Profiler。
+依存も `Unity.Mathematics` / `Unity.Collections` / `Burst` を全部剥がし、UnityEngine のみにした。
+
+### 移植時の落とし穴
+
+- **`ChunkInfo` は 64 バイト**（`uint×4 + float2×3 + uint×3 + uint×3`）。96 ではない。
+  間違えると全チャンクを誤読して、エラーを出さずに描画が壊れる
+- **Unity 2021.3 には `TextureCreationFlags.DontInitializePixels` /
+  `DontUploadUponCreate` が無い**（2022.2 で追加）。`GraphicsFormat` を取る `Texture2D`
+  コンストラクタも無いので、`TextureFormat` を直接指定する
+- compute shader は cutouts バッファを常にバインドする。編集機能を削っても
+  **ダミーバッファ（stride 68 = `Matrix4x4` + `uint`）が必要**
+- 同様に selection/deletion ビットバッファもバインドが要る。upstream に倣って
+  位置バッファを指し、`_SplatBitsValid = 0` を渡す
+
+### ゲーム内キー操作
+
+| キー | 動作 |
+|---|---|
+| F8 | splat をスポーン / 消す |
+| 矢印 + PgUp/PgDn | 移動（Shift で粗く） |
+| `[` `]` | Y 軸回転 |
+| `-` `=` | スケール |
+| F5 | 配置を `placement.json` に保存 |
+| F9 | 環境プローブを追記 |
+| F10 | シーンのヒエラルキーをダンプ |
+
+## 既知の壁
+
+1. **D3D11 では 3DGS が動かない。** aras-p の UnityGaussianSplatting は DX11 サポートを
+   削除済み。Windows では D3D12 か Vulkan が必須。
+   → `-force-d3d12` / `-force-vulkan` で起動できるか要検証。ダメなら
+   `globalgamemanagers` のグラフィックス API リストにパッチ
+2. **シェーダーは Unity 2021.3.45f2 でビルドする必要がある**（導入済み）。C# はバージョン
+   非依存に書けるが、シェーダーと compute shader はゲームと同じ Unity バージョンの
+   AssetBundle で供給しないと動かない。
+
+   さらに 2つの罠：
+
+   **(a) プロジェクトのグラフィックス API を先に設定する。** splat シェーダーは
+   `#pragma use_dxc` と `#pragma require wavebasic/waveballot` を宣言している。
+   新規プロジェクトのデフォルト（D3D11）でビルドすると、**エラーを出さずに**
+   unsupported なシェーダーが焼かれる。バンドルは正常にロードでき、
+   `shader.isSupported` が false になるだけなので気づきにくい。
+   `PlayerSettings.SetGraphicsAPIs` をビルド前に呼ぶこと。
+
+   **(b) macOS の Editor では D3D 向けの DXC コンパイルができない。**
+   ```
+   DXC: can only use DXC to target D3D from the Windows Editor.
+   ```
+   → D3D12 向けのシェーダーバンドルは Mac では作れない。**Vulkan をターゲットにして
+   ゲームを `-force-vulkan` で起動する**か、Windows 機に Unity を入れてビルドする。
+
+3. **UnityGaussianSplatting の C# は Unity 2022.3 前提**（`com.unity.collections` 2.1.4 が
+   2021.3 に入らない）。だからバージョンを分ける：
+   - シェーダー AssetBundle → **2021.3.45f2**（ゲームと一致が必須）
+   - PLY → バイナリ変換 → **2022.3.42f1**（出力はプレーンなバイナリなのでバージョン非依存）
+   - ランタイム C# → BepInEx プラグインに自前実装（collections/burst に依存しない）
+3. **`GaussianSplatAsset` は ScriptableObject。** AssetBundle 経由でロードすると型解決で詰まる。
+   splat データは生バイナリとして読み、実行時に GraphicsBuffer へ流す自前ローダを書く
+4. **3DGS にコリジョンは無い。** 飛べる壁になる。同じ撮影データからメッシュを抽出して
+   invisible collider として置く必要がある
+
+5. **`-force-d3d12` はゲーム本体に副作用がある。** ゲームは D3D11 向けにビルドされて
+   いるため、PostProcessing v2 の compute shader が D3D12 では見つからない：
+
+   ```
+   Kernel 'KEyeHistogramClear' not found
+   UnityEngine.Rendering.PostProcessing.LogHistogram.Generate
+   ```
+
+   Auto Exposure（Eye Adaptation）が毎フレーム例外を投げる。
+
+   **実害はない**：117 万 splats を積んだまま 60 FPS が維持され、描画も正常。
+   汚れるのはログだけ。
+
+   **`AutoExposure.active = false` にしても止まらない**（`src/VDGS/PostProcessFix.cs` で
+   試して失敗）。PostProcessing v2 の `PostProcessLayer.RenderBuiltins` は
+   AutoExposure の有効・無効に関わらず `LogHistogram.Generate` を呼ぶため。
+   Volume の無効化は成功する（`scanned 1, disabled 1`）のに、例外は増え続ける
+   （11,210 件を確認）。同じ手を再発明しないこと。
+
+   実際の対処は **`BepInEx.cfg` の `UnityLogListening = false`**。これで Unity の
+   例外が BepInEx ログに転送されなくなる。Unity 自身の `Player.log` には残るが、
+   そちらは肥大化しても実害がない
+
+## 参考
+
+- [aras-p/UnityGaussianSplatting](https://github.com/aras-p/UnityGaussianSplatting) — Mac M1 Max で 46FPS の実測あり
+- [BepInEx releases](https://github.com/BepInEx/BepInEx/releases)

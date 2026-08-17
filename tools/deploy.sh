@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Build the VDGS plugin and push it to the Windows box over Tailscale SSH.
+#
+# The game path contains spaces and the remote default shell is PowerShell, which
+# does not treat backslash as an escape. Quoting a spaced path through scp is a
+# reliable way to lose the file, so we scp to a space-free staging path and let a
+# PowerShell Copy-Item put it in place.
+set -euo pipefail
+
+HOST="${VDGS_HOST:-user@windows-box}"
+GAME='%USERPROFILE%\Downloads\Velocidrone Windows Launcher\app'
+STAGE='%USERPROFILE%/vdgs-stage'
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+quiet() { grep -viE "post-quantum|store now|need to be upgraded|^\*\*" || true; }
+
+echo "== build =="
+dotnet build "$ROOT/src/VDGS/VDGS.csproj" -c Release | tail -3
+
+echo "== stage =="
+ssh -o BatchMode=yes "$HOST" "New-Item -ItemType Directory -Force -Path '$STAGE' | Out-Null; New-Item -ItemType Directory -Force -Path '$GAME\\BepInEx\\plugins' | Out-Null; Write-Output ok" 2>&1 | quiet
+scp -o BatchMode=yes -q "$ROOT/src/VDGS/bin/Release/VDGS.dll" "$HOST:$STAGE/VDGS.dll" 2>&1 | quiet
+
+# The shader bundle is built ON the Windows box (macOS cannot run DXC for D3D),
+# so it is never staged from here - see tools/build-shaders-win.ps1.
+
+# Splat scenes: build/splats/<name>/ -> <game>/vdgs/<name>/
+if [ -d "$ROOT/build/splats" ]; then
+  for dir in "$ROOT/build/splats"/*/; do
+    [ -d "$dir" ] || continue
+    name="$(basename "$dir")"
+    echo "== stage splat scene: $name =="
+    ssh -o BatchMode=yes "$HOST" "New-Item -ItemType Directory -Force -Path '$STAGE\\splats\\$name' | Out-Null" 2>&1 | quiet
+    scp -o BatchMode=yes -q "$dir"* "$HOST:$STAGE/splats/$name/" 2>&1 | quiet
+  done
+fi
+
+echo "== install =="
+ssh -o BatchMode=yes "$HOST" "
+  Copy-Item '$STAGE\\VDGS.dll' '$GAME\\BepInEx\\plugins\\VDGS.dll' -Force
+  New-Item -ItemType Directory -Force -Path '$GAME\\vdgs' | Out-Null
+  if (Test-Path '$STAGE\\splats') {
+    foreach (\$d in Get-ChildItem '$STAGE\\splats' -Directory) {
+      \$dst = Join-Path '$GAME\\vdgs' \$d.Name
+      New-Item -ItemType Directory -Force -Path \$dst | Out-Null
+      # placement.json is edited in-game (F5); never clobber an existing one, but do
+      # seed it the first time so a new scene lands somewhere sensible.
+      Get-ChildItem \$d.FullName -File | ForEach-Object {
+        \$target = Join-Path \$dst \$_.Name
+        if (\$_.Name -eq 'placement.json' -and (Test-Path \$target)) {
+          Write-Output ('  keeping in-game placement for ' + \$d.Name)
+        } else {
+          Copy-Item \$_.FullName \$target -Force
+        }
+      }
+    }
+  }
+  Write-Output '-- plugins --'
+  Get-ChildItem '$GAME\\BepInEx\\plugins' | Select-Object Name,Length,LastWriteTime | Format-Table -AutoSize
+  Write-Output '-- vdgs dir --'
+  Get-ChildItem '$GAME\\vdgs' -Recurse | Select-Object FullName,Length | Format-Table -AutoSize
+" 2>&1 | quiet
