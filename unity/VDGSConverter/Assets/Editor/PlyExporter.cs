@@ -19,6 +19,7 @@ using UnityEngine;
 ///   Unity -batchmode -quit -projectPath unity/VDGSConverter \
 ///         -executeMethod PlyExporter.Run \
 ///         -vdgsInput /path/to/scene.ply -vdgsOutput /path/to/out -vdgsQuality Medium
+///         [-vdgsShFormat Cluster16k]   # compress SH only, keep geometry exact
 /// </summary>
 public static class PlyExporter
 {
@@ -46,13 +47,13 @@ public static class PlyExporter
             var quality = GetArg("-vdgsQuality") ?? "Medium";
 
             if (string.IsNullOrEmpty(input) || string.IsNullOrEmpty(output))
-                throw new Exception("usage: -vdgsInput <ply> -vdgsOutput <dir> [-vdgsQuality Medium]");
+                throw new Exception("usage: -vdgsInput <ply> -vdgsOutput <dir> [-vdgsQuality Medium] [-vdgsShFormat Cluster16k]");
             if (!File.Exists(input))
                 throw new Exception("input not found: " + input);
 
             Debug.Log($"[VDGS] converting {input} (quality {quality})");
 
-            var asset = Convert(input, quality);
+            var asset = Convert(input, quality, GetArg("-vdgsShFormat"));
             if (asset == null)
                 throw new Exception("conversion produced no asset");
 
@@ -69,7 +70,20 @@ public static class PlyExporter
     }
 
     /// <summary>Drives GaussianSplatAssetCreator's private conversion path.</summary>
-    private static GaussianSplatAsset Convert(string plyPath, string quality)
+    /// <summary>
+    /// Drives the conversion, optionally overriding the SH format on its own.
+    ///
+    /// Spherical harmonics dominate everything else: at Float32 they are 192 bytes per
+    /// splat against 12 for position, and 81% of drjohnson's 750 MB. Rendering cost
+    /// tracks bytes per splat almost linearly (see docs/performance.md), so compressing
+    /// SH alone is the largest available win.
+    ///
+    /// The quality presets cannot express it: SH clustering only switches on at Low and
+    /// VeryLow, which drag position, scale and colour down with it. Applying the preset
+    /// first and then overwriting one field gives full geometric precision with a
+    /// palette-compressed SH, which is the combination actually wanted.
+    /// </summary>
+    private static GaussianSplatAsset Convert(string plyPath, string quality, string shFormat)
     {
         var t = typeof(GaussianSplatAssetCreator);
         var win = ScriptableObject.CreateInstance<GaussianSplatAssetCreator>();
@@ -87,6 +101,16 @@ public static class PlyExporter
         // directly so the formats are not left at their default values.
         var apply = t.GetMethod("ApplyQualityLevel", BindingFlags.NonPublic | BindingFlags.Instance);
         apply?.Invoke(win, null);
+
+        // After the preset, so it wins.
+        if (!string.IsNullOrEmpty(shFormat))
+        {
+            var shType = typeof(GaussianSplatAsset).GetNestedType("SHFormat");
+            if (shType == null)
+                throw new Exception("SHFormat enum not found - upstream layout changed");
+            SetField(t, win, "m_FormatSH", Enum.Parse(shType, shFormat, true));
+            Debug.Log("[VDGS] SH format overridden to " + shFormat);
+        }
 
         Directory.CreateDirectory(ImportFolder);
         AssetDatabase.Refresh();
