@@ -3,6 +3,10 @@ bin/
 obj/
 build/
 
+# prebuilt shader bundle staged for packaging; tools/package.sh fetches it
+# from the Windows box, and released zips live on GitHub Releases
+dist/payload/
+
 # reference assemblies pulled off the game install
 lib/
 
