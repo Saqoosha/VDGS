@@ -120,6 +120,7 @@ namespace VDGS
 
             // chunk.bin is optional: a scene built without chunking has none.
             d.ChunkData = ReadOptional(Path.Combine(dir, "chunk.bin"));
+            if (!AcceptChunks(d, dir, ref error)) return null;
             if (!ReadRequired(dir, "pos.bin", out var posBytes, ref error)) return null;
             if (!ReadRequired(dir, "other.bin", out var otherBytes, ref error)) return null;
             if (!ReadRequired(dir, "color.bin", out var colorBytes, ref error)) return null;
@@ -130,6 +131,59 @@ namespace VDGS
             d.ShData = shBytes;
 
             return d;
+        }
+
+        /// <summary>
+        /// Decide whether chunk.bin may be used, and refuse it when it cannot be trusted.
+        ///
+        /// This matters far more than it looks. The shader applies chunk data purely on
+        /// "is a chunk buffer bound", with no check of the position format:
+        ///
+        ///     if (chunkIdx &lt; _SplatChunkCount)
+        ///         pos = lerp(chunk.posMin, chunk.posMax, pos);
+        ///
+        /// With chunked data `pos` is a 0..1 weight inside the chunk box, so that is
+        /// correct. With Float32 data `pos` is already an absolute coordinate, and
+        /// feeding -23.2 to a lerp extrapolates it out of the world. Scale is worse:
+        /// it is lerped and then raised to the eighth power.
+        ///
+        /// So a stale chunk.bin left behind by an earlier, chunked conversion turns a
+        /// perfectly good scene into scattered debris - and nothing errors, because the
+        /// file is well formed. That is exactly what happened after switching to
+        /// VeryHigh: the deploy overwrote pos/other/color/sh and left chunk.bin in place.
+        /// A whole day went into suspecting the quaternions instead.
+        /// </summary>
+        private static bool AcceptChunks(SplatData d, string dir, ref string error)
+        {
+            if (d.ChunkData == null || d.ChunkData.Length == 0)
+            {
+                d.ChunkData = null;
+                return true;
+            }
+
+            if (d.PosFormat == VectorFormat.Float32)
+            {
+                // Float32 positions are absolute, so chunks cannot apply. The file is a
+                // leftover; dropping it is right, but say so loudly - a scene silently
+                // shedding a file it shipped with is worth knowing about.
+                Debug.LogWarning("[VDGS] " + new DirectoryInfo(dir).Name +
+                    ": ignoring a stale chunk.bin (" + d.ChunkData.Length +
+                    " bytes) - posFormat is Float32, which stores absolute positions. " +
+                    "Delete it; the deploy should have.");
+                d.ChunkData = null;
+                return true;
+            }
+
+            int expected = (d.SplatCount + kChunkSize - 1) / kChunkSize;
+            int actual = d.ChunkData.Length / SplatRenderer.ChunkInfo.kSize;
+            if (actual != expected)
+            {
+                error = "chunk.bin holds " + actual + " chunks, expected " + expected +
+                        " for " + d.SplatCount + " splats - it is stale or truncated";
+                return false;
+            }
+
+            return true;
         }
 
         /// <summary>Colour data is uploaded as a texture; upstream fixes the width at 2048.</summary>

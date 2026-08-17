@@ -53,6 +53,19 @@ ssh -o BatchMode=yes "$HOST" "
           Copy-Item \$_.FullName \$target -Force
         }
       }
+      # Copying alone is not enough: a scene converted at a different quality emits a
+      # different set of files, and whatever the new set does not overwrite survives.
+      # A leftover chunk.bin is the dangerous one - the shader applies chunk data on
+      # presence alone, so an absolute-position scene gets lerped into scattered
+      # debris with no error anywhere. Anything the source no longer has, goes.
+      \$keep = @{}
+      Get-ChildItem \$d.FullName -File | ForEach-Object { \$keep[\$_.Name] = \$true }
+      Get-ChildItem \$dst -File | ForEach-Object {
+        if (-not \$keep.ContainsKey(\$_.Name) -and \$_.Name -ne 'placement.json') {
+          Write-Output ('  removing stale ' + \$d.Name + '/' + \$_.Name)
+          Remove-Item \$_.FullName -Force
+        }
+      }
     }
   }
   Write-Output '-- plugins --'
