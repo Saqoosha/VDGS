@@ -214,7 +214,27 @@ function render() {
       meta.className = 'meta';
       meta.textContent = s.splats ? s.splats.toLocaleString() + ' splats' : '';
 
-      li.append(btn, name, meta);
+      // Seals the capture inside a black box so the game's terrain, fog and horizon
+      // stop showing through the holes every reconstruction has.
+      const boxLabel = document.createElement('label');
+      boxLabel.className = 'meta';
+      boxLabel.title = 'black box around this capture';
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.checked = !!s.backdrop;
+      box.addEventListener('change', async () => {
+        box.disabled = true;
+        await fetch('/api/backdrop', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ splat: s.name, on: box.checked }),
+        });
+        box.disabled = false;
+        refresh();
+      });
+      boxLabel.append(box, document.createTextNode(' box'));
+
+      li.append(btn, name, meta, boxLabel);
       list.appendChild(li);
     }
   }

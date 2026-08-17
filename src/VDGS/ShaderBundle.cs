@@ -22,6 +22,8 @@ namespace VDGS
         internal static Shader CompositeShader { get; private set; }
         internal static Shader DebugPointsShader { get; private set; }
         internal static Shader DebugBoxesShader { get; private set; }
+        /// <summary>Flat unlit colour, used for the backdrop box (see SplatBackdrop).</summary>
+        internal static Shader BlackShader { get; private set; }
         internal static ComputeShader SplatUtilities { get; private set; }
 
         internal static bool Loaded => SplatShader != null && CompositeShader != null && SplatUtilities != null;
@@ -85,12 +87,14 @@ namespace VDGS
             CompositeShader = Find(byName, "Gaussian Splatting/Composite", "GaussianComposite");
             DebugPointsShader = Find(byName, "Gaussian Splatting/Debug/Render Points", "GaussianDebugRenderPoints");
             DebugBoxesShader = Find(byName, "Gaussian Splatting/Debug/Render Boxes", "GaussianDebugRenderBoxes");
+            BlackShader = Find(byName, "Unlit/BlackSkybox", "BlackSkybox");
             SplatUtilities = computes.Length > 0 ? computes[0] : null;
 
             report.AppendLine("resolved splats="     + (SplatShader != null)
                             + " composite="          + (CompositeShader != null)
                             + " debugPoints="        + (DebugPointsShader != null)
                             + " debugBoxes="         + (DebugBoxesShader != null)
+                            + " black="              + (BlackShader != null)
                             + " splatUtilities="     + (SplatUtilities != null));
 
             return Loaded;

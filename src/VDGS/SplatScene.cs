@@ -29,6 +29,9 @@ namespace VDGS
             public float[] position = { 0, 0, 0 };
             public float[] rotation = { 0, 0, 0 };
             public float scale = 1f;
+            // A capture has no sky and no floor beyond what was photographed, so the
+            // game's terrain and horizon show through every hole. See SplatBackdrop.
+            public bool backdrop = false;
         }
 
         private readonly int m_MetaSplatCount;
@@ -90,6 +93,10 @@ namespace VDGS
             m_Renderer = m_Go.AddComponent<SplatRenderer>();
             m_Renderer.SetData(data);
 
+            if (placement.backdrop)
+                SplatBackdrop.Attach(m_Go.transform, data.BoundsMin, data.BoundsMax,
+                                     kBackdropMargin, kBackdropGroundY, report);
+
             report.AppendLine(Name + ": spawned at " + m_Go.transform.position
                               + " rot " + m_Go.transform.eulerAngles
                               + " scale " + placement.scale);
@@ -122,6 +129,49 @@ namespace VDGS
         /// be is a judgement about flying it rather than about the data being correct,
         /// and changing the scale moves the floor, so height has to come with it.
         /// </summary>
+        /// <summary>Extra room around the capture, so the box never clips a splat.</summary>
+        private const float kBackdropMargin = 0.25f;
+
+        /// <summary>
+        /// World height for the box's floor. The game's ground plane sits at 0, so a
+        /// backdrop resting exactly there z-fights with it and its bottom face disappears.
+        /// </summary>
+        private const float kBackdropGroundY = 0.01f;
+
+        internal bool BackdropOn => m_Go != null
+            ? SplatBackdrop.IsAttached(m_Go.transform)
+            : LoadPlacement().backdrop;
+
+        /// <summary>Turn the black enclosing box on or off, and remember the choice.</summary>
+        internal void SetBackdrop(bool on, StringBuilder log)
+        {
+            var p = LoadPlacement();
+            p.backdrop = on;
+            SavePlacementData(p, log);
+
+            if (m_Go == null)
+            {
+                log?.AppendLine(Name + ": backdrop " + (on ? "on" : "off") + " (applies when spawned)");
+                return;
+            }
+
+            if (!on)
+            {
+                SplatBackdrop.Detach(m_Go.transform);
+                log?.AppendLine(Name + ": backdrop off");
+                return;
+            }
+
+            var data = m_Renderer != null ? m_Renderer.Data : null;
+            if (data == null)
+            {
+                log?.AppendLine(Name + ": backdrop wanted but no data loaded");
+                return;
+            }
+            SplatBackdrop.Attach(m_Go.transform, data.BoundsMin, data.BoundsMax,
+                                 kBackdropMargin, kBackdropGroundY, log);
+        }
+
         internal void SetTransform(float? scale, float? yOffset, StringBuilder log)
         {
             var p = LoadPlacement();
@@ -136,6 +186,14 @@ namespace VDGS
                 m_Go.transform.localScale = Vector3.one * p.scale;
                 var pos = m_Go.transform.position;
                 m_Go.transform.position = new Vector3(pos.x, p.position[1], pos.z);
+            }
+
+            if (m_Go != null && SplatBackdrop.IsAttached(m_Go.transform))
+            {
+                var data = m_Renderer != null ? m_Renderer.Data : null;
+                if (data != null)
+                    SplatBackdrop.Attach(m_Go.transform, data.BoundsMin, data.BoundsMax,
+                                         kBackdropMargin, kBackdropGroundY, log);
             }
 
             SavePlacementData(p, log);
@@ -177,6 +235,7 @@ namespace VDGS
                 position = new[] { tr.position.x, tr.position.y, tr.position.z },
                 rotation = new[] { tr.eulerAngles.x, tr.eulerAngles.y, tr.eulerAngles.z },
                 scale = tr.localScale.x,
+                backdrop = SplatBackdrop.IsAttached(tr),
             }, null);
         }
 

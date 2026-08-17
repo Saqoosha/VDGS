@@ -71,6 +71,7 @@ namespace VDGS
                     BindCurrent = BindTo,
                     UnbindTrack = Unbind,
                     SetTransform = ApplyTransform,
+                    SetBackdrop = ApplyBackdrop,
                 };
                 if (!m_Web.Start(WebControl.kDefaultPort, report))
                 {
@@ -106,6 +107,7 @@ namespace VDGS
                     { "shown", s.Spawned },
                     { "scale", s.Scale },
                     { "y", s.YOffset },
+                    { "backdrop", s.BackdropOn },
                 });
                 if (s.Spawned) loaded.Add(s.Name);
             }
@@ -117,6 +119,22 @@ namespace VDGS
                 { "available", available },
                 { "bindings", m_Bindings.All() },
             };
+        }
+
+        /// <summary>Encloses one capture in a black box, or removes it.</summary>
+        private void ApplyBackdrop(string name, bool on)
+        {
+            EnsureDiscovered();
+            var log = new StringBuilder();
+            foreach (var s in m_Scenes)
+            {
+                if (!string.Equals(s.Name, name, StringComparison.OrdinalIgnoreCase)) continue;
+                s.SetBackdrop(on, log);
+            }
+            if (log.Length > 0)
+            {
+                try { File.AppendAllText(Probe.LogPath, log.ToString()); } catch { }
+            }
         }
 
         /// <summary>Shows exactly one splat scene, or none when name is null/empty.</summary>

@@ -41,6 +41,7 @@ namespace VDGS
         internal Action<string[]> BindCurrent;  // binds the given splats to the live track
         internal Action<string> UnbindTrack;    // null clears the live track's binding
         internal Action<string, float?, float?> SetTransform;  // splat, scale, yOffset
+        internal Action<string, bool> SetBackdrop;             // splat, on
 
         internal string Url { get; private set; }
 
@@ -95,6 +96,7 @@ namespace VDGS
             }
         }
 
+
         private void Handle(HttpListenerContext ctx)
         {
             var path = ctx.Request.Url.AbsolutePath.TrimEnd('/');
@@ -148,6 +150,22 @@ namespace VDGS
                     req?.TryGetValue("splats", out splats);
                     var arr = splats != null ? splats.ToArray() : new string[0];
                     QueueOnMain(() => BindCurrent?.Invoke(arr));
+                    Respond(ctx, 200, "{\"ok\":true}");
+                    return;
+                }
+
+                case "/api/backdrop":
+                {
+                    var body = ReadBody(ctx);
+                    var req = JsonConvert.DeserializeObject<Dictionary<string, object>>(body);
+                    string splat = null; bool on = false;
+                    if (req != null)
+                    {
+                        if (req.TryGetValue("splat", out var sv) && sv != null) splat = sv.ToString();
+                        if (req.TryGetValue("on", out var ov) && ov != null) on = Convert.ToBoolean(ov);
+                    }
+                    var bName = splat; var bOn = on;
+                    QueueOnMain(() => SetBackdrop?.Invoke(bName, bOn));
                     Respond(ctx, 200, "{\"ok\":true}");
                     return;
                 }
