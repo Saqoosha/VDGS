@@ -34,8 +34,8 @@ time      fps    avg_ms  worst_ms  splats   scenes
 上限に当たっているためで、実際の余力はこれより上。
 
 スポーン直後の 1 フレームだけ 2.9 秒かかる（`GraphicsBuffer.SetData` で 50MB 超を
-アップロードするため）。飛行中に F8 を押すと必ずスタッターになるので、
-本番では飛ぶ前にスポーンさせること。
+アップロードするため）。飛行中に GS を切り替えると必ずスタッターになるので、
+本番では飛ぶ前に表示させておくこと。
 
 フレームタイムは `<game>/vdgs-perf.log` に 5 秒ごとに追記される。
 
@@ -276,8 +276,9 @@ and security IDs was done` で失敗する（SSH セッションでは `USERDOMA
 `luigi.ply` は SH degree 0（`f_rest_*` を持たない）。それでも変換は通る。
 
 **COLMAP 由来のデータはスケールが任意。** luigi はバウンディングボックスが約 1.1 x 1.3 x 0.5 で、
-FPV から見るには小さすぎるため `placement.json` で 5 倍にしている。実データは毎回
-スケール合わせが要ると考えたほうがいい。
+FPV から見るには小さすぎるため `placement.json` の `scale` を 5 にしている。
+**mod にゲーム内での位置合わせ機能は無い**ので、本来は撮影・学習側で正しい
+スケールにしておく。`placement.json` は手で書く最終手段。
 
 ## splat データのオンディスク形式（VDGS 独自）
 
@@ -328,7 +329,14 @@ src/VDGS/
   SplatData.cs     meta.json + 5バイナリのローダ
   SplatRenderer.cs 描画本体（CommandBuffer + compute sort）
   GpuSorting.cs    8bit radix sort（upstream からほぼ無改変）
-  SplatScene.cs    配置・位置合わせ・placement.json への永続化
+  SplatScene.cs    1つの splat シーンの生成・破棄と placement.json の読み込み
+  TrackName.cs     ロード中のトラック名をランタイムに問い合わせる
+  TrackBindings.cs トラック名 -> GS の対応表（bindings.json）
+  TrackProbe.cs    難読化されたゲームから文字列の在処を探す調査用
+  WebControl.cs    HTTP サーバー（操作 API）
+  WebUi.cs         ブラウザ UI（埋め込み HTML）
+  PerfLog.cs       フレームタイム記録
+  PostProcessFix.cs  D3D12 強制の副作用対応（未解決、記録のみ）
 ```
 
 upstream から**削った**もの：編集機能・selection・cutouts・URP/HDRP パス・Profiler。

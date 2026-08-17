@@ -171,12 +171,8 @@ bonsai の実例では 25% が破片で、落とすとバウンディングボ�
 
 ```json
 {
-    "bindings": [
-        {
-            "track": "2026 Fusion Flight Festival - Presented by Neos",
-            "splats": ["shibuya"]
-        }
-    ]
+  "2026 Fusion Flight Festival - Presented by Neos": ["shibuya"],
+  "Split-S": ["luigi", "bonsai"]
 }
 ```
 
@@ -263,7 +259,9 @@ mod のハンドラに渡す前に `411 Length Required` で弾く。`curl -X PO
 |---|---|
 | `vdgs-probe.log` | 環境情報、シェーダーの状態、スポーン結果 |
 | `vdgs-perf.log` | 5 秒ごとのフレームタイム（fps / avg / worst / splat 数） |
+| `vdgs-track.log` | トラック名の検出、紐付け、GS の出し入れの履歴 |
 | `vdgs-hierarchy.txt` | F10 で吐いたシーン構造 |
+| `vdgs-track.txt` | F12 で吐いたトラック名の探索結果 |
 | `BepInEx\LogOutput.log` | BepInEx とプラグインのログ |
 
 ---
@@ -278,7 +276,7 @@ mod のハンドラに渡す前に `411 Length Required` で弾く。`curl -X PO
 | プラグインが読まれない | SSH から起動していないか確認（§3）。`BepInEx\config\` が生成されていなければ Chainloader に到達していない |
 | 表示が破片だらけ | 元データの外れ値。`crop_ply.py` で切る（§4-2） |
 | 小さすぎ / 大きすぎ | `placement.json` の `scale`。COLMAP のスケールは任意 |
-| F8 の瞬間に固まる | 数十 MB を GPU に一括アップロードするため。**飛ぶ前に表示させておく**。実測 2.9 秒 |
+| 表示した瞬間に固まる | 数十 MB を GPU に一括アップロードするため。**飛ぶ前に表示させておく**。実測 2.9 秒 |
 | ログが例外で埋まる | `UnityLogListening = false`（§2-1）。実害は無い |
 
 ---
