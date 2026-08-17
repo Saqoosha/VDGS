@@ -99,6 +99,19 @@ namespace VDGS
             var path = ctx.Request.Url.AbsolutePath.TrimEnd('/');
             if (path.Length == 0) path = "/";
 
+            // Require a JSON content type on writes. A cross-origin page cannot set one
+            // without a preflight, and there is no CORS policy to satisfy, so this is
+            // what stops any site the user happens to visit from driving this API.
+            if (ctx.Request.HttpMethod == "POST")
+            {
+                var ct = ctx.Request.ContentType ?? "";
+                if (ct.IndexOf("application/json", StringComparison.OrdinalIgnoreCase) < 0)
+                {
+                    Respond(ctx, 415, "{\"error\":\"Content-Type must be application/json\"}");
+                    return;
+                }
+            }
+
             switch (path)
             {
                 case "/":
@@ -174,8 +187,9 @@ namespace VDGS
             ctx.Response.StatusCode = status;
             ctx.Response.ContentType = contentType;
             ctx.Response.ContentLength64 = bytes.Length;
-            // The UI may be served from a different origin while developing.
-            ctx.Response.AddHeader("Access-Control-Allow-Origin", "*");
+            // No Access-Control-Allow-Origin on purpose. The UI is served from this same
+            // server, so it needs none, and adding one would let any page the user visits
+            // drive the control API on their machine.
             ctx.Response.OutputStream.Write(bytes, 0, bytes.Length);
             ctx.Response.OutputStream.Close();
         }

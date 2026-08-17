@@ -382,6 +382,21 @@ F12（`vdgs-track.txt`）でトラック名を検索して、新しいフィー�
 - **`HttpListener` はボディの無い POST を `411 Length Required` で弾く。**
   ハンドラまで届かないので、`curl -X POST .../api/unload` は失敗する。`-d '{}'` を付ける
 
+### UI のセキュリティ（軽く扱わないこと）
+
+**トラック名は攻撃者が書ける文字列。** VelociDrone はコミュニティのトラックを
+ダウンロードでき、その名前がそのまま UI に表示される。サーバーは `http://*:8777/`
+で LAN 全体に開いている。
+
+- **`innerHTML` に動的な値を入れない。** `document.createElement` + `textContent` で
+  組む（`WebUi.cs`）。一度 `innerHTML` で書いてしまい、`<img src=x onerror=...>` という
+  名前のトラックを1本落とすだけで任意コードが動く状態だった
+- **`Access-Control-Allow-Origin` を付けない。** UI は同じサーバーから配信されるので
+  不要。付けると利用者が開いた任意のサイトからこの API を叩けるようになる
+- **POST は `Content-Type: application/json` を必須にする。** クロスオリジンのページは
+  preflight なしにこのヘッダを付けられないため、これが CSRF の防波堤になっている。
+  外すと `text/plain` の simple request で誰でも API を叩ける
+
 ### 開発者向けキー（残置）
 
 | キー | 動作 |

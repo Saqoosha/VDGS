@@ -118,37 +118,83 @@ function render() {
   else { t.textContent = 'no track loaded'; t.classList.add('none'); }
 
   const bound = state.track ? (state.bindings || {})[state.track] : null;
-  document.getElementById('boundto').innerHTML =
-    !state.track ? '' :
-    (bound && bound.length) ? 'bound to <b>' + bound.join(', ') + '</b>'
-                            : 'not bound to any splat';
+  const boundEl = document.getElementById('boundto');
+  boundEl.replaceChildren();
+  if (state.track) {
+    if (bound && bound.length) {
+      boundEl.append('bound to ');
+      const b = document.createElement('b');
+      b.textContent = bound.join(', ');
+      boundEl.appendChild(b);
+    } else {
+      boundEl.textContent = 'not bound to any splat';
+    }
+  }
 
+  // Built with DOM APIs, never innerHTML: track names come from community tracks
+  // downloaded inside the game, so they are attacker-controlled strings.
   const list = document.getElementById('list');
-  list.innerHTML = '';
+  list.replaceChildren();
   if (!state.available || !state.available.length) {
-    list.innerHTML = '<li class=""empty"">nothing in &lt;game&gt;/vdgs/</li>';
+    const li = document.createElement('li');
+    li.className = 'empty';
+    li.textContent = 'nothing in <game>/vdgs/';
+    list.appendChild(li);
   } else {
     for (const s of state.available) {
       const shown = (state.loaded || []).indexOf(s.name) >= 0;
       const li = document.createElement('li');
       if (shown) li.className = 'active';
-      li.innerHTML =
-        '<button ' + (shown ? 'disabled' : '') + ' data-load=""' + s.name + '"">' +
-        (shown ? 'shown' : 'show') + '</button>' +
-        '<span class=""name"">' + s.name + '</span>' +
-        '<span class=""meta"">' + (s.splats ? s.splats.toLocaleString() + ' splats' : '') + '</span>';
+
+      const btn = document.createElement('button');
+      btn.disabled = shown;
+      btn.dataset.load = s.name;
+      btn.textContent = shown ? 'shown' : 'show';
+
+      const name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = s.name;
+
+      const meta = document.createElement('span');
+      meta.className = 'meta';
+      meta.textContent = s.splats ? s.splats.toLocaleString() + ' splats' : '';
+
+      li.append(btn, name, meta);
       list.appendChild(li);
     }
   }
 
   const tbl = document.getElementById('bindings');
+  tbl.replaceChildren();
   const keys = Object.keys(state.bindings || {});
-  tbl.innerHTML = keys.length
-    ? keys.map(k =>
-        '<tr><td>' + k + '</td><td>' + state.bindings[k].join(', ') + '</td>' +
-        '<td style=""width:1%""><button data-unbind=""' + k.replace(/""/g, '&quot;') + '"">remove</button></td></tr>'
-      ).join('')
-    : '<tr><td class=""empty"">none</td></tr>';
+  if (!keys.length) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.className = 'empty';
+    td.textContent = 'none';
+    tr.appendChild(td);
+    tbl.appendChild(tr);
+  } else {
+    for (const k of keys) {
+      const tr = document.createElement('tr');
+
+      const tdTrack = document.createElement('td');
+      tdTrack.textContent = k;
+
+      const tdSplats = document.createElement('td');
+      tdSplats.textContent = state.bindings[k].join(', ');
+
+      const tdBtn = document.createElement('td');
+      tdBtn.style.width = '1%';
+      const rm = document.createElement('button');
+      rm.dataset.unbind = k;
+      rm.textContent = 'remove';
+      tdBtn.appendChild(rm);
+
+      tr.append(tdTrack, tdSplats, tdBtn);
+      tbl.appendChild(tr);
+    }
+  }
 
   document.getElementById('bind').disabled = !state.track;
   document.getElementById('unbind').disabled =
