@@ -176,7 +176,16 @@ python3 tools/align_ply.py in.ply out.ply --rotate -12,0,3 --ceiling 2.6
 
 **注意点：**
 
-- **`PlyExporter` は向きを変えない。** 逆さまに見えるならデータが元から逆さま
+- **SuperSplat の書き出しは Y が反転している。** エディタ上で正しく立っていても、
+  ply は Unity と上下が逆。**必ず `--rotate 180,0,0` を通すこと**：
+
+  ```bash
+  python3 tools/align_ply.py supersplat-export.ply out.ply --rotate 180,0,0
+  ```
+
+  `align_ply.py` は Y 方向の密度を見て、上下が逆なら警告する（部屋のキャプチャでは
+  床が最も密なので、最密面が上半分にあれば反転している）
+- **`PlyExporter` は向きを変えない。** 逆さまに見えるならデータか書き出しが原因
 - **SuperSplat の書き出しは点の順序を変える。** 変換前後を突き合わせて回転を
   逆算することはできないので、TRANSFORM パネルの数値を控えておくこと
 - `align_ply.py --up` による床の自動検出は**動かない**（壁を床と誤検出する）。

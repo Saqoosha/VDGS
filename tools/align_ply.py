@@ -209,6 +209,32 @@ def quat_mul(a, b):
     ], axis=-1)
 
 
+def check_floor_is_down(rows, props):
+    """
+    Warn when the densest horizontal slice sits in the upper half.
+
+    The floor carries more gaussians than anything else in a room capture, so if
+    the density peak is near the top, the whole thing is upside down. This is not
+    hypothetical: SuperSplat writes ply with Y inverted relative to Unity, so a
+    capture that looks perfectly upright in the editor lands in the game with its
+    ceiling on the ground. Nothing else in the pipeline notices.
+    """
+    y = rows[:, props.index("y")].astype(np.float64)
+    lo, hi = np.percentile(y, 0.5), np.percentile(y, 99.5)
+    if hi - lo < 1e-6:
+        return
+    hist, edges = np.histogram(y, bins=20, range=(lo, hi))
+    peak = (edges[int(np.argmax(hist))] + edges[int(np.argmax(hist)) + 1]) / 2
+    frac = (peak - lo) / (hi - lo)
+
+    print(f"  density check : densest slice at y={peak:.2f} ({frac*100:.0f}% up the range)")
+    if frac > 0.6:
+        print("  *** WARNING: the densest surface is near the TOP.")
+        print("      A room's floor holds the most gaussians, so this is probably")
+        print("      upside down. Re-run with --rotate 180,0,0 (SuperSplat exports")
+        print("      ply with Y inverted relative to Unity).")
+
+
 def apply_transform(rows, props, R, floor_y, scale):
     """Rotate, drop the floor to y=0 and scale - positions, orientations and sizes."""
     ix, iy, iz = props.index("x"), props.index("y"), props.index("z")
@@ -302,6 +328,7 @@ def main():
             return
 
         apply_transform(rows, props, R, floor_y, scale)
+        check_floor_is_down(rows, props)
         write_ply(args.output, header, rows)
         final = rows[:, [ix, iy, iz]]
         print(f"  bounds {final.min(0).round(2)} .. {final.max(0).round(2)}")
@@ -360,6 +387,7 @@ def main():
 
     print("\napplying...")
     apply_transform(rows, props, R, floor_y, scale)
+    check_floor_is_down(rows, props)
     write_ply(args.output, header, rows)
 
     final = rows[:, [ix, iy, iz]]
