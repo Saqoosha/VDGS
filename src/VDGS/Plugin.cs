@@ -70,27 +70,66 @@ namespace VDGS
         private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
         {
             // Cameras are spawned during scene setup; wait a frame so the probe sees them.
-            StartCoroutine(ProbeNextFrame("sceneLoaded:" + scene.name));
+            StartCoroutine(ProbeNextFrame(scene.name));
         }
 
-        private System.Collections.IEnumerator ProbeNextFrame(string tag)
+        private System.Collections.IEnumerator ProbeNextFrame(string sceneName)
         {
             yield return null;
             yield return null;
-            Probe.Write(tag);
+            Probe.Write("sceneLoaded:" + sceneName);
 
             // Post-process volumes are often created after the scene finishes loading, so
             // a single pass here finds nothing. Sweep a few times over the next seconds.
             StartCoroutine(SweepAutoExposure());
 
-            // Remote testing has no way to press F8, so an opt-in marker file makes the
-            // splats appear on their own once a real (non-bootstrap) scene is up.
-            if (AutoSpawnRequested() && !m_AutoSpawned && IsFlyableScene(tag))
+            ApplySceneFilter(sceneName);
+        }
+
+        /// <summary>
+        /// Spawns the splats that belong in this scene and removes the ones that do not.
+        /// Each scene declares its own scene list in placement.json, so a capture meant
+        /// for Empty Scene Day does not appear in the middle of a race track.
+        /// </summary>
+        private void ApplySceneFilter(string sceneName)
+        {
+            if (!AutoSpawnEnabled() || !IsFlyableScene(sceneName))
+                return;
+
+            var report = new StringBuilder();
+            report.AppendLine("======== scene filter '" + sceneName + "' @ "
+                              + DateTime.Now.ToString("HH:mm:ss.fff") + " ========");
+            try
             {
-                m_AutoSpawned = true;
-                Log.LogInfo("VDGS autospawn triggered by " + tag);
-                ToggleSplats();
+                if (m_Scenes.Count == 0)
+                    m_Scenes = SplatScene.Discover(Path.Combine(Paths.GameRootPath, "vdgs"), report);
+
+                foreach (var s in m_Scenes)
+                {
+                    var wanted = s.WantsScene(sceneName);
+                    if (wanted && !s.Spawned)
+                    {
+                        s.Spawn(report);
+                    }
+                    else if (!wanted && s.Spawned)
+                    {
+                        s.Despawn();
+                        report.AppendLine(s.Name + ": despawned (not listed for this scene)");
+                    }
+                    else
+                    {
+                        report.AppendLine(s.Name + ": " + (wanted ? "already up" : "skipped"));
+                    }
+                }
             }
+            catch (Exception e)
+            {
+                report.AppendLine("EXCEPTION: " + e);
+            }
+
+            report.AppendLine();
+            try { File.AppendAllText(Probe.LogPath, report.ToString()); } catch { }
+            Log.LogInfo("VDGS scene filter applied for '" + sceneName + "'");
         }
 
         private System.Collections.IEnumerator SweepAutoExposure()
@@ -104,17 +143,23 @@ namespace VDGS
             try { File.AppendAllText(Probe.LogPath, report.ToString()); } catch { }
         }
 
-        private bool AutoSpawnRequested()
+        /// <summary>Delete &lt;game&gt;/vdgs/autospawn to require pressing F8 instead.</summary>
+        private bool AutoSpawnEnabled()
         {
             try { return File.Exists(Path.Combine(Paths.GameRootPath, "vdgs", "autospawn")); }
             catch { return false; }
         }
 
-        /// <summary>The auth/bootstrap scenes have no world to place splats into.</summary>
-        private static bool IsFlyableScene(string tag)
+        /// <summary>
+        /// Scenes with no world to place splats into. MainMenu is excluded too: splats
+        /// showed up floating behind the menu drone, which looks broken rather than useful.
+        /// </summary>
+        private static bool IsFlyableScene(string name)
         {
-            return tag.IndexOf("auth", StringComparison.OrdinalIgnoreCase) < 0
-                && tag.IndexOf("bootstrap", StringComparison.OrdinalIgnoreCase) < 0;
+            return name.IndexOf("auth", StringComparison.OrdinalIgnoreCase) < 0
+                && name.IndexOf("bootstrap", StringComparison.OrdinalIgnoreCase) < 0
+                && name.IndexOf("MainMenu", StringComparison.OrdinalIgnoreCase) < 0
+                && name.IndexOf("NetworkLobby", StringComparison.OrdinalIgnoreCase) < 0;
         }
 
         private void Update()
@@ -132,12 +177,14 @@ namespace VDGS
                 DumpHierarchy();
             }
 
-            if (Input.GetKeyDown(KeyCode.F8))
+            // Numpad 0 mirrors F8 and Numpad Enter mirrors F5, so alignment can be done
+            // with one hand on the numpad without reaching for the function row.
+            if (Input.GetKeyDown(KeyCode.F8) || Input.GetKeyDown(KeyCode.Keypad0))
             {
                 ToggleSplats();
             }
 
-            if (Input.GetKeyDown(KeyCode.F5))
+            if (Input.GetKeyDown(KeyCode.F5) || Input.GetKeyDown(KeyCode.KeypadEnter))
             {
                 foreach (var s in m_Scenes) s.SavePlacement();
                 Log.LogInfo("VDGS placement saved");
@@ -159,10 +206,14 @@ namespace VDGS
         }
 
         /// <summary>
-        /// Keyboard alignment. A splat capture has no shared origin with the track, so
-        /// the only practical way to line it up is to fly and nudge until it fits.
-        ///   arrows + PgUp/PgDn : move      [ ] : yaw      - = : scale
-        /// Hold shift for coarse steps.
+        /// Keyboard alignment. A splat capture shares no origin with the track, so the
+        /// only practical way to line it up is to look at it and nudge until it fits.
+        ///
+        /// Numpad only, on purpose: the track editor already owns the arrow keys, and
+        /// stealing them made the editor unusable while a splat was loaded.
+        ///
+        ///   4/6 : X     8/2 : Z     9/3 : Y     7/1 : yaw     +/- : scale
+        /// Hold shift for 1m steps instead of 5cm.
         /// </summary>
         private void NudgeSplats()
         {
@@ -170,20 +221,20 @@ namespace VDGS
 
             float step = (Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift)) ? 1.0f : 0.05f;
             var move = Vector3.zero;
-            if (Input.GetKey(KeyCode.LeftArrow)) move.x -= step;
-            if (Input.GetKey(KeyCode.RightArrow)) move.x += step;
-            if (Input.GetKey(KeyCode.UpArrow)) move.z += step;
-            if (Input.GetKey(KeyCode.DownArrow)) move.z -= step;
-            if (Input.GetKey(KeyCode.PageUp)) move.y += step;
-            if (Input.GetKey(KeyCode.PageDown)) move.y -= step;
+            if (Input.GetKey(KeyCode.Keypad4)) move.x -= step;
+            if (Input.GetKey(KeyCode.Keypad6)) move.x += step;
+            if (Input.GetKey(KeyCode.Keypad8)) move.z += step;
+            if (Input.GetKey(KeyCode.Keypad2)) move.z -= step;
+            if (Input.GetKey(KeyCode.Keypad9)) move.y += step;
+            if (Input.GetKey(KeyCode.Keypad3)) move.y -= step;
 
             float yaw = 0f;
-            if (Input.GetKey(KeyCode.LeftBracket)) yaw -= step * 10f;
-            if (Input.GetKey(KeyCode.RightBracket)) yaw += step * 10f;
+            if (Input.GetKey(KeyCode.Keypad7)) yaw -= step * 10f;
+            if (Input.GetKey(KeyCode.Keypad1)) yaw += step * 10f;
 
             float scale = 0f;
-            if (Input.GetKey(KeyCode.Minus)) scale -= step * 0.1f;
-            if (Input.GetKey(KeyCode.Equals)) scale += step * 0.1f;
+            if (Input.GetKey(KeyCode.KeypadMinus)) scale -= step * 0.1f;
+            if (Input.GetKey(KeyCode.KeypadPlus)) scale += step * 0.1f;
 
             if (move == Vector3.zero && yaw == 0f && scale == 0f)
                 return;

@@ -29,12 +29,35 @@ namespace VDGS
             public float[] position = { 0, 0, 0 };
             public float[] rotation = { 0, 0, 0 };
             public float scale = 1f;
+
+            /// <summary>
+            /// Unity scene names this splat should auto-spawn in. Empty means every
+            /// flyable scene. VelociDrone's scene names come from the `sceneries` table
+            /// in settings.db - "BlankCanvas" is Empty Scene Day, "BlankCanvasNight" is
+            /// Empty Scene Night. See AGENTS.md for the full list.
+            /// </summary>
+            public string[] scenes = new string[0];
+        }
+
+        private string[] m_Scenes = new string[0];
+
+        /// <summary>True if this splat wants to appear in the named Unity scene.</summary>
+        internal bool WantsScene(string sceneName)
+        {
+            if (m_Scenes == null || m_Scenes.Length == 0)
+                return true;
+            foreach (var s in m_Scenes)
+                if (string.Equals(s, sceneName, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            return false;
         }
 
         internal SplatScene(string dir)
         {
             m_Dir = dir;
             Name = new DirectoryInfo(dir).Name;
+            // Read placement up front: the scene filter has to answer before we spawn.
+            m_Scenes = LoadPlacement().scenes ?? new string[0];
         }
 
         /// <summary>Finds every splat scene directory under &lt;game&gt;/vdgs/.</summary>
@@ -80,6 +103,7 @@ namespace VDGS
             UnityEngine.Object.DontDestroyOnLoad(m_Go);
 
             var placement = LoadPlacement();
+            m_Scenes = placement.scenes ?? new string[0];
             m_Go.transform.position = new Vector3(placement.position[0], placement.position[1], placement.position[2]);
             m_Go.transform.eulerAngles = new Vector3(placement.rotation[0], placement.rotation[1], placement.rotation[2]);
             m_Go.transform.localScale = Vector3.one * placement.scale;
@@ -115,6 +139,8 @@ namespace VDGS
                 position = new[] { tr.position.x, tr.position.y, tr.position.z },
                 rotation = new[] { tr.eulerAngles.x, tr.eulerAngles.y, tr.eulerAngles.z },
                 scale = tr.localScale.x,
+                // Preserve the scene filter; saving position must not widen where it spawns.
+                scenes = m_Scenes,
             };
             try { File.WriteAllText(Path.Combine(m_Dir, "placement.json"), JsonUtility.ToJson(p, true)); }
             catch (Exception e) { VdgsPlugin.Log.LogError("placement save failed: " + e.Message); }

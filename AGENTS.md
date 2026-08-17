@@ -77,6 +77,24 @@ Velocidrone 1.17 がインストール済み：
 - `sceneries` テーブル（58行）: `name` が Unity のシーン名（`level0`〜`level50` に対応）、
   `title` が UI 表示名。例: `BlankCanvas` → "Empty Scene Day"
   → **新しいシーナリーの追加は不可能**。既存シーンに乗せるしかない
+
+`placement.json` の `scenes` に書くのは **`name` の方**（UI 表示名ではない）。
+`SceneManager.sceneLoaded` が渡す名前と一致することを実測で確認済み。主なもの：
+
+| name | title |
+|---|---|
+| `BlankCanvas` | Empty Scene Day |
+| `BlankCanvasNight` | Empty Scene Night |
+| `EmptyPoly` | Empty PolyWorld |
+| `Bando` | Bando |
+| `House` | House |
+| `Office` | Office |
+| `Library` | Library |
+| `Gym` | Sports Hall |
+| `Scene5` / `Scene6` | Industrial Wasteland / Football Stadium |
+| `MainMenu` / `auth` / `bootstrap` / `NetworkLobby` | （システム。splat は出さない） |
+
+全 43 件は `sqlite3 settings.db "SELECT name,title FROM sceneries WHERE type='track'"` で取れる。
 - `trackprefabs` テーブル（3394行）: トラックエディタで配置できるオブジェクト。
   `type` が AssetBundle 名（`trees`, `gates`, `barriers`, `bando`…）、`name` がバンドル内の
   プレハブ名、`image` が `track_editior_thumbs` バンドル内のサムネ名
@@ -330,15 +348,32 @@ upstream から**削った**もの：編集機能・selection・cutouts・URP/HD
 
 ### ゲーム内キー操作
 
+**Numpad を使う。** トラックエディタが矢印キーでオブジェクトを動かすため、
+矢印キーを使うとエディタが操作できなくなる（実測で確認して移行した）。
+
 | キー | 動作 |
 |---|---|
-| F8 | splat をスポーン / 消す |
-| 矢印 + PgUp/PgDn | 移動（Shift で粗く） |
-| `[` `]` | Y 軸回転 |
-| `-` `=` | スケール |
-| F5 | 配置を `placement.json` に保存 |
+| F8 / Numpad 0 | スポーン / 消す（データを読み直す） |
+| Numpad 4 / 6 | X 移動 |
+| Numpad 8 / 2 | Z 移動 |
+| Numpad 9 / 3 | Y 移動 |
+| Numpad 7 / 1 | Y 軸回転 |
+| Numpad + / - | スケール |
+| F5 / Numpad Enter | `placement.json` に保存 |
+| Shift 併用 | 5cm → 1m 刻み |
 | F9 | 環境プローブを追記 |
 | F10 | シーンのヒエラルキーをダンプ |
+
+画面上のフィードバックは無い。結果は `vdgs-probe.log` で確認する。
+
+### シーンフィルタ
+
+`placement.json` の `scenes` にシーン名を並べると、そのシーンでだけ自動表示される。
+空配列・未指定なら全シーン。シーンを移動するたびに `ApplySceneFilter` が走り、
+対象外のシーンでは自動的に despawn される。
+
+`<game>/vdgs/autospawn`（空ファイル）が無い場合は自動表示そのものが無効になり、
+F8 を押すまで何も出ない。
 
 ## 既知の壁
 

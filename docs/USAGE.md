@@ -1,0 +1,237 @@
+# VDGS の使い方
+
+VelociDrone に 3D Gaussian Splatting シーンを表示する mod の導入・運用手順。
+
+内部構造・設計判断・踏んだ罠は [AGENTS.md](../AGENTS.md) を見ること。ここは操作手順だけ。
+
+---
+
+## 1. 必要なもの
+
+| | |
+|---|---|
+| VelociDrone | Unity 2021.3.45f2 ビルド（1.16 以降で確認） |
+| GPU | **D3D12 対応**（DX11 では動かない。理由は後述） |
+| BepInEx | 5.4.23.5 win_x64 |
+| Unity 2021.3.45f2 | シェーダー AssetBundle を焼くため。**Windows 必須** |
+| Unity 2022.3.x | `.ply` を変換するため。Mac でも可 |
+
+---
+
+## 2. インストール
+
+### 2-1. BepInEx
+
+[BepInEx 5.4.23.5 win_x64](https://github.com/BepInEx/BepInEx/releases) をゲームフォルダに展開する。
+
+```powershell
+$app = '<VelociDrone>\app'
+Invoke-WebRequest 'https://github.com/BepInEx/BepInEx/releases/download/v5.4.23.5/BepInEx_win_x64_5.4.23.5.zip' -OutFile "$env:TEMP\bepinex.zip"
+Expand-Archive "$env:TEMP\bepinex.zip" -DestinationPath $app -Force
+```
+
+一度ゲームを起動して終了すると `BepInEx\config\BepInEx.cfg` が生成される。
+
+**ログを見たいなら** `BepInEx.cfg` の末尾に足す（5.4.23 はディスクログが既定で無効）：
+
+```ini
+[Logging.Disk]
+Enabled = true
+LogLevel = Fatal, Error, Warning, Message, Info
+
+[Logging]
+UnityLogListening = false
+```
+
+`UnityLogListening = false` は必須に近い。`-force-d3d12` で起動するとゲーム側の
+Auto Exposure が毎フレーム例外を投げ、これを切らないとログが埋まる（実害は無い）。
+
+### 2-2. シェーダー AssetBundle
+
+**Windows の Unity 2021.3.45f2 でしか焼けない。** macOS の Unity は D3D 向けの DXC
+コンパイルを拒否し、エラーを出さずに空のシェーダーを吐く。
+
+```powershell
+# unity/VDGSBundler をプロジェクトとして開き、2段階で実行する
+Unity.exe -batchmode -quit -nographics -projectPath <VDGSBundler> `
+          -executeMethod BuildBundles.SetGraphicsApis -logFile -
+Unity.exe -batchmode -quit -nographics -projectPath <VDGSBundler> `
+          -executeMethod BuildBundles.BuildWindows -vdgsOut <出力先> -logFile -
+```
+
+できた `vdgs-shaders` を `<VelociDrone>\app\vdgs\vdgs-shaders` に置く。
+
+**サイズが 1MB 以上あることを必ず確認する。** 数十 KB なら中身が空で、グラフィックス
+API の設定漏れかホスト OS の問題。バンドルは正常にロードできてしまい、
+`shader.isSupported` が false になるだけなので気づきにくい。
+
+### 2-3. プラグイン
+
+```bash
+bash tools/deploy.sh          # ビルド → SSH で転送 → 設置
+```
+
+SSH を使わない場合は `dotnet build src/VDGS/VDGS.csproj -c Release` して、
+`VDGS.dll` を `<VelociDrone>\app\BepInEx\plugins\` に置く。
+
+---
+
+## 3. 起動
+
+**必ず `-force-d3d12` を付ける。**
+
+```
+velocidrone.exe -force-d3d12
+```
+
+splat のソートに使う compute shader が Shader Model 6 の wave intrinsics
+（`WavePrefixSum` など 41 箇所）を要求する。DX11 には存在しない命令なので、
+素で起動すると splat は一切描画されない。
+
+`-force-vulkan` は**使えない**。VelociDrone 自身が Vulkan 向けにビルドされておらず、
+ゲームのシェーダーが無くて画面が出ない。
+
+### SSH 越しに起動する場合
+
+SSH シェルはセッション 0 で動き、ウィンドウステーションを持たない。そこから起動すると
+DirectX がスワップチェーンを作れず、Unity は Mono のロードすら終わらずに死ぬ。
+タスクスケジューラで対話セッションに投げる必要がある。
+
+`tools/launch-win.ps1` がそれをやる：
+
+```bash
+scp tools/launch-win.ps1 <host>:C:/Users/<user>/launch.ps1
+ssh <host> "powershell -ExecutionPolicy Bypass -File C:\Users\<user>\launch.ps1 -GameArgs '-force-d3d12'"
+```
+
+ゲームは起動したまま残る。ログを読んで自動終了させたい場合は
+`tools/capture-win.ps1`（起動 → 待機 → スクリーンショット → 終了）を使う。
+
+同梱の Windows 用スクリプト：
+
+| ファイル | 用途 |
+|---|---|
+| `tools/launch-win.ps1` | 対話セッションで起動して残す |
+| `tools/capture-win.ps1` | 起動 → スクリーンショット → 終了（動作確認用） |
+| `tools/build-shaders-win.ps1` | シェーダー AssetBundle を焼いてゲームに設置 |
+
+---
+
+## 4. splat データを入れる
+
+### 4-1. 変換
+
+```bash
+Unity -batchmode -quit -nographics -projectPath unity/VDGSConverter \
+      -executeMethod PlyExporter.Run \
+      -vdgsInput /abs/path/scene.ply \
+      -vdgsOutput /abs/path/build/splats/<name> \
+      -vdgsQuality Medium -logFile -
+```
+
+`-vdgsQuality` は `VeryHigh` / `High` / `Medium` / `Low` / `VeryLow`。
+Medium で 100 万 splats がおよそ 45MB になる。
+
+### 4-2. 破片を落とす（推奨）
+
+3DGS の再構成は被写体の周りに必ずゴミのガウシアンを撒く。飛行中は宙に浮いた
+破片として見えるので、変換前に切る：
+
+```bash
+python3 tools/crop_ply.py in.ply out.ply --percentile 5   # 外周 5% を落とす
+python3 tools/crop_ply.py in.ply --stats                  # 分布だけ見る
+```
+
+bonsai の実例では 25% が破片で、落とすとバウンディングボックスが
+44x43x48 から 21x17x18 に締まった。
+
+### 4-3. 配置
+
+`<VelociDrone>\app\vdgs\<name>\placement.json`：
+
+```json
+{
+    "position": [-10.0, 3.3, 0.0],
+    "rotation": [0.0, 0.0, 0.0],
+    "scale": 5.0,
+    "scenes": ["BlankCanvas"]
+}
+```
+
+- `scenes` — このシーンでだけ自動表示する。空配列なら全シーン。
+  シーン名は Unity のシーン名で、UI 表示名とは違う（`BlankCanvas` = Empty Scene Day）。
+  一覧は [AGENTS.md](../AGENTS.md) 参照
+- `scale` — **COLMAP 由来のデータはスケールが任意**。実データはほぼ毎回調整が要る
+- ゲーム内で位置を変えて保存（F5）すると、このファイルが上書きされる。
+  `scenes` は保持される
+
+### 4-4. 自動表示の有効化
+
+`<VelociDrone>\app\vdgs\autospawn` という空ファイルを置くと、対象シーンに入った時点で
+自動的に表示される。削除すれば F8 を押すまで出ない。
+
+---
+
+## 5. ゲーム内の操作
+
+**Numpad を使う。** トラックエディタが矢印キーを使うため、そちらは避けている。
+
+| キー | 動作 |
+|---|---|
+| **F8** / Numpad 0 | 表示 / 非表示（データを読み直す） |
+| Numpad 4 / 6 | X 方向に移動 |
+| Numpad 8 / 2 | Z 方向に移動 |
+| Numpad 9 / 3 | Y 方向に移動 |
+| Numpad 7 / 1 | Y 軸回転 |
+| Numpad + / - | 拡大 / 縮小 |
+| **F5** / Numpad Enter | 配置を保存 |
+| Shift 併用 | 移動が 5cm → 1m 刻みに |
+| F9 | 環境情報を `vdgs-probe.log` に追記 |
+| F10 | シーン構造を `vdgs-hierarchy.txt` にダンプ |
+
+**画面上のフィードバックは無い。** 保存できたかは `vdgs-probe.log` か
+BepInEx のログで確認する。
+
+位置合わせは**トラックエディタでやるのが楽**。エディタならカメラを自由に動かせるので、
+飛びながら合わせるより早い。
+
+---
+
+## 6. 出力されるファイル
+
+`<VelociDrone>\app\` 直下：
+
+| ファイル | 内容 |
+|---|---|
+| `vdgs-probe.log` | 環境情報、シェーダーの状態、スポーン結果 |
+| `vdgs-perf.log` | 5 秒ごとのフレームタイム（fps / avg / worst / splat 数） |
+| `vdgs-hierarchy.txt` | F10 で吐いたシーン構造 |
+| `BepInEx\LogOutput.log` | BepInEx とプラグインのログ |
+
+---
+
+## 7. うまくいかないとき
+
+| 症状 | 原因と対処 |
+|---|---|
+| 何も表示されない | `-force-d3d12` を付け忘れ。`vdgs-probe.log` の `graphicsDeviceType` を確認 |
+| `shaders NOT READY` | バンドルが空。サイズが 1MB 未満なら焼き直し（§2-2） |
+| `shader.isSupported=false` | 同上。macOS で焼いた D3D12 バンドルは必ずこうなる |
+| プラグインが読まれない | SSH から起動していないか確認（§3）。`BepInEx\config\` が生成されていなければ Chainloader に到達していない |
+| 表示が破片だらけ | 元データの外れ値。`crop_ply.py` で切る（§4-2） |
+| 小さすぎ / 大きすぎ | `placement.json` の `scale`。COLMAP のスケールは任意 |
+| F8 の瞬間に固まる | 数十 MB を GPU に一括アップロードするため。**飛ぶ前に表示させておく**。実測 2.9 秒 |
+| ログが例外で埋まる | `UnityLogListening = false`（§2-1）。実害は無い |
+
+---
+
+## 8. 注意
+
+**リーダーボードとマルチプレイでは使わないこと。**
+
+VelociDrone には `ACTk.Runtime.dll`（Anti-Cheat Toolkit）が同梱されている。
+実際に検出に使われているかは未確認だが、改造クライアントでタイムを投稿するのは
+規約違反にあたる。ローカル飛行専用と考えること。
+
+PatchKit のアップデートが走るとプラグインとシェーダーは消える。`tools/deploy.sh` で
+入れ直す。BepInEx 本体も消えた場合は §2-1 からやり直し。
