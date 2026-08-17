@@ -151,49 +151,107 @@ bonsai の実例では 25% が破片で、落とすとバウンディングボ�
 
 ```json
 {
-    "position": [-10.0, 3.3, 0.0],
+    "position": [0.0, 0.0, 0.0],
     "rotation": [0.0, 0.0, 0.0],
-    "scale": 5.0,
-    "scenes": ["BlankCanvas"]
+    "scale": 1.0
 }
 ```
 
-- `scenes` — このシーンでだけ自動表示する。空配列なら全シーン。
-  シーン名は Unity のシーン名で、UI 表示名とは違う（`BlankCanvas` = Empty Scene Day）。
-  一覧は [AGENTS.md](../AGENTS.md) 参照
-- `scale` — **COLMAP 由来のデータはスケールが任意**。実データはほぼ毎回調整が要る
-- ゲーム内で位置を変えて保存（F5）すると、このファイルが上書きされる。
-  `scenes` は保持される
+**位置合わせ機能は mod にはない。** GS 側が正しい座標・スケールで作られている前提で、
+`placement.json` はオフセットの微調整用に残してあるだけ（ゲーム内から変更する手段はない）。
+座標を合わせるのは撮影・学習側の仕事。
 
-### 4-4. 自動表示の有効化
+`scale` は COLMAP 由来のデータだと任意単位になるので、必要なら手で書き換える。
 
-`<VelociDrone>\app\vdgs\autospawn` という空ファイルを置くと、対象シーンに入った時点で
-自動的に表示される。削除すれば F8 を押すまで出ない。
+### 4-4. トラックとの紐付け
+
+**どの GS をどのトラックで出すかは、トラック名で決まる。**
+
+`<VelociDrone>\app\vdgs\bindings.json`：
+
+```json
+{
+    "bindings": [
+        {
+            "track": "2026 Fusion Flight Festival - Presented by Neos",
+            "splats": ["shibuya"]
+        }
+    ]
+}
+```
+
+手で書いてもいいが、ゲーム内から作るほうが早い（§5）。
+
+- **紐付けの無いトラックでは何も表示されない。** 間違った GS を出すより無害だから
+- 1つのトラックに複数の GS を紐付けられる
+- シーナリー（Empty Scene Day など）単位ではなく**トラック単位**。同じシーナリー上に
+  何本もトラックが載るため
+
+`<VelociDrone>\app\vdgs\autospawn`（空ファイル）が無いと自動表示そのものが無効になる。
 
 ---
 
-## 5. ゲーム内の操作
+## 5. 操作（ブラウザ）
 
-**Numpad を使う。** トラックエディタが矢印キーを使うため、そちらは避けている。
+ゲームが起動すると、mod が **`http://<ホスト>:8777/`** で操作用の Web UI を出す。
+別マシンからでも開ける（Tailscale 越しなど）。Parsec でゲーム画面を見ながら、
+手元のブラウザで操作するのが想定運用。
+
+```
+┌─ VDGS Control ──────────────────────────────────┐
+│  Current track                                  │
+│  2026 Fusion Flight Festival - Presented by Neos │
+│  bound to shibuya                               │
+├─────────────────────────────────────────────────┤
+│  Splat scenes on this machine                   │
+│  [shown]  shibuya   934,442 splats              │
+│  [show ]  luigi      14,526 splats              │
+│                                                 │
+│  [Bind shown splat to this track]               │
+│  [Unbind this track]  [Hide all]                │
+├─────────────────────────────────────────────────┤
+│  Bindings                                       │
+│  <track名>  →  shibuya          [remove]        │
+└─────────────────────────────────────────────────┘
+```
+
+**ゲームのキーは一切奪わない。** トラックエディタの矢印キーも F7（シーン保存）も
+そのまま使える。UI は 1.5 秒ごとに自動更新され、ゲーム内でトラックを変えると
+「Current track」が追従する。
+
+### 紐付けの手順
+
+1. トラックをロードする（プレイでもエディタでもよい）
+2. UI で出したい GS の **show** を押す
+3. **Bind shown splat to this track**
+4. 以降そのトラックをロードすると、自動でその GS が出る
+
+### 開発者向けキー（残置）
 
 | キー | 動作 |
 |---|---|
-| **F8** / Numpad 0 | 表示 / 非表示（データを読み直す） |
-| Numpad 4 / 6 | X 方向に移動 |
-| Numpad 8 / 2 | Z 方向に移動 |
-| Numpad 9 / 3 | Y 方向に移動 |
-| Numpad 7 / 1 | Y 軸回転 |
-| Numpad + / - | 拡大 / 縮小 |
-| **F5** / Numpad Enter | 配置を保存 |
-| Shift 併用 | 移動が 5cm → 1m 刻みに |
 | F9 | 環境情報を `vdgs-probe.log` に追記 |
 | F10 | シーン構造を `vdgs-hierarchy.txt` にダンプ |
+| F12 | トラック名の探索ダンプ（`vdgs-track.txt`、検索語は `vdgs/needle.txt`） |
 
-**画面上のフィードバックは無い。** 保存できたかは `vdgs-probe.log` か
-BepInEx のログで確認する。
+F5・F6・F7・F8 は**使っていない**。F7 はトラックエディタのシーン保存に
+割り当て済みで衝突する。
 
-位置合わせは**トラックエディタでやるのが楽**。エディタならカメラを自由に動かせるので、
-飛びながら合わせるより早い。
+### HTTP API
+
+UI が使っているものと同じ。スクリプトから叩ける。
+
+| | |
+|---|---|
+| `GET /api/status` | 現在のトラック、表示中の GS、利用可能な GS、全紐付け |
+| `POST /api/load` | `{"splat":"name"}` — その GS だけを表示 |
+| `POST /api/unload` | `{}` — 全部隠す |
+| `POST /api/bind` | `{"splats":["name"]}` — 現在のトラックに紐付け |
+| `POST /api/unbind` | `{}` で現在のトラック、`{"track":"name"}` で任意のトラック |
+
+**POST には必ずボディを付けること。** `HttpListener` は `Content-Length` の無い POST を
+mod のハンドラに渡す前に `411 Length Required` で弾く。`curl -X POST .../api/unload` は
+失敗し、`curl -X POST .../api/unload -d '{}'` は成功する。
 
 ---
 

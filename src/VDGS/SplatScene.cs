@@ -29,35 +29,15 @@ namespace VDGS
             public float[] position = { 0, 0, 0 };
             public float[] rotation = { 0, 0, 0 };
             public float scale = 1f;
-
-            /// <summary>
-            /// Unity scene names this splat should auto-spawn in. Empty means every
-            /// flyable scene. VelociDrone's scene names come from the `sceneries` table
-            /// in settings.db - "BlankCanvas" is Empty Scene Day, "BlankCanvasNight" is
-            /// Empty Scene Night. See AGENTS.md for the full list.
-            /// </summary>
-            public string[] scenes = new string[0];
         }
 
-        private string[] m_Scenes = new string[0];
-
-        /// <summary>True if this splat wants to appear in the named Unity scene.</summary>
-        internal bool WantsScene(string sceneName)
-        {
-            if (m_Scenes == null || m_Scenes.Length == 0)
-                return true;
-            foreach (var s in m_Scenes)
-                if (string.Equals(s, sceneName, StringComparison.OrdinalIgnoreCase))
-                    return true;
-            return false;
-        }
+        private readonly int m_MetaSplatCount;
 
         internal SplatScene(string dir)
         {
             m_Dir = dir;
             Name = new DirectoryInfo(dir).Name;
-            // Read placement up front: the scene filter has to answer before we spawn.
-            m_Scenes = LoadPlacement().scenes ?? new string[0];
+            m_MetaSplatCount = MetaSplatCount();
         }
 
         /// <summary>Finds every splat scene directory under &lt;game&gt;/vdgs/.</summary>
@@ -103,7 +83,6 @@ namespace VDGS
             UnityEngine.Object.DontDestroyOnLoad(m_Go);
 
             var placement = LoadPlacement();
-            m_Scenes = placement.scenes ?? new string[0];
             m_Go.transform.position = new Vector3(placement.position[0], placement.position[1], placement.position[2]);
             m_Go.transform.eulerAngles = new Vector3(placement.rotation[0], placement.rotation[1], placement.rotation[2]);
             m_Go.transform.localScale = Vector3.one * placement.scale;
@@ -127,7 +106,31 @@ namespace VDGS
         }
 
         internal Transform Transform => m_Go != null ? m_Go.transform : null;
-        internal int SplatCount => m_Renderer != null ? m_Renderer.SplatCount : 0;
+        internal int SplatCount => m_Renderer != null ? m_Renderer.SplatCount : m_MetaSplatCount;
+
+        /// <summary>
+        /// Splat count read from meta.json without loading the buffers, so the UI can
+        /// show the size of a capture that is not spawned.
+        /// </summary>
+        private int MetaSplatCount()
+        {
+            try
+            {
+                var meta = Path.Combine(m_Dir, "meta.json");
+                if (!File.Exists(meta)) return 0;
+                // Cheap parse: avoid pulling the whole loader in for one integer.
+                var text = File.ReadAllText(meta);
+                var key = "\"splatCount\"";
+                var i = text.IndexOf(key, StringComparison.Ordinal);
+                if (i < 0) return 0;
+                i = text.IndexOf(':', i + key.Length);
+                if (i < 0) return 0;
+                var end = text.IndexOfAny(new[] { ',', '\n', '\r', '}' }, i + 1);
+                if (end < 0) end = text.Length;
+                return int.TryParse(text.Substring(i + 1, end - i - 1).Trim(), out var n) ? n : 0;
+            }
+            catch { return 0; }
+        }
 
         internal void SavePlacement()
         {
@@ -139,8 +142,6 @@ namespace VDGS
                 position = new[] { tr.position.x, tr.position.y, tr.position.z },
                 rotation = new[] { tr.eulerAngles.x, tr.eulerAngles.y, tr.eulerAngles.z },
                 scale = tr.localScale.x,
-                // Preserve the scene filter; saving position must not widen where it spawns.
-                scenes = m_Scenes,
             };
             try { File.WriteAllText(Path.Combine(m_Dir, "placement.json"), JsonUtility.ToJson(p, true)); }
             catch (Exception e) { VdgsPlugin.Log.LogError("placement save failed: " + e.Message); }

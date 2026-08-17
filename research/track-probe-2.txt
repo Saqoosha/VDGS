@@ -1,0 +1,16 @@
+======== track probe @ 10:19:57 ========
+activeScene = BlankCanvas
+needle      = VDGSPROBE7777
+
+-- UI text components --
+  TextMeshProUGUI 'Track' = "VDGSPROBE7777"   path: TrackManager2/View - Track Editor - Your Tracks - Admin/TrackList/Track List/OSAView/OSA/Viewport/Content/Tracks Admin Entry(Clone)/TrackEntry/Track
+  TextMeshProUGUI 'Track Name' = "VDGSPROBE7777"   path: TrackManager2/Modal - Gameplay - Change Scenery/Content/Current Track/Table Entry/Entry/Track Name
+  reported: 2
+
+-- string fields and properties on game components --
+  field EditorManager.nnpnlmbjocf = "VDGSPROBE7777"   (go: _bootstrap)
+  reported: 1
+
+-- string collections --
+  reported: 0
+

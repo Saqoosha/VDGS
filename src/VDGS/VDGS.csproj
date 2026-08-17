@@ -60,6 +60,12 @@
       <HintPath>..\..\lib\unity\Unity.Postprocessing.Runtime.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <!-- Shipped by the game. JsonUtility cannot serialise dictionaries and silently
+         writes "{}" for nested types, so bindings use Newtonsoft instead. -->
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>..\..\lib\unity\Newtonsoft.Json.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 
 </Project>

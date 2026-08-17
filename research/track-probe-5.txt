@@ -1,0 +1,17 @@
+======== track probe @ 10:23:53 ========
+activeScene = BlankCanvas
+needle      = Fusion Flight Festival
+
+-- UI text components --
+  TextMeshProUGUI 'TrackTitle' = "2026 Fusion Flight Festival - Presented by Neos "   path: TrackManager2/Modal - Gameplay - Change Scenery/Content/Track List/OSAView/OSA/Viewport/Content/TrackListDisplay2(Clone)/TrackTitle
+  TextMeshProUGUI 'Track Name' = "2026 Fusion Flight Festival - Presented by Neos "   path: TrackManager2/Modal - Gameplay - Change Scenery/Content/Current Track/Table Entry/Entry/Track Name
+  TextMeshProUGUI 'TrackName' = "2026 Fusion Flight Festival - Presented by Neos "   path: RaceInfo2/View - Gameplay/TrackName
+  reported: 3
+
+-- string fields and properties on game components --
+  field InGameChangeTrack.glnoaiifnln = "2026 Fusion Flight Festival - Presented by Neos "   (go: ChangeTrackDialog)
+  reported: 1
+
+-- string collections --
+  reported: 0
+

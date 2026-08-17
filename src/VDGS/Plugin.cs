@@ -22,8 +22,13 @@ namespace VDGS
         internal static ManualLogSource Log;
 
         private System.Collections.Generic.List<SplatScene> m_Scenes = new System.Collections.Generic.List<SplatScene>();
-        private bool m_AutoSpawned;
         private PerfLog m_Perf;
+
+        private TrackBindings m_Bindings;
+        private string m_CurrentTrack;
+        private float m_TrackPollTimer;
+        private string m_TrackLogPath;
+        private WebControl m_Web;
 
         private void Awake()
         {
@@ -33,6 +38,9 @@ namespace VDGS
             // next to the game exe where it is trivial to read back over SSH.
             Probe.LogPath = Path.Combine(Paths.GameRootPath, "vdgs-probe.log");
             m_Perf = new PerfLog(Path.Combine(Paths.GameRootPath, "vdgs-perf.log"));
+            m_Bindings = new TrackBindings(Path.Combine(Paths.GameRootPath, "vdgs", "bindings.json"));
+            m_TrackLogPath = Path.Combine(Paths.GameRootPath, "vdgs-track.log");
+            try { File.WriteAllText(m_TrackLogPath, "track watch started " + DateTime.Now + "\n"); } catch { }
             try { File.WriteAllText(Probe.LogPath, "VDGS " + PluginVersion + " loaded " + DateTime.Now + "\n\n"); }
             catch (Exception e) { Log.LogError("cannot open probe log: " + e.Message); }
 
@@ -40,8 +48,147 @@ namespace VDGS
             Probe.Write("Awake");
 
             LoadShaders();
+            StartWebControl();
 
             SceneManager.sceneLoaded += OnSceneLoaded;
+        }
+
+        /// <summary>
+        /// Control lives in a browser rather than in-game keys: every key tried so far
+        /// collided with the game (F7 saves the scene, arrows drive the track editor,
+        /// numpad does not exist on a laptop), and the game offers nowhere to draw a HUD
+        /// so an in-game workflow gives no feedback at all.
+        /// </summary>
+        private void StartWebControl()
+        {
+            var report = new StringBuilder();
+            try
+            {
+                m_Web = new WebControl
+                {
+                    StatusProvider = BuildStatus,
+                    LoadSplat = ShowOnly,
+                    BindCurrent = BindTo,
+                    UnbindTrack = Unbind,
+                };
+                if (!m_Web.Start(WebControl.kDefaultPort, report))
+                {
+                    m_Web.Dispose();
+                    m_Web = null;
+                }
+            }
+            catch (Exception e)
+            {
+                report.AppendLine("web control failed: " + e);
+                m_Web = null;
+            }
+
+            try { File.AppendAllText(Probe.LogPath, report.ToString()); } catch { }
+            Log.LogInfo(m_Web != null
+                ? "VDGS web control: " + m_Web.Url
+                : "VDGS web control unavailable - see probe log");
+        }
+
+        /// <summary>Snapshot for the browser UI. Runs on the main thread.</summary>
+        private object BuildStatus()
+        {
+            EnsureDiscovered();
+
+            var available = new System.Collections.Generic.List<object>();
+            var loaded = new System.Collections.Generic.List<string>();
+            foreach (var s in m_Scenes)
+            {
+                available.Add(new System.Collections.Generic.Dictionary<string, object>
+                {
+                    { "name", s.Name },
+                    { "splats", s.SplatCount },
+                    { "shown", s.Spawned },
+                });
+                if (s.Spawned) loaded.Add(s.Name);
+            }
+
+            return new System.Collections.Generic.Dictionary<string, object>
+            {
+                { "track", m_CurrentTrack },
+                { "loaded", loaded },
+                { "available", available },
+                { "bindings", m_Bindings.All() },
+            };
+        }
+
+        /// <summary>Shows exactly one splat scene, or none when name is null/empty.</summary>
+        private void ShowOnly(string name)
+        {
+            EnsureDiscovered();
+
+            var log = new StringBuilder();
+            log.AppendLine("======== show '" + (name ?? "none") + "' @ "
+                           + DateTime.Now.ToString("HH:mm:ss") + " ========");
+
+            foreach (var s in m_Scenes)
+            {
+                var want = !string.IsNullOrEmpty(name) && s.Name == name;
+                if (want && !s.Spawned) s.Spawn(log);
+                else if (!want && s.Spawned) { s.Despawn(); log.AppendLine(s.Name + ": despawned"); }
+            }
+
+            try { File.AppendAllText(Probe.LogPath, log.ToString()); } catch { }
+        }
+
+        /// <summary>Binds the given splats to whatever track is loaded right now.</summary>
+        private void BindTo(string[] splats)
+        {
+            var log = new StringBuilder();
+            log.AppendLine("======== bind @ " + DateTime.Now.ToString("HH:mm:ss") + " ========");
+
+            var track = m_CurrentTrack;
+            if (string.IsNullOrEmpty(track))
+            {
+                try { track = TrackName.Current(log); } catch { }
+            }
+
+            if (string.IsNullOrEmpty(track))
+                log.AppendLine("no track loaded - nothing to bind to");
+            else
+            {
+                m_Bindings.Set(track, splats ?? new string[0], log);
+                log.Append(m_Bindings.Describe());
+            }
+
+            log.AppendLine();
+            try { File.AppendAllText(m_TrackLogPath, log.ToString()); } catch { }
+        }
+
+        /// <summary>Removes a track's binding; null means the track loaded right now.</summary>
+        private void Unbind(string track)
+        {
+            var log = new StringBuilder();
+            log.AppendLine("======== unbind @ " + DateTime.Now.ToString("HH:mm:ss") + " ========");
+
+            var target = string.IsNullOrEmpty(track) ? m_CurrentTrack : track;
+            if (string.IsNullOrEmpty(target))
+                log.AppendLine("no track given and none loaded");
+            else
+            {
+                m_Bindings.Remove(target, log);
+                log.Append(m_Bindings.Describe());
+
+                // Nothing should stay on screen for a track that is no longer bound.
+                if (string.Equals(target, m_CurrentTrack, StringComparison.OrdinalIgnoreCase))
+                    foreach (var s in m_Scenes)
+                        if (s.Spawned) s.Despawn();
+            }
+
+            log.AppendLine();
+            try { File.AppendAllText(m_TrackLogPath, log.ToString()); } catch { }
+        }
+
+        private void EnsureDiscovered()
+        {
+            if (m_Scenes.Count != 0) return;
+            var report = new StringBuilder();
+            m_Scenes = SplatScene.Discover(Path.Combine(Paths.GameRootPath, "vdgs"), report);
+            try { File.AppendAllText(Probe.LogPath, report.ToString()); } catch { }
         }
 
         /// <summary>Shaders live in <game>/vdgs/ next to the splat data.</summary>
@@ -65,6 +212,8 @@ namespace VDGS
         private void OnDestroy()
         {
             SceneManager.sceneLoaded -= OnSceneLoaded;
+            m_Web?.Dispose();
+            m_Web = null;
         }
 
         private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
@@ -83,53 +232,9 @@ namespace VDGS
             // a single pass here finds nothing. Sweep a few times over the next seconds.
             StartCoroutine(SweepAutoExposure());
 
-            ApplySceneFilter(sceneName);
-        }
-
-        /// <summary>
-        /// Spawns the splats that belong in this scene and removes the ones that do not.
-        /// Each scene declares its own scene list in placement.json, so a capture meant
-        /// for Empty Scene Day does not appear in the middle of a race track.
-        /// </summary>
-        private void ApplySceneFilter(string sceneName)
-        {
-            if (!AutoSpawnEnabled() || !IsFlyableScene(sceneName))
-                return;
-
-            var report = new StringBuilder();
-            report.AppendLine("======== scene filter '" + sceneName + "' @ "
-                              + DateTime.Now.ToString("HH:mm:ss.fff") + " ========");
-            try
-            {
-                if (m_Scenes.Count == 0)
-                    m_Scenes = SplatScene.Discover(Path.Combine(Paths.GameRootPath, "vdgs"), report);
-
-                foreach (var s in m_Scenes)
-                {
-                    var wanted = s.WantsScene(sceneName);
-                    if (wanted && !s.Spawned)
-                    {
-                        s.Spawn(report);
-                    }
-                    else if (!wanted && s.Spawned)
-                    {
-                        s.Despawn();
-                        report.AppendLine(s.Name + ": despawned (not listed for this scene)");
-                    }
-                    else
-                    {
-                        report.AppendLine(s.Name + ": " + (wanted ? "already up" : "skipped"));
-                    }
-                }
-            }
-            catch (Exception e)
-            {
-                report.AppendLine("EXCEPTION: " + e);
-            }
-
-            report.AppendLine();
-            try { File.AppendAllText(Probe.LogPath, report.ToString()); } catch { }
-            Log.LogInfo("VDGS scene filter applied for '" + sceneName + "'");
+            // Spawning is driven entirely by which track is loaded (see PollTrack), not
+            // by which Unity scene it happens to sit on. A scenery hosts many tracks, so
+            // a scene-level filter would show a capture on every track sharing that map.
         }
 
         private System.Collections.IEnumerator SweepAutoExposure()
@@ -177,20 +282,26 @@ namespace VDGS
                 DumpHierarchy();
             }
 
-            // Numpad 0 mirrors F8 and Numpad Enter mirrors F5, so alignment can be done
-            // with one hand on the numpad without reaching for the function row.
-            if (Input.GetKeyDown(KeyCode.F8) || Input.GetKeyDown(KeyCode.Keypad0))
+            // Hunt for whatever the game uses to identify the loaded track. Everything
+            // about binding a splat to a track depends on being able to read that name,
+            // and Assembly-CSharp is obfuscated, so it has to be found at runtime.
+            //
+            // F12, not F7: the track editor already binds F7 to saving the scene.
+            // The needle comes from <game>/vdgs/needle.txt so the search string can be
+            // changed without rebuilding the plugin.
+            if (Input.GetKeyDown(KeyCode.F12))
             {
-                ToggleSplats();
+                var needlePath = Path.Combine(Paths.GameRootPath, "vdgs", "needle.txt");
+                string needle = null;
+                try { if (File.Exists(needlePath)) needle = File.ReadAllText(needlePath).Trim(); }
+                catch { }
+
+                TrackProbe.Dump(Path.Combine(Paths.GameRootPath, "vdgs-track.txt"), needle);
+                Log.LogInfo("VDGS track probe written (needle: " + (needle ?? "none") + ")");
             }
 
-            if (Input.GetKeyDown(KeyCode.F5) || Input.GetKeyDown(KeyCode.KeypadEnter))
-            {
-                foreach (var s in m_Scenes) s.SavePlacement();
-                Log.LogInfo("VDGS placement saved");
-            }
-
-            NudgeSplats();
+            m_Web?.Pump();
+            PollTrack();
 
             if (m_Perf != null)
             {
@@ -206,82 +317,59 @@ namespace VDGS
         }
 
         /// <summary>
-        /// Keyboard alignment. A splat capture shares no origin with the track, so the
-        /// only practical way to line it up is to look at it and nudge until it fits.
+        /// Watches which track is loaded and swaps splats to match.
         ///
-        /// Numpad only, on purpose: the track editor already owns the arrow keys, and
-        /// stealing them made the editor unusable while a splat was loaded.
-        ///
-        ///   4/6 : X     8/2 : Z     9/3 : Y     7/1 : yaw     +/- : scale
-        /// Hold shift for 1m steps instead of 5cm.
+        /// Polled rather than event-driven: the game can change track without changing
+        /// Unity scene (the in-game "change track" dialog does exactly that), so
+        /// sceneLoaded is not enough on its own.
         /// </summary>
-        private void NudgeSplats()
+        private void PollTrack()
         {
-            if (m_Scenes.Count == 0) return;
+            m_TrackPollTimer += Time.unscaledDeltaTime;
+            if (m_TrackPollTimer < 1f) return;
+            m_TrackPollTimer = 0f;
 
-            float step = (Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift)) ? 1.0f : 0.05f;
-            var move = Vector3.zero;
-            if (Input.GetKey(KeyCode.Keypad4)) move.x -= step;
-            if (Input.GetKey(KeyCode.Keypad6)) move.x += step;
-            if (Input.GetKey(KeyCode.Keypad8)) move.z += step;
-            if (Input.GetKey(KeyCode.Keypad2)) move.z -= step;
-            if (Input.GetKey(KeyCode.Keypad9)) move.y += step;
-            if (Input.GetKey(KeyCode.Keypad3)) move.y -= step;
+            var log = new StringBuilder();
+            string name;
+            try { name = TrackName.Current(log); }
+            catch (Exception e) { log.AppendLine("track read failed: " + e.Message); name = null; }
 
-            float yaw = 0f;
-            if (Input.GetKey(KeyCode.Keypad7)) yaw -= step * 10f;
-            if (Input.GetKey(KeyCode.Keypad1)) yaw += step * 10f;
-
-            float scale = 0f;
-            if (Input.GetKey(KeyCode.KeypadMinus)) scale -= step * 0.1f;
-            if (Input.GetKey(KeyCode.KeypadPlus)) scale += step * 0.1f;
-
-            if (move == Vector3.zero && yaw == 0f && scale == 0f)
-                return;
-
-            foreach (var s in m_Scenes)
+            if (!string.Equals(name, m_CurrentTrack, StringComparison.Ordinal))
             {
-                var tr = s.Transform;
-                if (tr == null) continue;
-                tr.position += move;
-                if (yaw != 0f) tr.Rotate(0f, yaw, 0f, Space.World);
-                if (scale != 0f)
-                {
-                    var v = Mathf.Max(0.01f, tr.localScale.x + scale);
-                    tr.localScale = Vector3.one * v;
-                }
+                log.AppendLine(DateTime.Now.ToString("HH:mm:ss") + "  track changed: '"
+                               + (m_CurrentTrack ?? "-") + "' -> '" + (name ?? "-") + "'");
+                m_CurrentTrack = name;
+                ApplyTrackBinding(name, log);
+            }
+
+            if (log.Length > 0)
+            {
+                try { File.AppendAllText(m_TrackLogPath, log.ToString()); } catch { }
             }
         }
 
-        private void ToggleSplats()
+        /// <summary>Spawns exactly the splats bound to this track; despawns the rest.</summary>
+        private void ApplyTrackBinding(string track, StringBuilder log)
         {
-            var report = new StringBuilder();
-            report.AppendLine("======== F8 splats @ " + DateTime.Now.ToString("HH:mm:ss.fff") + " ========");
+            if (!AutoSpawnEnabled()) return;
 
-            try
-            {
-                if (m_Scenes.Count == 0)
-                {
-                    m_Scenes = SplatScene.Discover(Path.Combine(Paths.GameRootPath, "vdgs"), report);
-                }
+            if (m_Scenes.Count == 0)
+                m_Scenes = SplatScene.Discover(Path.Combine(Paths.GameRootPath, "vdgs"), log);
 
-                bool anySpawned = m_Scenes.Exists(s => s.Spawned);
-                foreach (var s in m_Scenes)
-                {
-                    if (anySpawned) s.Despawn();
-                    else s.Spawn(report);
-                }
-                report.AppendLine(anySpawned ? "=> despawned" : "=> spawned " + m_Scenes.Count + " scene(s)");
-                foreach (var s in m_Scenes) report.AppendLine("  " + s.Describe());
-            }
-            catch (Exception e)
+            // An unbound track gets nothing: better to show no splats than the wrong ones.
+            var wanted = m_Bindings.For(track);
+            if (!m_Bindings.Has(track))
             {
-                report.AppendLine("EXCEPTION: " + e);
+                log.AppendLine("  no binding for '" + (track ?? "-") + "' - leaving splats alone");
+                return;
             }
 
-            report.AppendLine();
-            try { File.AppendAllText(Probe.LogPath, report.ToString()); } catch { }
-            Log.LogInfo("VDGS F8 handled - see probe log");
+            foreach (var s in m_Scenes)
+            {
+                var want = wanted.Contains(s.Name);
+                if (want && !s.Spawned) s.Spawn(log);
+                else if (!want && s.Spawned) { s.Despawn(); log.AppendLine("  " + s.Name + ": despawned"); }
+            }
         }
 
         private void DumpHierarchy()
