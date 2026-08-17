@@ -31,6 +31,28 @@ namespace VDGS
             new[] { "InGameChangeTrack", "glnoaiifnln" },
         };
 
+        /// <summary>
+        /// UI labels naming the current track: { GameObject name, required path fragment }.
+        /// A null fragment means the name alone is unambiguous.
+        ///
+        /// The path fragment is not optional decoration on the first entry. The Change
+        /// Scenery modal contains TWO labels called "Track Name" - the value, under
+        /// Current Track/Table Entry/Entry, and the column header, under
+        /// Current Track/Header, whose text is the literal string "Track Name". Matching
+        /// on the object name alone picks up whichever comes first.
+        ///
+        /// The track list elsewhere in that screen is a different trap: every row has a
+        /// label holding a track name, but they are the user's whole track library, not
+        /// the loaded one. Only "Current Track" means current.
+        /// </summary>
+        private static readonly string[][] kLabels =
+        {
+            new[] { "Track Name", "Current Track/Table Entry" },
+            // The flight HUD. Authoritative while racing, but it survives into the
+            // editor holding the last track flown, so it must not be consulted first.
+            new[] { "TrackName", null },
+        };
+
         private static string s_Last;
 
         /// <summary>Best-effort current track name, or null if nothing could be read.</summary>
@@ -52,11 +74,16 @@ namespace VDGS
                     return Remember(v, log, carrier[0] + ".<scanned>");
             }
 
-            // Last resort: the flight HUD label. Only present while racing, and it can
-            // carry decoration, so it is not used before the fields above.
-            var hud = ReadHudLabel(log);
-            if (!string.IsNullOrEmpty(hud))
-                return Remember(hud, log, "RaceInfo2 HUD");
+            // UI labels, in order. Reached when the obfuscated field is not in this
+            // scene at all - which is what happens in the track editor, where the
+            // fallback used to return whatever track was flown last.
+            foreach (var label in kLabels)
+            {
+                var v = ReadLabel(label[0], label[1], log);
+                if (!string.IsNullOrEmpty(v))
+                    return Remember(v, log, "label " + label[0] +
+                                    (label[1] == null ? "" : " under " + label[1]));
+            }
 
             log?.AppendLine("track name: not found by any carrier");
             return null;
@@ -127,25 +154,42 @@ namespace VDGS
             return null;
         }
 
-        private static string ReadHudLabel(StringBuilder log)
+        /// <summary>
+        /// Read a TextMeshPro-ish label by GameObject name, optionally requiring a
+        /// fragment of its hierarchy path. Inactive objects count: the Change Scenery
+        /// modal is closed most of the time but still holds the current track's name.
+        /// </summary>
+        private static string ReadLabel(string goName, string pathContains, StringBuilder log)
         {
             foreach (var c in Resources.FindObjectsOfTypeAll<MonoBehaviour>())
             {
                 if (c == null || c.gameObject == null) continue;
-                if (c.gameObject.name != "TrackName") continue;
+                if (c.gameObject.name != goName) continue;
 
                 var t = c.GetType();
                 if (t.Name.IndexOf("Text", StringComparison.Ordinal) < 0) continue;
+                if (pathContains != null && PathOf(c.transform).IndexOf(
+                        pathContains, StringComparison.Ordinal) < 0) continue;
 
                 try
                 {
                     var p = t.GetProperty("text", BindingFlags.Instance | BindingFlags.Public);
                     var v = p?.GetValue(c, null) as string;
+                    // A column header repeats its own object name; that is never a track.
+                    if (v != null && v.Trim() == goName) continue;
                     if (PlausibleTrackName(v)) return v;
                 }
                 catch { }
             }
             return null;
+        }
+
+        private static string PathOf(Transform t)
+        {
+            var sb = new StringBuilder(t.name);
+            for (var p = t.parent; p != null; p = p.parent)
+                sb.Insert(0, p.name + "/");
+            return sb.ToString();
         }
 
         /// <summary>
