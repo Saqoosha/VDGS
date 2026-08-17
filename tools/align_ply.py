@@ -235,6 +235,40 @@ def check_floor_is_down(rows, props):
         print("      ply with Y inverted relative to Unity).")
 
 
+def mirror_axis(rows, props, axis):
+    """
+    Reflect the cloud across one axis, orientations included.
+
+    A reflection is not a rotation - its matrix has determinant -1 - so it cannot be
+    folded into the rotation path. For a unit quaternion (w,x,y,z), reflecting across
+    an axis negates the two components that are NOT that axis, plus w; this keeps
+    each gaussian's ellipsoid consistent with its mirrored position. Mirroring the
+    positions alone leaves every splat facing the wrong way, which reads as a subtle
+    smearing rather than an obvious flip.
+    """
+    i = "xyz".index(axis)
+    rows[:, props.index(axis)] *= -1.0
+
+    # Conjugating a rotation by the reflection, R' = M R M, works out to negating the
+    # two quaternion components that are NOT the mirrored axis, leaving w and the
+    # mirrored axis alone:
+    #     mirror x -> (w,  x, -y, -z)
+    #     mirror y -> (w, -x,  y, -z)
+    #     mirror z -> (w, -x, -y,  z)
+    #
+    # Negating w as well looks harmless because q and -q describe the same rotation,
+    # but that identity only holds when ALL four components flip. Getting it wrong
+    # leaves positions correct while every ellipsoid points somewhere else, which
+    # renders as a field of spikes rather than an obviously broken scene.
+    rot = [props.index(f"rot_{k}") for k in range(4)]
+    q = rows[:, rot].astype(np.float64)          # (w, x, y, z)
+    out = q.copy()
+    for k in range(3):
+        if k != i:
+            out[:, 1 + k] = -q[:, 1 + k]
+    rows[:, rot] = out.astype(np.float32)
+
+
 def apply_transform(rows, props, R, floor_y, scale):
     """Rotate, drop the floor to y=0 and scale - positions, orientations and sizes."""
     ix, iy, iz = props.index("x"), props.index("y"), props.index("z")
@@ -279,6 +313,10 @@ def main():
                     help="real ceiling height in metres; derives the scale factor")
     ap.add_argument("--scale", type=float, help="explicit scale factor")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--mirror", choices=["x", "y", "z"],
+                    help="mirror across an axis. Needed when the capture comes out as a "
+                         "mirror image: a rotation can never produce that (det +1), so "
+                         "some axis has been flipped in the chain.")
     ap.add_argument("--flip", action="store_true",
                     help="rotate a further 180 deg about X. Use when the result comes "
                          "out upside down: which side of the floor plane is 'up' cannot "
@@ -299,6 +337,11 @@ def main():
 
     print(f"input: {len(rows)} splats")
     print(f"  bounds {xyz.min(0).round(2)} .. {xyz.max(0).round(2)}")
+
+    if args.mirror:
+        mirror_axis(rows, props, args.mirror)
+        xyz = rows[:, [ix, iy, iz]].astype(np.float64)
+        print(f"  mirrored across {args.mirror}")
 
     if args.rotate:
         deg = [float(v) for v in args.rotate.split(",")]

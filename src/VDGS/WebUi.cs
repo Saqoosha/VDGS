@@ -64,6 +64,16 @@ namespace VDGS
   td:first-child { font-weight: 600; padding-right: 16px; word-break: break-word; }
   tr:last-child td { border-bottom: 0; }
   .flash { color: var(--ok); font-size: 13px; margin-left: 4px; }
+  .xform { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+           margin: 8px 0 2px 0; padding: 10px 12px; border: 1px solid var(--accent);
+           border-radius: 8px; background: var(--accent-soft); }
+  .xform label { font-size: 12px; color: var(--muted); text-transform: uppercase;
+                 letter-spacing: 0.05em; }
+  .xform input[type=range] { flex: 1; min-width: 130px; }
+  .xform input[type=number] { width: 84px; font: inherit; padding: 5px 7px;
+                              border: 1px solid var(--line); border-radius: 6px; }
+  .xform .val { font-variant-numeric: tabular-nums; min-width: 58px; text-align: right;
+                font-weight: 600; }
 </style>
 </head>
 <body>
@@ -79,6 +89,21 @@ namespace VDGS
   <div class=""card"">
     <div class=""label"">Splat scenes on this machine</div>
     <ul id=""list""><li class=""empty"">loading…</li></ul>
+    <div id=""xform"" style=""display:none"">
+      <div class=""xform"">
+        <label>Scale</label>
+        <input type=""range"" id=""scaleRange"" min=""-1"" max=""1"" step=""0.005"" value=""0"">
+        <span class=""val"" id=""scaleVal"">1.00</span>
+        <input type=""number"" id=""scaleNum"" step=""0.01"" min=""0.01"" max=""100"">
+      </div>
+      <div class=""xform"">
+        <label>Height</label>
+        <input type=""range"" id=""yRange"" min=""-5"" max=""5"" step=""0.01"" value=""0"">
+        <span class=""val"" id=""yVal"">0.00</span>
+        <input type=""number"" id=""yNum"" step=""0.05"">
+      </div>
+    </div>
+
     <div class=""row"" style=""margin-top:14px"">
       <button class=""primary"" id=""bind"">Bind shown splat to this track</button>
       <button id=""unbind"">Unbind this track</button>
@@ -99,6 +124,36 @@ namespace VDGS
 <script>
 let state = { available: [], loaded: [], track: null, bindings: {} };
 let busy = false;
+let dragging = false;
+
+// Scale runs over a wide range, so the slider is logarithmic: linear steps would
+// make everything below 1 unusable while the top half did nothing useful.
+const toSlider = v => Math.log10(Math.max(0.01, v));
+const fromSlider = v => Math.pow(10, v);
+
+function setScaleUi(v) {
+  document.getElementById('scaleRange').value = toSlider(v);
+  document.getElementById('scaleNum').value = Number(v).toFixed(3);
+  document.getElementById('scaleVal').textContent = Number(v).toFixed(2) + 'x';
+}
+function setYUi(v) {
+  document.getElementById('yRange').value = Math.max(-5, Math.min(5, v));
+  document.getElementById('yNum').value = Number(v).toFixed(2);
+  document.getElementById('yVal').textContent = Number(v).toFixed(2) + 'm';
+}
+
+async function pushTransform(scale, y) {
+  const name = (state.loaded || [])[0];
+  if (!name) return;
+  const body = { splat: name };
+  if (scale != null) body.scale = scale;
+  if (y != null) body.y = y;
+  await fetch('/api/transform', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+}
 
 async function refresh() {
   try {
@@ -196,6 +251,19 @@ function render() {
     }
   }
 
+  // Transform only makes sense for something on screen, and only while the user is
+  // not dragging - otherwise the 1.5s poll snaps the slider out from under them.
+  const shownName = (state.loaded || [])[0];
+  const shown = (state.available || []).find(s => s.name === shownName);
+  const panel = document.getElementById('xform');
+  if (shown && !dragging) {
+    panel.style.display = '';
+    setScaleUi(shown.scale != null ? shown.scale : 1);
+    setYUi(shown.y != null ? shown.y : 0);
+  } else if (!shown) {
+    panel.style.display = 'none';
+  }
+
   document.getElementById('bind').disabled = !state.track;
   document.getElementById('unbind').disabled =
     !state.track || !(state.bindings || {})[state.track];
@@ -231,6 +299,24 @@ document.addEventListener('click', async e => {
   const unbind = e.target.getAttribute('data-unbind');
   if (unbind) { await post('/api/unbind', { track: unbind }); flash('removed'); }
 });
+// Live drag: apply continuously so the change is visible in the sim as it happens.
+for (const [range, num, isScale] of [['scaleRange','scaleNum',true], ['yRange','yNum',false]]) {
+  const r = document.getElementById(range), n = document.getElementById(num);
+  r.addEventListener('pointerdown', () => { dragging = true; });
+  r.addEventListener('pointerup',   () => { dragging = false; });
+  r.addEventListener('input', () => {
+    const v = isScale ? fromSlider(parseFloat(r.value)) : parseFloat(r.value);
+    if (isScale) setScaleUi(v); else setYUi(v);
+    pushTransform(isScale ? v : null, isScale ? null : v);
+  });
+  n.addEventListener('change', () => {
+    const v = parseFloat(n.value);
+    if (!isFinite(v)) return;
+    if (isScale) setScaleUi(v); else setYUi(v);
+    pushTransform(isScale ? v : null, isScale ? null : v);
+  });
+}
+
 document.getElementById('unload').addEventListener('click', () => post('/api/unload'));
 document.getElementById('bind').addEventListener('click', async () => {
   await post('/api/bind', { splats: state.loaded || [] });

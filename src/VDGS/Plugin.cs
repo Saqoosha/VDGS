@@ -70,6 +70,7 @@ namespace VDGS
                     LoadSplat = ShowOnly,
                     BindCurrent = BindTo,
                     UnbindTrack = Unbind,
+                    SetTransform = ApplyTransform,
                 };
                 if (!m_Web.Start(WebControl.kDefaultPort, report))
                 {
@@ -103,6 +104,8 @@ namespace VDGS
                     { "name", s.Name },
                     { "splats", s.SplatCount },
                     { "shown", s.Spawned },
+                    { "scale", s.Scale },
+                    { "y", s.YOffset },
                 });
                 if (s.Spawned) loaded.Add(s.Name);
             }
@@ -157,6 +160,25 @@ namespace VDGS
 
             log.AppendLine();
             try { File.AppendAllText(m_TrackLogPath, log.ToString()); } catch { }
+        }
+
+        /// <summary>Resizes / raises a capture. Applies live and writes placement.json.</summary>
+        private void ApplyTransform(string name, float? scale, float? y)
+        {
+            EnsureDiscovered();
+            var log = new StringBuilder();
+            log.AppendLine("======== transform @ " + DateTime.Now.ToString("HH:mm:ss") + " ========");
+
+            var hit = false;
+            foreach (var s in m_Scenes)
+            {
+                if (!string.IsNullOrEmpty(name) && s.Name != name) continue;
+                s.SetTransform(scale, y, log);
+                hit = true;
+            }
+            if (!hit) log.AppendLine("no splat named '" + (name ?? "-") + "'");
+
+            try { File.AppendAllText(Probe.LogPath, log.ToString()); } catch { }
         }
 
         /// <summary>Removes a track's binding; null means the track loaded right now.</summary>

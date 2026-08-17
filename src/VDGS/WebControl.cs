@@ -40,6 +40,7 @@ namespace VDGS
         internal Action<string> LoadSplat;      // null/empty unloads everything
         internal Action<string[]> BindCurrent;  // binds the given splats to the live track
         internal Action<string> UnbindTrack;    // null clears the live track's binding
+        internal Action<string, float?, float?> SetTransform;  // splat, scale, yOffset
 
         internal string Url { get; private set; }
 
@@ -147,6 +148,28 @@ namespace VDGS
                     req?.TryGetValue("splats", out splats);
                     var arr = splats != null ? splats.ToArray() : new string[0];
                     QueueOnMain(() => BindCurrent?.Invoke(arr));
+                    Respond(ctx, 200, "{\"ok\":true}");
+                    return;
+                }
+
+                case "/api/transform":
+                {
+                    var body = ReadBody(ctx);
+                    // Nullable so the UI can send only the field it changed; a missing
+                    // value must leave the other one alone rather than resetting it.
+                    var req = JsonConvert.DeserializeObject<Dictionary<string, object>>(body);
+                    string splat = null;
+                    float? scale = null, y = null;
+                    if (req != null)
+                    {
+                        if (req.TryGetValue("splat", out var sv) && sv != null) splat = sv.ToString();
+                        if (req.TryGetValue("scale", out var cv) && cv != null)
+                            scale = Convert.ToSingle(cv);
+                        if (req.TryGetValue("y", out var yv) && yv != null)
+                            y = Convert.ToSingle(yv);
+                    }
+                    var sName = splat; var sScale = scale; var sY = y;
+                    QueueOnMain(() => SetTransform?.Invoke(sName, sScale, sY));
                     Respond(ctx, 200, "{\"ok\":true}");
                     return;
                 }

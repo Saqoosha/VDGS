@@ -108,6 +108,41 @@ namespace VDGS
         internal Transform Transform => m_Go != null ? m_Go.transform : null;
         internal int SplatCount => m_Renderer != null ? m_Renderer.SplatCount : m_MetaSplatCount;
 
+        /// <summary>Current uniform scale, from the live object or from placement.json.</summary>
+        internal float Scale => m_Go != null ? m_Go.transform.localScale.x : LoadPlacement().scale;
+
+        /// <summary>Current height offset.</summary>
+        internal float YOffset => m_Go != null ? m_Go.transform.position.y : LoadPlacement().position[1];
+
+        /// <summary>
+        /// Resizes the capture and sets its height, then persists both.
+        ///
+        /// Rotation and horizontal position deliberately stay out of the mod - a capture
+        /// should arrive already oriented. These two are different: how big a room should
+        /// be is a judgement about flying it rather than about the data being correct,
+        /// and changing the scale moves the floor, so height has to come with it.
+        /// </summary>
+        internal void SetTransform(float? scale, float? yOffset, StringBuilder log)
+        {
+            var p = LoadPlacement();
+
+            if (scale.HasValue)
+                p.scale = Mathf.Clamp(scale.Value, 0.01f, 100f);
+            if (yOffset.HasValue)
+                p.position[1] = Mathf.Clamp(yOffset.Value, -1000f, 1000f);
+
+            if (m_Go != null)
+            {
+                m_Go.transform.localScale = Vector3.one * p.scale;
+                var pos = m_Go.transform.position;
+                m_Go.transform.position = new Vector3(pos.x, p.position[1], pos.z);
+            }
+
+            SavePlacementData(p, log);
+            log?.AppendLine(Name + ": scale=" + p.scale.ToString("0.###")
+                            + " y=" + p.position[1].ToString("0.###"));
+        }
+
         /// <summary>
         /// Splat count read from meta.json without loading the buffers, so the UI can
         /// show the size of a capture that is not spawned.
@@ -137,14 +172,22 @@ namespace VDGS
             if (m_Go == null)
                 return;
             var tr = m_Go.transform;
-            var p = new Placement
+            SavePlacementData(new Placement
             {
                 position = new[] { tr.position.x, tr.position.y, tr.position.z },
                 rotation = new[] { tr.eulerAngles.x, tr.eulerAngles.y, tr.eulerAngles.z },
                 scale = tr.localScale.x,
-            };
+            }, null);
+        }
+
+        private void SavePlacementData(Placement p, StringBuilder log)
+        {
             try { File.WriteAllText(Path.Combine(m_Dir, "placement.json"), JsonUtility.ToJson(p, true)); }
-            catch (Exception e) { VdgsPlugin.Log.LogError("placement save failed: " + e.Message); }
+            catch (Exception e)
+            {
+                log?.AppendLine("placement save failed: " + e.Message);
+                VdgsPlugin.Log.LogError("placement save failed: " + e.Message);
+            }
         }
 
         private Placement LoadPlacement()
