@@ -22,9 +22,9 @@ compute 'SplatUtilities'                   supported=True
 => shaders READY
 ```
 
-### 実測パフォーマンス（RTX 3060 / 144Hz ディスプレイ / VSync ON）
+### 実測パフォーマンス（RTX 3060 / 120Hz ディスプレイ / VSync ON）
 
-splat の有無で切り分けた実測（2026-08-17）：
+splat の有無で切り分けた実測：
 
 ```
 splats=0          120.0 fps    8.33 ms   ← splat なし
@@ -34,10 +34,10 @@ splats=1,916,379   77.9 fps   12.84 ms   ← playroom 全量
 **191 万 splats の描画コストは約 4.5 ms/frame。** tinywhoop で屋内を飛ぶには
 十分すぎる余裕がある。
 
-**測定環境を確認してから数字を解釈すること。** 以前 `60.0 fps / 16.67ms` という
-値を「VSync の上限に張り付いている」と記録したが、このディスプレイは 144Hz で、
-60 は 144 の分周ではない（144 / 2 = 72、/ 3 = 48）。あの 60.0 は VSync 上限では
-なく別の要因だった。fps の頭打ちを見たら、まずリフレッシュレートを確認する。
+**fps の頭打ちを見たら、まず測定経路を疑う。** 一度 `60.0 fps / 16.67ms` を
+「VSync 上限」と記録したが誤り。ディスプレイは 120Hz で、あの 60 は **Parsec 越しに
+見ていたため**（Parsec が 60fps に制限する）。物理画面で測るか、Parsec 経由と
+明記すること。
 
 スポーン直後の 1 フレームだけ数百 ms 〜 数秒かかる（`GraphicsBuffer.SetData` で
 数十 MB をアップロードするため）。飛行中に GS を切り替えると必ずスタッターになるので、
@@ -184,6 +184,21 @@ ssh user@windows-box "powershell -ExecutionPolicy Bypass -File %USERPROFILE%\vdg
 
 **ゲームは必ず `-force-d3d12` で起動する。** 素の D3D11 では splat シェーダーが動かない。
 
+#### `vdgs-run-interactive.ps1` は既定でゲームを残す。`-Diagnose` を付けると殺す
+
+このスクリプトは元々、末尾で無条件に `Stop-Process -Force` していた。ログを回収する
+診断用として書かれたためだが、**「起動して 40 秒ほどで静かに落ちるゲーム」にしか見えない**：
+
+- `Stop-Process -Force` はプロセスを即座に終わらせるので、**クラッシュダンプも Windows の
+  イベントログも残らず、Player.log は行の途中で切れる**
+- タイミングは「ログ待ち + `Start-Sleep 25`」なので毎回ほぼ同じ ≒ 本物のバグに見える
+- スクリプトの出力を `grep pid` で絞っていると `=== stopping ===` が視界に入らない
+
+これを「起動直後に Web API を叩くとクラッシュする」と誤診し、長い回り道をした。実際は
+API と無関係（45 秒連続ポーリングで無傷）。**`Start-ScheduledTask` を直接叩いた回だけ
+生き残った**という観測が唯一のヒントだった。ゲームが理由もなく死んだら、まず
+**自分が起動に使ったスクリプトの最後まで読む**こと。
+
 ### Windows 側の Unity
 
 `unity` CLI（1.0.0-beta.5）を `%USERPROFILE%\AppData\Local\Unity\bin\unity.exe` に導入済み。
@@ -281,6 +296,20 @@ and security IDs was done` で失敗する（SSH セッションでは `USERDOMA
 
 `luigi.ply` は SH degree 0（`f_rest_*` を持たない）。それでも変換は通る。
 
+### 飛ぶなら「被写体周回」ではなく「室内を歩き回った」キャプチャを選ぶ
+
+**bonsai は床が溶ける。** 欠損ではない — y=0.0〜0.5 に 261,170 splats あり、XZ の 88% を
+覆っている。上から見れば床はある。だがドローン目線の浅い角度では滲んで使えない。
+
+原因は撮り方。bonsai（Mip-NeRF 360）は**盆栽とテーブルの周りを回っただけで、床に
+カメラを向けていない**。浅い角度からしか見られていない面は、その方向に引き伸ばされた
+ガウシアンとして復元される。**真上からは埋まって見え、接地目線では溶ける。**
+
+Y オフセットで持ち上げても直らない（位置の問題ではないため）。実際に 1m 上げて確認済み。
+
+**飛行用には室内を移動しながら撮ったキャプチャ（playroom / drjohnson 系）を使う。**
+新規に撮るなら、被写体だけでなく**床にレンズを向けたパスを必ず入れる**こと。
+
 ### 向きとスケールは元データ依存（変換は何も変えない）
 
 **COLMAP 由来のデータは向きもスケールも任意。** 上下が逆だったり、床が傾いていたり、
@@ -294,19 +323,13 @@ SuperSplat で開いても同じく逆さまだった → 元データがそう�
 1.8 から正射影ビュー（View Cube の円をクリック）を持ち、TRANSFORM パネルで回転・
 スケールを数値入力できる。正射影で見れば床が水平かどうか一目で分かる。
 
-**床の自動検出は諦めた。** `tools/align_ply.py` に RANSAC を実装したが、3 回試して
-3 回とも壁を床と誤検出した：
-
-- drjohnson は bounds が `7.6 x 4.7 x 10.7` で人間なら一目で Y 軸が高さと分かるのに、
-  無制約の探索は `x+` を返した（壁の方が広く、インライアが多い）
-- 上方向を教えた上でも、`tilt 1.4 度` という**もっともらしい数字**を出しながら
-  実際は壁に対する 1.4 度だった。ゲームに入れて初めて「床が壁にある」と発覚
-- インライアの反復リファインを足したら精度が上がるどころか `11.9 度 → 23.7 度` と
-  悪化した。下部バンドには家具も壁の裾も入るので、反復するほど「点が多い大きな面」に
-  引っ張られる
+**床の自動検出は諦めた。** RANSAC を 3 通り試して 3 回とも壁を床と誤検出し、しかも
+`tilt 1.4 度` のような**もっともらしい数字**を返すので気づけない（実際は壁に対する
+1.4 度で、ゲームに入れて初めて発覚）。インライアの反復リファインは精度を上げるどころか
+`11.9 度 → 23.7 度` に悪化させた — 反復するほど「点が多い大きな面」に引かれる。
 
 **「点が最も多い平面」と「人間が床と認識する平面」は別物**で、後者は幾何だけからは
-決まらない。SuperSplat が正射影を持っている時点で、そちらが正しい道具だった。
+決まらない。SuperSplat の正射影ビューが正しい道具。
 
 `tools/align_ply.py` に残っている使いどころ：
 
@@ -322,21 +345,12 @@ SuperSplat で開いても同じく逆さまだった → 元データがそう�
 
 #### crop は必要なときだけ。既定で通さない
 
-`crop_ply.py --percentile 5` を playroom にかけたら **28%（54 万 splats）が消え、
-見た目の密度が明らかに落ちた**。パーセンタイルは外周を機械的に切るので、破片だけでなく
-**部屋の壁まで削る**：
+**既定では crop しない。** パーセンタイルは外周を機械的に切るが、**部屋を内側から
+撮ったキャプチャでは壁が外周そのもの**なので、破片ではなく部屋を削ることになる。
+playroom に `--percentile 5` をかけたら 28%（54 万 splats）が消えて密度が目に見えて
+落ちた（`percentile 1` なら 94.3% 残り、壁 1.5 units 分が戻る）。
 
-```
-percentile 5 : keeping x -4.77..4.75   kept 71.7%
-percentile 1 : keeping x -6.24..5.06   kept 94.3%   ← 壁 1.5 units 分が戻る
-```
-
-bonsai のように被写体の周囲に破片が大きく散っているデータでは有効だったが、
-**部屋を内側から撮ったキャプチャでは壁が外周そのもの**なので、パーセンタイルで
-切ると部屋を削ることになる。
-
-**既定では crop しない。** 破片が実際に目障りなときだけ、`--percentile 1` 程度から
-試すか、`--bounds` で部屋を含む箱を明示的に指定する。
+破片が実際に目障りなときだけ `--percentile 1` 程度から試すか、`--bounds` で箱を明示する。
 
 #### 3DGS は Unity で必ず鏡像になる（upstream は座標変換をしない）
 
@@ -380,6 +394,98 @@ w も反転したくなる（q と -q は同じ回転だから）が、**その�
 
 実装を変えたら、行列で検算すること（`M·R·M` と一致するか）。
 ランダム回転 200 個で誤差 0 を確認済み。
+
+#### 向きの検証は目視でなく `tools/verify_orientation.py` で
+
+向きの誤りは**見た目に出ない**。少しぼやけた同じシーンに見えるだけで、症状（針状の
+ハイライト）が出るころには変換もデプロイも終わっている。1 個ずつ数値で照合する：
+
+```bash
+python3 tools/verify_orientation.py build/testdata/bonsai2-aligned.ply \
+        build/splats/bonsai --mirror y --sample 40000 --cell 0.02
+```
+
+ソース ply と `other.bin` の両方から各ガウシアンの楕円体フレームを再構成し、
+対応する 3 軸の角度差を測る。実測（2026-08-18）：
+
+| シーン | 平均 | p99 | 最大 |
+|---|---|---|---|
+| bonsai 1,157,141 | 0.102° | 0.200° | 0.311° |
+| drjohnson 3,177,554 | 0.103° | 0.220° | 0.368° |
+| luigi 14,526 | 0.099° | 0.182° | 0.285° |
+
+**誤差 0 が正解ではない。** rotation は品質設定に関わらず常に 10bit の smallest-three に
+量子化されるので、約 0.18° が理論下限。実測はそこに乗っている。1° を超えたら本物の欠陥。
+
+作るときに踏んだ罠が 3 つ。どれも「もっともらしい誤答」を返す：
+
+- **コンバータは splat を空間順に並べ替える。** インデックス同士の比較は無意味。
+  位置でマッチングする
+- **デコードした float4 は `(x,y,z,w)`。** ply と同じ `(w,x,y,z)` として読むと平均 38° ずれる
+- **本物の 3DGS ply はクォータニオンを正規化して保存しない**（bonsai は 0.98 前後）。
+  回転行列の式は単位長前提なので、そのまま入れると歪んだ行列になり **22° の幻のエラー**が出る。
+  合成テストデータは単位長なので素通りする
+
+向きの既知パターンを持つ合成データは `tools/make_orient_ply.py` が吐く
+（赤=+X / 緑=+Y / 青=+Z / 黄=対角、XY 平面の扇は鏡映で回転方向が反転する）。
+
+#### 絵の検証は独立実装との差分で。自分の目では無理
+
+鏡像も、残骸 chunk.bin も、正射影カメラも、**全部「それらしい絵」を出した**。目視は
+このプロジェクトで一度も欠陥を捕まえていない。別実装に同じ ply を同じカメラで描かせ、
+引き算する：
+
+```bash
+bash tools/compare_with_webref.sh bonsai build/testdata/bonsai2-aligned.ply 1.035,-1.145,-54.8
+```
+
+リファレンスは [antimatter15/splat](https://github.com/antimatter15/splat)（MIT、単一
+ファイルの WebGL ビューア）。リポジトリには入れず `build/webref/` に取得する。
+
+実測（2026-08-18、1024×1024 / focal 1920）：
+
+| シーン | splat 数 | 一致する向き | coverage IoU | 平均差 /255 |
+|---|---|---|---|---|
+| luigi | 14,526 | flip-y | 0.9376 | 8.16 |
+| bonsai | 1,157,141 | flip-y | 0.9389 | 9.79 |
+
+**差分画像で面が黒く、輪郭だけ光るのが正常。** 面が光ったら系統的な誤り。
+
+3つ知っておくこと：
+
+- **リファレンスは Y-down（元祖 3DGS 規約）なので、絵は必ず上下反転で一致する。**
+  `compare_renders.py` は 8 通りの向きを全部試して勝ったものを報告する。決め打ちしない
+- **左右対称な被写体は coverage だけでは向きが決まらない**（Luigi は rot180 でも
+  IoU 0.92 出る）。色差で決着する。実装済み
+- **ビューアの同梱カメラは `fx=1159.59, fy=1164.66`。** 0.4% の差は 1024 幅で 4px あり、
+  比較を潰す。`?f=<focal>` で両方同じ値に上書きするパッチを当てている
+
+##### 正射影カメラで 3DGS を描いてはいけない
+
+比較ビューを作るとき、SuperSplat の view cube に合わせて正射影にしたが、**これが
+自分でバグを作っていた**。シェーダーの `CalcCovariance2D` は透視投影のヤコビアンを組む：
+
+```hlsl
+float focal = screenParams.x * matrixP._m00 / 2;
+J = { focal/z, 0, -focal*x/z^2, ... };
+```
+
+正射影行列では `_m00` は tanFov ではなく、`1/z` の項は意味を持たない。結果、すべての
+splat が誤ったサイズと剪断で描かれる。**エラーは出ず、ただ全体がぼやける。**
+データを疑って時間を溶かした。
+
+`RenderViews` / `RenderCompare` は**極端に細い画角（4°）の透視投影を遠くから**当てる。
+見た目は正射影のまま、シェーダーの数学が正しくなる。
+
+その他の実務メモ：
+
+- **`Camera.Render()` は 2 回呼ぶ。** ソートは描画と同じコマンドバッファに積まれるが、
+  1 フレーム目が確実である保証はない。粒状ノイズが出たら疑う
+- **1024 では実データがザラつく。** サンプル不足。比較は 1024 で足りるが、目視用の
+  絵は `-vdgsSize 2048` にする
+- **Chrome の `--screenshot` は使えない。** ビューアが `requestAnimationFrame` を回し
+  続けるので `--virtual-time-budget` が終わらず、プロセスが固まる。`webref_shot.mjs` が
+  CDP を直接叩き、スピナーが消えるのを待って撮る（Node 24 のネイティブ WebSocket、依存なし）
 
 #### SuperSplat の書き出しは Y が反転している
 
@@ -450,6 +556,39 @@ luigi が「SuperSplat でも mod でも逆さま」だったので座標系は�
 - `chunk.bin` は `ChunkInfo` の配列。空なら chunk 無し（ダミーバッファを作る）
 - 他の3つは `GraphicsBuffer.Target.Raw`、4バイト単位
 
+### 古い chunk.bin が残ると、シーンが黙って砕ける
+
+**VeryHigh（Float32）で変換すると `chunk.bin` は出力されない。** ところが deploy は
+ファイルをコピーするだけで、消えたファイルを消さなかった。結果、前回 Norm16 で変換した
+ときの `chunk.bin` がゲーム側に生き残る。
+
+シェーダーは **バッファの有無だけ** で chunk 適用を決める。フォーマットを見ない：
+
+```hlsl
+uint chunkIdx = idx / kChunkSize;
+if (chunkIdx < _SplatChunkCount)
+    pos = lerp(chunk.posMin, chunk.posMax, pos);   // pos は 0..1 の重みという前提
+```
+
+chunk 付きなら `pos` は箱の中の 0..1 なので正しい。**Float32 は絶対座標**なので、
+`-23.2` を lerp の重みに入れて盛大に外挿する。スケールはさらに悪く、lerp のあと
+8 乗される。位置も色も SH も同じ扱いを受ける。
+
+見た目は「地面に破片が飛び散る」。**エラーは 1 行も出ない**（ファイル自体は正常だから）。
+向きやクォータニオンを疑って一日溶かした。実際は転送の残骸だった。
+
+対処は 2 段：
+
+- `tools/deploy.sh` は、コピー後に **ソースに無いファイルを送り先から削除**する
+  （`placement.json` だけは in-game で編集されるので除外）
+- `SplatData.AcceptChunks` が、`posFormat` が Float32 のとき chunk.bin を警告つきで
+  破棄し、chunk 付きのときは chunk 数が `ceil(splatCount/256)` と一致しなければ
+  ロードを失敗させる
+
+**サイズ検証だけでは足りない。** drjohnson の残骸 chunk.bin は 794,432 バイトで、
+`ceil(3177554/256)×64` と完全に一致していた（同じ ply を前の品質で変換したもの
+だから当然）。フォーマットで弾く規則のほうが本体。
+
 ## プラグインの構成
 
 ```
@@ -501,12 +640,24 @@ upstream から**削った**もの：編集機能・selection・cutouts・URP/HD
 
 ### トラック名の取得
 
-**`InGameChangeTrack.glnoaiifnln` と飛行 HUD（`RaceInfo2/View - Gameplay/TrackName`）**
-から読む。多段フォールバックで、片方が死んでも動く（`TrackName.cs`）。
+多段フォールバック（`TrackName.cs`）。順に：
 
-**`EditorManager.nnpnlmbjocf` は使ってはいけない。** 最初に見つかる上に一見正しく
-見えるが、これは「最後に *エディタで* 開いたトラック」で、別のトラックをロードして
-飛んでも更新されない。実際に別トラックを開いて初めて発覚した。
+1. `InGameChangeTrack.glnoaiifnln`（難読化フィールド。**トラックエディタのシーンには
+   この型自体が存在しない**ので、そこでは空振りする）
+2. **`Track Name` ラベル、パスに `Current Track/Table Entry` を含むもの**
+   （`TrackManager2/Modal - Gameplay - Change Scenery/Content/Current Track/...`）。
+   シーン中で「現在のトラック」を名乗る唯一の UI 要素
+3. 飛行 HUD の `TrackName` ラベル。飛行中は正しいが、**エディタに戻っても最後に飛んだ
+   トラック名を保持し続ける**ので最後に置く
+
+**使ってはいけないもの、3 つ:**
+
+- **`EditorManager.nnpnlmbjocf`** — 「最後に *エディタで* 開いたトラック」。飛んでも
+  更新されない。最初に見つかる上に一見正しく見える
+- **`Tracks Admin Entry(Clone)/TrackEntry/Track` ラベル** — トラック一覧の各行で、
+  ユーザーの全トラックが並ぶ。現在のトラックではない
+- **`Track Name` ラベルを名前だけで拾うこと** — 同じ modal に**列見出し**の
+  `Track Name`（テキストも文字列 `"Track Name"`）が併存する。**必ずパスで絞る**
 
 難読化されたフィールド名はゲームのアップデートで変わる。変わった場合は
 F12（`vdgs-track.txt`）でトラック名を検索して、新しいフィールドを探すこと。
@@ -520,6 +671,9 @@ F12（`vdgs-track.txt`）でトラック名を検索して、新しいフィー�
   bindings はゲーム同梱の **Newtonsoft.Json 13**（`Managed/Newtonsoft.Json.dll`）を使う
 - **`HttpListener` はボディの無い POST を `411 Length Required` で弾く。**
   ハンドラまで届かないので、`curl -X POST .../api/unload` は失敗する。`-d '{}'` を付ける
+- **API のポーリングはゲームを落とさない。** 45 秒連続で `GET /api/status` を叩いても
+  全部 200、ゲームは無事。一度「起動直後のポーリングで 40 秒後に落ちる」と結論したが
+  **誤り**だった。真相は `vdgs-run-interactive.ps1` の末尾（下記）
 
 ### UI のセキュリティ（軽く扱わないこと）
 
@@ -562,10 +716,9 @@ F5・F6・F7・F8 は**使っていない**。操作は Web UI から。
 
 ## 既知の壁
 
-1. **D3D11 では 3DGS が動かない。** aras-p の UnityGaussianSplatting は DX11 サポートを
-   削除済み。Windows では D3D12 か Vulkan が必須。
-   → `-force-d3d12` / `-force-vulkan` で起動できるか要検証。ダメなら
-   `globalgamemanagers` のグラフィックス API リストにパッチ
+1. **D3D11 では 3DGS が動かない**（解決済み）。aras-p の UnityGaussianSplatting は
+   DX11 サポートを削除済みで、Windows では D3D12 か Vulkan が要る。**`-force-d3d12`
+   で起動すれば通る**ので `globalgamemanagers` へのパッチは不要だった。副作用は 6. 参照
 2. **シェーダーは Unity 2021.3.45f2 でビルドする必要がある**（導入済み）。C# はバージョン
    非依存に書けるが、シェーダーと compute shader はゲームと同じ Unity バージョンの
    AssetBundle で供給しないと動かない。
@@ -591,12 +744,12 @@ F5・F6・F7・F8 は**使っていない**。操作は Web UI から。
    - シェーダー AssetBundle → **2021.3.45f2**（ゲームと一致が必須）
    - PLY → バイナリ変換 → **2022.3.42f1**（出力はプレーンなバイナリなのでバージョン非依存）
    - ランタイム C# → BepInEx プラグインに自前実装（collections/burst に依存しない）
-3. **`GaussianSplatAsset` は ScriptableObject。** AssetBundle 経由でロードすると型解決で詰まる。
+4. **`GaussianSplatAsset` は ScriptableObject。** AssetBundle 経由でロードすると型解決で詰まる。
    splat データは生バイナリとして読み、実行時に GraphicsBuffer へ流す自前ローダを書く
-4. **3DGS にコリジョンは無い。** 飛べる壁になる。同じ撮影データからメッシュを抽出して
+5. **3DGS にコリジョンは無い。** 飛べる壁になる。同じ撮影データからメッシュを抽出して
    invisible collider として置く必要がある
 
-5. **`-force-d3d12` はゲーム本体に副作用がある。** ゲームは D3D11 向けにビルドされて
+6. **`-force-d3d12` はゲーム本体に副作用がある。** ゲームは D3D11 向けにビルドされて
    いるため、PostProcessing v2 の compute shader が D3D12 では見つからない：
 
    ```
@@ -604,22 +757,31 @@ F5・F6・F7・F8 は**使っていない**。操作は Web UI から。
    UnityEngine.Rendering.PostProcessing.LogHistogram.Generate
    ```
 
-   Auto Exposure（Eye Adaptation）が毎フレーム例外を投げる。
+   Auto Exposure が毎フレーム例外を投げる。**描画への実害は無い**、汚れるのはログだけ。
 
-   **実害はない**：117 万 splats を積んだまま 60 FPS が維持され、描画も正常。
-   汚れるのはログだけ。
+   **`AutoExposure.active = false` では止まらない**（`src/VDGS/PostProcessFix.cs` で
+   試して失敗）。`PostProcessLayer.RenderBuiltins` は有効・無効に関わらず
+   `LogHistogram.Generate` を呼ぶため。同じ手を再発明しないこと。
 
-   **`AutoExposure.active = false` にしても止まらない**（`src/VDGS/PostProcessFix.cs` で
-   試して失敗）。PostProcessing v2 の `PostProcessLayer.RenderBuiltins` は
-   AutoExposure の有効・無効に関わらず `LogHistogram.Generate` を呼ぶため。
-   Volume の無効化は成功する（`scanned 1, disabled 1`）のに、例外は増え続ける
-   （11,210 件を確認）。同じ手を再発明しないこと。
+   対処は `BepInEx.cfg` の `UnityLogListening = false`。ただし副作用として
+   **Unity 側の例外は `Player.log` にしか出なくなり、そこはこのスパムで数十 MB に
+   膨らむ**（1 セッションで 64MB を観測）。ログを読むときは必ず除外する：
 
-   実際の対処は **`BepInEx.cfg` の `UnityLogListening = false`**。これで Unity の
-   例外が BepInEx ログに転送されなくなる。Unity 自身の `Player.log` には残るが、
-   そちらは肥大化しても実害がない
+   ```powershell
+   Get-Content $log | Where-Object { $_ -notmatch "KEyeHistogramClear|PostProcessing|^\s*at " }
+   ```
+
+## 残タスク
+
+- **`tools/reprocess.sh` の `|| true` が失敗を隠す。** Unity のプロジェクトロックで
+  変換が黙って飛んでも成功に見える。今回の chunk.bin 事故の原因ではないが、次に噛む
+- **`vdgs-run-interactive.ps1` がリポジトリ外**（`w` の `%USERPROFILE%\`）にしか無い。
+  版管理されておらず、今回のような仕掛けが見えにくい。`tools/` に取り込むべき
+- **luigi が逆さまに出る。** 元データ由来で、`--mirror y` を通すと上下が反転する。
+  テスト用アセットなので飛行シーンには無関係
 
 ## 参考
 
 - [aras-p/UnityGaussianSplatting](https://github.com/aras-p/UnityGaussianSplatting) — Mac M1 Max で 46FPS の実測あり
+- [antimatter15/splat](https://github.com/antimatter15/splat) — 比較用リファレンス（MIT、単一ファイル WebGL）
 - [BepInEx releases](https://github.com/BepInEx/BepInEx/releases)
