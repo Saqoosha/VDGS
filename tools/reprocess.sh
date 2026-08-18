@@ -18,6 +18,11 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 UNITY="${VDGS_UNITY:-/Applications/Unity/Hub/Editor/2022.3.42f1/Unity.app/Contents/MacOS/Unity}"
 CONVERTER="$ROOT/unity/VDGSConverter"
 QUALITY="${VDGS_QUALITY:-VeryHigh}"
+# Palette-compressed spherical harmonics. Measured on the RTX 3060 (the machine that
+# matters - an M1 Max hides this behind unified memory): drjohnson's splat cost falls
+# 48%, the whole frame 34%, for a mean pixel difference of 1.58/255. Geometry stays at
+# full Float32 precision because the preset is applied first and only SH is overridden.
+SH_FORMAT="${VDGS_SH_FORMAT:-Cluster16k}"
 
 # scene:source  — sources are SuperSplat exports unless noted
 SCENES=(
@@ -47,13 +52,29 @@ for entry in "${SCENES[@]}"; do
   python3 "$ROOT/tools/align_ply.py" "$src" "$mirrored" --mirror y --rotate 0,0,0 \
     | grep -E "^input|mirrored|density check|WARNING|bounds" || true
 
+  # No `|| true` here, and no swallowing the exit status through a pipe. Unity refuses to
+  # open a project a previous instance still holds, and a compile error in the exporter
+  # exits non-zero - both used to look like success and leave the previous conversion in
+  # place, which is how a scene silently stayed stale.
+  log="$(mktemp -t vdgs-convert)"
+  set +e
   ( cd "$CONVERTER" && "$UNITY" -batchmode -quit -nographics \
       -projectPath "$CONVERTER" \
       -executeMethod PlyExporter.Run \
       -vdgsInput "$mirrored" \
       -vdgsOutput "$ROOT/build/splats/$name" \
       -vdgsQuality "$QUALITY" \
-      -logFile - 2>&1 | grep -E "\[VDGS\] export|fatal|error CS" ) || true
+      -vdgsShFormat "$SH_FORMAT" \
+      -logFile - ) >"$log" 2>&1
+  status=$?
+  set -e
+  grep -E "\[VDGS\] (export|SH format)|fatal|error CS" "$log" | head -6 || true
+  if [ $status -ne 0 ] || ! grep -q "\[VDGS\] exported" "$log"; then
+    echo "!! $name: conversion FAILED (exit $status) - full log at $log" >&2
+    rm -f "$mirrored"
+    exit 1
+  fi
+  rm -f "$log"
 
   # The data is already correct in world terms; placement stays identity so the
   # in-game scale/height controls start from a known baseline.
