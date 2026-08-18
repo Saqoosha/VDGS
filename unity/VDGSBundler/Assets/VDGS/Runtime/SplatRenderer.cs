@@ -194,8 +194,11 @@ namespace VDGS
         internal static readonly int MatrixObjectToClip = Shader.PropertyToID("_MatrixObjectToClip");
         internal static readonly int CullEnabled = Shader.PropertyToID("_CullEnabled");
         internal static readonly int CullMargin = Shader.PropertyToID("_CullMargin");
+        internal static readonly int CullProjScale = Shader.PropertyToID("_CullProjScale");
+        internal static readonly int CullRadiusScale = Shader.PropertyToID("_CullRadiusScale");
         internal static readonly int SplatVisibleCount = Shader.PropertyToID("_SplatVisibleCount");
         internal static readonly int SplatDrawArgs = Shader.PropertyToID("_SplatDrawArgs");
+        internal static readonly int SplatChunkRadius = Shader.PropertyToID("_SplatChunkRadius");
         internal static readonly int SplatSortDistances = Shader.PropertyToID("_SplatSortDistances");
         internal static readonly int MatrixMV = Shader.PropertyToID("_MatrixMV");
         internal static readonly int MatrixObjectToWorld = Shader.PropertyToID("_MatrixObjectToWorld");
@@ -230,23 +233,26 @@ namespace VDGS
         public bool m_FrustumCulling = true;
 
         /// <summary>
-        /// How far past the screen edge a splat's centre may sit and still be kept, as a
-        /// fraction of the half-width. The test is on centres, so this is what protects a
-        /// large splat whose centre has left the view but whose skirt has not.
+        /// Sigma multiplier on each splat's own size, used as its frustum margin.
         ///
-        /// 8 is not a guess: the value was raised until the culled image matched the
-        /// unculled one exactly. Measured on drjohnson from inside, at 120 degrees:
+        /// The test is on centres, so a splat whose centre has just left the view but
+        /// whose skirt has not must still be kept. Bounding each splat by its own radius
+        /// rather than by one number for the whole scene is what makes the margin small:
+        /// captures hold a few enormous diffuse gaussians, and a global margin has to
+        /// cover those, so every small splat pays for them.
         ///
-        ///     margin 0.5   mean pixel difference 11.48/255   0.2% of pixels identical
-        ///     margin 2      1.78                             6.6%
-        ///     margin 8      0.00                             100%
+        /// 4 is measured, not chosen - the value was raised until the culled image
+        /// matched the unculled one exactly. drjohnson from inside, at 120 degrees:
         ///
-        /// It has to be this wide because one margin has to cover the biggest splat in
-        /// the scene, and captures contain a few enormous diffuse ones. The saving is
-        /// 15% rather than the 22% a lossy 0.5 would give - see docs/performance.md for
-        /// the per-splat bound that would recover the difference.
+        ///     sigma 1   mean pixel difference 2.78/255    5.7% of pixels identical
+        ///     sigma 2    1.07                            34.8%
+        ///     sigma 3    0.0007                          99.8%
+        ///     sigma 4    0.00                           100%
+        ///
+        /// The drawn quad is +/-2 sigma in the covariance axes, so 4 is two quads' worth
+        /// of slack over the projection.
         /// </summary>
-        public float m_CullMargin = 8f;
+        public float m_CullMargin = 4f;
         public float m_PointDisplaySize = 3.0f;
 
         // Matches GaussianCutout.ShaderData: Matrix4x4 + uint.
@@ -272,6 +278,7 @@ namespace VDGS
         private Texture m_GpuColorData;
         internal GraphicsBuffer m_GpuChunks;
         private GraphicsBuffer m_GpuVisibleCount;
+        private GraphicsBuffer m_GpuChunkRadius;
         internal GraphicsBuffer m_GpuDrawArgs;   // read by the render system's indirect draw
         internal bool m_GpuChunksValid;
         internal GraphicsBuffer m_GpuView;
@@ -429,6 +436,39 @@ namespace VDGS
             return buf;
         }
 
+        /// <summary>
+        /// Largest gaussian radius per block of kChunkSize splats, computed once.
+        ///
+        /// The frustum cull needs a per-splat margin, and reading each splat's scale in
+        /// the distance pass gave one - but the index there comes from the sorted key
+        /// buffer, so those reads scatter over the whole of other.bin every frame and
+        /// cost more than the tighter margin saved. This runs over the splats in order,
+        /// where the reads are sequential, and leaves a table small enough to stay in
+        /// cache: four bytes per 256 splats.
+        /// </summary>
+        private void BuildChunkRadii(int count)
+        {
+            var cs = m_CSSplatUtilities;
+            if (cs == null) return;
+
+            int blocks = (count + SplatData.kChunkSize - 1) / SplatData.kChunkSize;
+            m_GpuChunkRadius = new GraphicsBuffer(GraphicsBuffer.Target.Structured, blocks, 4)
+            { name = "VDGS ChunkRadius" };
+            m_GpuChunkRadius.SetData(new uint[blocks]);
+
+            int k = cs.FindKernel("CSCalcChunkRadius");
+            cs.SetBuffer(k, Props.SplatChunkRadius, m_GpuChunkRadius);
+            cs.SetBuffer(k, Props.SplatOther, m_GpuOtherData);
+            cs.SetBuffer(k, Props.SplatChunks, m_GpuChunks);
+            cs.SetInt(Props.SplatChunkCount, m_GpuChunksValid ? m_GpuChunks.count : 0);
+            cs.SetInt(Props.SplatCount, count);
+            cs.SetInt(Props.SplatFormat, (int)((uint)m_Data.PosFormat
+                                             | ((uint)m_Data.ScaleFormat << 8)
+                                             | ((uint)m_Data.ShFormat << 16)));
+            cs.GetKernelThreadGroupSizes(k, out uint gsX, out _, out _);
+            cs.Dispatch(k, (count + (int)gsX - 1) / (int)gsX, 1, 1);
+        }
+
         private void InitSortBuffers(int count)
         {
             DisposeBuffer(ref m_GpuSortDistances);
@@ -444,6 +484,7 @@ namespace VDGS
 
             DisposeBuffer(ref m_GpuVisibleCount);
             DisposeBuffer(ref m_GpuDrawArgs);
+            DisposeBuffer(ref m_GpuChunkRadius);
             m_GpuVisibleCount = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1, 4)
             { name = "VDGS VisibleCount" };
             m_GpuDrawArgs = new GraphicsBuffer(GraphicsBuffer.Target.IndirectArguments, 5, 4)
@@ -453,6 +494,8 @@ namespace VDGS
             // count so a scene is visible immediately and stays visible if sorting is
             // skipped by m_SortNthFrame.
             m_GpuDrawArgs.SetData(new uint[] { 6, (uint)count, 0, 0, 0 });
+
+            BuildChunkRadii(count);
 
             var cs = m_CSSplatUtilities;
             cs.SetBuffer((int)KernelIndices.SetIndices, Props.SplatSortKeys, m_GpuSortKeys);
@@ -564,7 +607,17 @@ namespace VDGS
             cmd.SetComputeBufferParam(cs, k, Props.SplatSortKeys, m_GpuSortKeys);
             cmd.SetComputeBufferParam(cs, k, Props.SplatChunks, m_GpuChunks);
             cmd.SetComputeBufferParam(cs, k, Props.SplatPos, m_GpuPosData);
-            cmd.SetComputeIntParam(cs, Props.SplatFormat, (int)m_Data.PosFormat);
+            // The whole format word, not just the position part. LoadSplatPos only reads
+            // the low byte, which is why this used to get away with it - but the cull now
+            // calls LoadSplatScale, and that derives the other.bin stride from the scale
+            // and SH formats in the upper bytes. Leaving them zero computed a 16-byte
+            // stride for data that is actually 18, so every scale read landed on the
+            // wrong splat and the radius was noise. The symptom was a cull that ignored
+            // its own margin: raising the multiplier twentyfold changed nothing.
+            uint distFormat = (uint)m_Data.PosFormat
+                            | ((uint)m_Data.ScaleFormat << 8)
+                            | ((uint)m_Data.ShFormat << 16);
+            cmd.SetComputeIntParam(cs, Props.SplatFormat, (int)distFormat);
             cmd.SetComputeMatrixParam(cs, Props.MatrixMV, worldToCamMatrix * matrix);
             cmd.SetComputeIntParam(cs, Props.SplatCount, m_SplatCount);
             cmd.SetComputeIntParam(cs, Props.SplatChunkCount, m_GpuChunksValid ? m_GpuChunks.count : 0);
@@ -574,8 +627,23 @@ namespace VDGS
             // Object -> clip, with the platform's projection conventions applied. The
             // distance pass only has the modelview matrix, and a hand-rolled projection
             // here would be wrong on exactly one graphics API and right on the others.
+            var proj = GL.GetGPUProjectionMatrix(cam.projectionMatrix, true);
             cmd.SetComputeMatrixParam(cs, Props.MatrixObjectToClip,
-                GL.GetGPUProjectionMatrix(cam.projectionMatrix, true) * cam.worldToCameraMatrix * matrix);
+                proj * cam.worldToCameraMatrix * matrix);
+            // A clip-space frustum plane is not unit length. For the side planes the
+            // gradient with respect to view position is (P00, 0, -1), so a sphere of
+            // radius r reaches r*sqrt(P00^2+1) across the plane, not r*P00. At 120
+            // degrees that is a factor of two.
+            cmd.SetComputeVectorParam(cs, Props.CullProjScale, new Vector4(
+                Mathf.Sqrt(proj.m00 * proj.m00 + 1f),
+                Mathf.Sqrt(proj.m11 * proj.m11 + 1f), 0, 0));
+            // A gaussian's drawn footprint is the quad the vertex shader emits, +/-2 in
+            // the covariance axes; m_CullMargin is now the sigma multiplier on top of
+            // that rather than a fraction of the screen. The object's own scale has to be
+            // folded in because the capture is placed with a scale in the world.
+            cmd.SetComputeFloatParam(cs, Props.CullRadiusScale,
+                Mathf.Max(0f, m_CullMargin) * m_SplatScale * Mathf.Abs(transform.lossyScale.x));
+            cmd.SetComputeBufferParam(cs, k, Props.SplatChunkRadius, m_GpuChunkRadius);
 
             cs.GetKernelThreadGroupSizes(k, out uint gsX, out _, out _);
             cmd.DispatchCompute(cs, k, (m_GpuSortDistances.count + (int)gsX - 1) / (int)gsX, 1, 1);

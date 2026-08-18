@@ -425,6 +425,45 @@ half4 LoadSplatColTex(uint3 coord)
     return _SplatColor.Load(coord);
 }
 
+/// Just the scale, without touching rotation, colour or spherical harmonics.
+///
+/// The frustum cull needs a per-splat radius, and LoadSplatData would drag in the SH read
+/// - which is the single most expensive part of a splat - to get it. This mirrors the
+/// scale half of LoadSplatData exactly, chunk decode included: a chunked scale is stored
+/// as a 0..1 weight and comes back through lerp then raised to the eighth power.
+float3 LoadSplatScale(uint idx)
+{
+    uint scaleFmt = (_SplatFormat >> 8) & 0xFF;
+    uint shFormat = (_SplatFormat >> 16) & 0xFF;
+
+    uint otherStride = 4; // rotation is 10.10.10.2
+    if (scaleFmt == VECTOR_FMT_32F)
+        otherStride += 12;
+    else if (scaleFmt == VECTOR_FMT_16)
+        otherStride += 6;
+    else if (scaleFmt == VECTOR_FMT_11)
+        otherStride += 4;
+    else if (scaleFmt == VECTOR_FMT_6)
+        otherStride += 2;
+    if (shFormat > VECTOR_FMT_6)
+        otherStride += 2;
+
+    float3 scale = LoadAndDecodeVector(_SplatOther, idx * otherStride + 4, scaleFmt);
+
+    uint chunkIdx = idx / kChunkSize;
+    if (chunkIdx < _SplatChunkCount)
+    {
+        SplatChunkInfo chunk = _SplatChunks[chunkIdx];
+        half3 sclMin = half3(f16tof32(chunk.sclX    ), f16tof32(chunk.sclY    ), f16tof32(chunk.sclZ    ));
+        half3 sclMax = half3(f16tof32(chunk.sclX>>16), f16tof32(chunk.sclY>>16), f16tof32(chunk.sclZ>>16));
+        scale = lerp(sclMin, sclMax, scale);
+        scale *= scale;
+        scale *= scale;
+        scale *= scale;
+    }
+    return scale;
+}
+
 SplatData LoadSplatData(uint idx)
 {
     SplatData s = (SplatData)0;

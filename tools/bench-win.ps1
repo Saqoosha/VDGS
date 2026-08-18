@@ -21,7 +21,7 @@ param(
     [int]$SortNth = 1,
     [int]$Inside = 0,
     [int]$Cull = 1,
-    [double]$CullMargin = 0.5,
+    [double]$CullMargin = 4,
     [string]$Tgz = '%USERPROFILE%\vdgs-bench.tgz',
     [string]$Project = '%USERPROFILE%\VDGSBench'
 )

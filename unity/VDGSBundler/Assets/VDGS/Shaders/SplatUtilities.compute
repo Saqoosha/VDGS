@@ -16,6 +16,7 @@
 #pragma kernel CSScaleSelection
 #pragma kernel CSExportData
 #pragma kernel CSCopySplats
+#pragma kernel CSCalcChunkRadius
 #pragma kernel CSResetVisibleCount
 #pragma kernel CSPrepareDrawArgs
 
@@ -61,6 +62,16 @@ RWStructuredBuffer<uint> _SplatSortKeys;
 float4x4 _MatrixObjectToClip;
 uint _CullEnabled;
 float _CullMargin;
+// Projection scale (P._m00, P._m11) and the world scale of this splat object, so the
+// margin can be derived from each splat's own size instead of from one global number.
+float2 _CullProjScale;
+float _CullRadiusScale;
+// Largest gaussian radius in each block of kChunkSize splats, built once when the scene
+// loads. Reading each splat's own scale in the distance pass was correct but slower than
+// the cull it enabled: the index comes from the sorted key buffer, so it scatters reads
+// across the whole of other.bin every frame. This table is four bytes per 256 splats -
+// 50 KB for three million - and stays in cache.
+RWStructuredBuffer<uint> _SplatChunkRadius;
 RWStructuredBuffer<uint> _SplatVisibleCount;
 RWStructuredBuffer<uint> _SplatDrawArgs;
 uint _SplatCount;
@@ -99,12 +110,18 @@ void CSCalcDistances (uint3 id : SV_DispatchThreadID)
     if (_CullEnabled != 0)
     {
         float4 clip = mul(_MatrixObjectToClip, float4(posObj, 1));
-        // The test is on the splat's centre, so the frustum is widened by _CullMargin to
-        // keep a splat whose centre has just left the screen but whose skirt has not.
-        // The margin is a fraction of the half-width, and only a splat covering more than
-        // half of it could be wrongly dropped.
-        float lim = clip.w * (1.0 + _CullMargin);
-        culled = clip.w <= 0 || abs(clip.x) > lim || abs(clip.y) > lim;
+
+        // Per-splat, not per-scene. A single global margin has to cover the largest
+        // gaussian anywhere in the capture, and captures hold a few enormous diffuse
+        // ones, so every small splat ends up paying for them. Bounding each splat by its
+        // own size keeps the cull exact where it matters and tight everywhere else.
+        float radius = asfloat(_SplatChunkRadius[origIdx / kChunkSize]) * _CullRadiusScale;
+
+        // clip.w is the view depth, so a sphere of world radius r about the centre
+        // reaches clip.w +/- r along the axis and r * P00 across it.
+        culled = (clip.w + radius <= 0)
+              || abs(clip.x) > clip.w + radius * _CullProjScale.x
+              || abs(clip.y) > clip.w + radius * _CullProjScale.y;
     }
 
     _SplatSortDistances[idx] = culled ? 0xFFFFFFFFu : FloatToSortableUint(pos.z);
@@ -114,6 +131,20 @@ void CSCalcDistances (uint3 id : SV_DispatchThreadID)
     uint waveVisible = WaveActiveCountBits(!culled);
     if (WaveIsFirstLane() && waveVisible > 0)
         InterlockedAdd(_SplatVisibleCount[0], waveVisible);
+}
+
+[numthreads(GROUP_SIZE,1,1)]
+void CSCalcChunkRadius (uint3 id : SV_DispatchThreadID)
+{
+    uint idx = id.x;
+    if (idx >= _SplatCount)
+        return;
+
+    float3 scl = LoadSplatScale(idx);
+    float r = max(scl.x, max(scl.y, scl.z));
+    // Non-negative floats order the same as their bit patterns, so an integer max is a
+    // float max. Run over idx in order, so the scale reads here are sequential.
+    InterlockedMax(_SplatChunkRadius[idx / kChunkSize], asuint(r));
 }
 
 [numthreads(1,1,1)]

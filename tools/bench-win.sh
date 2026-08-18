@@ -18,7 +18,7 @@ SORTNTH="${VDGS_BENCH_SORTNTH:-1}"
 # Framing the whole capture culls nothing; the drone flies inside it.
 INSIDE="${VDGS_BENCH_INSIDE:-0}"
 CULL="${VDGS_BENCH_CULL:-1}"
-CULLMARGIN="${VDGS_BENCH_CULLMARGIN:-0.5}"
+CULLMARGIN="${VDGS_BENCH_CULLMARGIN:-4}"
 
 quiet() { grep -vE "WARNING: |store now, decrypt later|may need to be upgraded|openssh.com/pq" || true; }
 
