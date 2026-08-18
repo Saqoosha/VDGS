@@ -3,24 +3,50 @@
 drjohnson（317 万 splats）で RTX 3060 のファンが唸る問題。**品質を落とさずに**速くする
 方法を洗う。
 
-**結論を先に：コストの 87% は「splat 1 個あたりの固定コスト」で、それを毎フレーム
-全 splat に払っている。可視でないものにも。ここを削るのが本筋。**
+**結論を先に：RTX 3060 では SH のパレット圧縮でフレーム時間が 34% 減る（splat コスト
+だけ見れば 48% 減）。実装済み・品質劣化ほぼゼロ。まずこれを全シーンに適用する。**
+
+**そして最大の教訓：Mac で測った結論は 3060 に移らなかった。** 同じ比較が Mac で 6.5%、
+3060 で 48%。M1 Max のユニファイドメモリが帯域を隠していた。**必ず実機で測ること。**
 
 ---
 
 ## 1. コストの所在（実測）
 
-推測を捨てるために、変数を 1 つずつ動かして測った。測定器は `RenderBench`
-（`unity/VDGSBundler`、`Camera.Render()` 後に読み戻して GPU を同期させるので 1 反復が
-実フレーム）。M1 Max なので絶対値は RTX 3060 に移せないが、**比は移る**。
+測定器は `RenderBench`（`unity/VDGSBundler`）。`Camera.Render()` の後に 1 画素だけ
+読み戻して GPU を同期させるので、1 反復が実フレームになる。
+
+### RTX 3060 / D3D12（本番機。`bash tools/bench-win.sh`）
+
+```
+                splats   B/splat    合計      床を引いた splat コスト
+empty                0        -    4.16 ms          -
+bonsai           1.16M      236    6.66 ms      2.50 ms   (2.16 ms/100万)
+playroom         1.92M       84    8.24 ms      4.08 ms   (2.13 ms/100万)
+drjohnson        3.18M      236   13.92 ms      9.76 ms   (3.07 ms/100万)
+drjohnson-shc    3.18M       46    9.20 ms      5.04 ms   (1.59 ms/100万)
+```
+
+**drjohnson → drjohnson-shc で splat コストが 48% 減、フレーム全体で 34% 減。**
+
+### M1 Max（参考。結論が違う）
 
 ```
 empty            2.68 ms
-playroom         17.86 ms   1.92M splats,  84 B/splat
-bonsai           21.52 ms   1.16M splats, 236 B/splat
-drjohnson        32.31 ms   3.18M splats, 236 B/splat
-drjohnson-shc    30.21 ms   3.18M splats,  46 B/splat
+playroom         17.86 ms
+bonsai           21.52 ms
+drjohnson        32.31 ms
+drjohnson-shc    30.21 ms   ← 同じ比較が 6.5% しか出ない
 ```
+
+**同じ 2 つのシーンを比べて Mac 6.5%、3060 48%。** ユニファイドメモリは帯域を隠す。
+ディスクリート GPU は隠さない。**結論は必ず実機で取ること。**
+
+### 測定器そのものの罠
+
+最初は毎フレーム 1024×1024 を丸ごと読み戻していた。Mac では誤差だが、**PCIe 越しの
+ディスクリート GPU では転送が支配的**になり、空フレームが 17.55 ms と「200 万 splat を
+描くより遅い」という無意味な数字を出した。**1 画素の読み戻しでも同期は取れる。**
 
 ### 内訳
 

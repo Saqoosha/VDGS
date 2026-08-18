@@ -97,7 +97,7 @@ public static class RenderBench
 
         var rt = new RenderTexture(size, size, 24, RenderTextureFormat.ARGB32) { antiAliasing = 1 };
         cam.targetTexture = rt;
-        var tex = new Texture2D(size, size, TextureFormat.RGB24, false);
+        var tex = new Texture2D(1, 1, TextureFormat.RGB24, false);
 
         for (int i = 0; i < warmup; i++) Frame(cam, rt, tex, size);
 
@@ -130,13 +130,22 @@ public static class RenderBench
         if (go != null) Object.DestroyImmediate(go);
     }
 
-    /// <summary>One end-to-end frame: draw, then read back so the GPU actually finishes.</summary>
+    /// <summary>
+    /// One end-to-end frame: draw, then read a single pixel back so the GPU actually
+    /// finishes before the stopwatch stops.
+    ///
+    /// One pixel, not the whole target. Reading the full 1024x1024 back costs nothing
+    /// worth noticing on a Mac's unified memory, but across PCIe to a discrete card it
+    /// dominates: an empty frame measured 17.55 ms on the RTX 3060, slower than actually
+    /// rendering two million splats. A 1x1 read still forces the same sync and transfers
+    /// four bytes.
+    /// </summary>
     private static void Frame(Camera cam, RenderTexture rt, Texture2D tex, int size)
     {
         cam.Render();
         var prev = RenderTexture.active;
         RenderTexture.active = rt;
-        tex.ReadPixels(new Rect(0, 0, size, size), 0, 0);
+        tex.ReadPixels(new Rect(0, 0, 1, 1), 0, 0);
         tex.Apply();
         RenderTexture.active = prev;
     }
