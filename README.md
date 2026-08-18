@@ -10,11 +10,12 @@ VelociDrone の中に 3D Gaussian Splatting シーンを表示する mod。
 
 | | |
 |---|---|
-| 最大 splat 数 | **1,157,141**（3 シーン同時） |
-| フレームレート | **60 FPS 張り付き**（RTX 3060、worst frame 16.67ms） |
+| 最大 splat 数 | **3,177,554**（drjohnson 単体）／ 117 万を 3 シーン同時 |
+| 描画時間 | **9.0 ms**（317 万 splats、RTX 3060、ドローン目線・画角 120°） |
 | 深度 | ゲートや機体との前後関係、半透明ブレンドとも破綻なし |
 
-VSync の上限に当たっているので、実際の余力はこれより上。
+SH のパレット圧縮と視錐台カリングで、どちらも**画質を落とさずに** 13.3 → 9.0 ms。
+内訳は [docs/performance.md](docs/performance.md)。
 
 ## 仕組み
 
@@ -34,6 +35,9 @@ VSync の上限に当たっているので、実際の余力はこれより上�
 |---|---|
 | [docs/USAGE.md](docs/USAGE.md) | 導入・起動・データ投入・操作 |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 内部構造と設計判断の理由 |
+| [docs/performance.md](docs/performance.md) | 描画コストの内訳と、削るための手 |
+| [docs/verification.md](docs/verification.md) | 描画結果を数値で検証する道具 |
+| [docs/alignment.md](docs/alignment.md) | キャプチャの向き合わせと鏡像の扱い |
 | [AGENTS.md](AGENTS.md) | 環境の実測値、踏んだ罠の全記録 |
 
 ## 必要なもの
