@@ -1,28 +1,45 @@
-# VDGS の使い方
+# Using VDGS
 
-VelociDrone に 3D Gaussian Splatting シーンを表示する mod の導入・運用手順。
+*[日本語版](USAGE.ja.md)*
 
-内部構造・設計判断・踏んだ罠は [AGENTS.md](../AGENTS.md) を見ること。ここは操作手順だけ。
+How to install and operate the mod that renders 3D Gaussian Splatting captures inside
+VelociDrone.
+
+For internals, design decisions and the traps behind them, see
+[ARCHITECTURE.md](ARCHITECTURE.md) and [AGENTS.md](../AGENTS.md). This file is procedure
+only.
 
 ---
 
-## 1. 必要なもの
+## 1. What you need
+
+**To run the mod:**
 
 | | |
 |---|---|
-| VelociDrone | Unity 2021.3.45f2 ビルド（1.16 以降で確認） |
-| GPU | **D3D12 対応**（DX11 では動かない。理由は後述） |
+| VelociDrone | a Unity 2021.3.45f2 build (verified on 1.16 and later) |
+| GPU | **D3D12 capable**. DX11 will not work — see §3 |
 | BepInEx | 5.4.23.5 win_x64 |
-| Unity 2021.3.45f2 | シェーダー AssetBundle を焼くため。**Windows 必須** |
-| Unity 2022.3.x | `.ply` を変換するため。Mac でも可 |
+
+**To build the mod:**
+
+| | |
+|---|---|
+| .NET SDK | to compile `src/VDGS` |
+| Unity 2021.3.45f2 | to bake the shader AssetBundle. **Windows only** |
+| Unity 2022.3.x | optional — only for the offline `.ply` converter |
+
+The mod reads `.ply` files directly, so **converting a capture is optional**. Convert when
+you want a smaller file on disk or a faster load.
 
 ---
 
-## 2. インストール
+## 2. Installing
 
 ### 2-1. BepInEx
 
-[BepInEx 5.4.23.5 win_x64](https://github.com/BepInEx/BepInEx/releases) をゲームフォルダに展開する。
+Unpack [BepInEx 5.4.23.5 win_x64](https://github.com/BepInEx/BepInEx/releases) into the
+game folder.
 
 ```powershell
 $app = '<VelociDrone>\app'
@@ -30,9 +47,9 @@ Invoke-WebRequest 'https://github.com/BepInEx/BepInEx/releases/download/v5.4.23.
 Expand-Archive "$env:TEMP\bepinex.zip" -DestinationPath $app -Force
 ```
 
-一度ゲームを起動して終了すると `BepInEx\config\BepInEx.cfg` が生成される。
+Launch the game once and quit; that generates `BepInEx\config\BepInEx.cfg`.
 
-**ログを見たいなら** `BepInEx.cfg` の末尾に足す（5.4.23 はディスクログが既定で無効）：
+**If you want logs**, append this (5.4.23 has disk logging off by default):
 
 ```ini
 [Logging.Disk]
@@ -43,155 +60,176 @@ LogLevel = Fatal, Error, Warning, Message, Info
 UnityLogListening = false
 ```
 
-`UnityLogListening = false` は必須に近い。`-force-d3d12` で起動するとゲーム側の
-Auto Exposure が毎フレーム例外を投げ、これを切らないとログが埋まる（実害は無い）。
+`UnityLogListening = false` is close to mandatory. Under `-force-d3d12` the game's own
+Auto Exposure throws every frame, and without this the log fills with it. It is harmless
+otherwise.
 
-### 2-2. シェーダー AssetBundle
+### 2-2. The shader AssetBundle
 
-**Windows の Unity 2021.3.45f2 でしか焼けない。** macOS の Unity は D3D 向けの DXC
-コンパイルを拒否し、エラーを出さずに空のシェーダーを吐く。
+**This can only be baked by Unity 2021.3.45f2 on Windows.** Unity on macOS refuses to run
+DXC against D3D and emits empty shaders without raising an error.
 
 ```powershell
-# unity/VDGSBundler をプロジェクトとして開き、2段階で実行する
+# open unity/VDGSBundler as a project and run two steps
 Unity.exe -batchmode -quit -nographics -projectPath <VDGSBundler> `
           -executeMethod BuildBundles.SetGraphicsApis -logFile -
 Unity.exe -batchmode -quit -nographics -projectPath <VDGSBundler> `
-          -executeMethod BuildBundles.BuildWindows -vdgsOut <出力先> -logFile -
+          -executeMethod BuildBundles.BuildWindows -vdgsOut <destination> -logFile -
 ```
 
-できた `vdgs-shaders` を `<VelociDrone>\app\vdgs\vdgs-shaders` に置く。
+Put the resulting `vdgs-shaders` at `<VelociDrone>\app\vdgs\vdgs-shaders`.
 
-**サイズが 1MB 以上あることを必ず確認する。** 数十 KB なら中身が空で、グラフィックス
-API の設定漏れかホスト OS の問題。バンドルは正常にロードできてしまい、
-`shader.isSupported` が false になるだけなので気づきにくい。
+**Check that it is at least 1 MB.** Tens of kilobytes means it is empty — either the
+graphics API was not set or it was baked on the wrong OS. The bundle still loads
+perfectly; only `shader.isSupported` goes false, which is easy to miss.
 
-### 2-3. プラグイン
+From a Mac with SSH access, `bash tools/bake-shaders.sh` does the whole round trip and
+checks the size for you.
+
+### 2-3. The plugin
 
 ```bash
-bash tools/deploy.sh          # ビルド → SSH で転送 → 設置
+bash tools/deploy.sh          # build, ship over SSH, install
 ```
 
-SSH を使わない場合は `dotnet build src/VDGS/VDGS.csproj -c Release` して、
-`VDGS.dll` を `<VelociDrone>\app\BepInEx\plugins\` に置く。
+Without SSH: `dotnet build src/VDGS/VDGS.csproj -c Release` and copy `VDGS.dll` into
+`<VelociDrone>\app\BepInEx\plugins\`.
 
 ---
 
-## 3. 起動
+## 3. Launching
 
-**必ず `-force-d3d12` を付ける。**
+**Always pass `-force-d3d12`.**
 
 ```
 velocidrone.exe -force-d3d12
 ```
 
-splat のソートに使う compute shader が Shader Model 6 の wave intrinsics
-（`WavePrefixSum` など 41 箇所）を要求する。DX11 には存在しない命令なので、
-素で起動すると splat は一切描画されない。
+The compute shader that sorts splats needs Shader Model 6 wave intrinsics
+(`WavePrefixSum` and friends, 41 uses). Those instructions do not exist in DX11, so
+without the flag nothing is drawn at all.
 
-`-force-vulkan` は**使えない**。VelociDrone 自身が Vulkan 向けにビルドされておらず、
-ゲームのシェーダーが無くて画面が出ない。
+`-force-vulkan` **does not work**: VelociDrone itself is not built for Vulkan, so the
+game's own shaders are missing and you get no picture.
 
-### SSH 越しに起動する場合
+### Launching over SSH
 
-SSH シェルはセッション 0 で動き、ウィンドウステーションを持たない。そこから起動すると
-DirectX がスワップチェーンを作れず、Unity は Mono のロードすら終わらずに死ぬ。
-タスクスケジューラで対話セッションに投げる必要がある。
+An SSH shell runs in session 0 and has no window station. DirectX cannot create a swap
+chain there, and Unity dies before it has even finished loading Mono. The launch has to be
+handed to the interactive session through the task scheduler.
 
-`tools/launch-win.ps1` がそれをやる：
+`tools/launch-win.ps1` does that:
 
 ```bash
 bash tools/launch-win.sh          # ships the script and runs it
-ssh <host> "powershell -ExecutionPolicy Bypass -File C:\Users\<user>\launch.ps1 -GameArgs '-force-d3d12'"
 ```
 
-ゲームは起動したまま残る。ログを読んで自動終了させたい場合は
-`tools/capture-win.ps1`（起動 → 待機 → スクリーンショット → 終了）を使う。
+The game stays running. Add `-Diagnose` to collect the log and stop it afterwards.
 
-同梱の Windows 用スクリプト：
+Windows-side scripts in this repo:
 
-| ファイル | 用途 |
+| File | Purpose |
 |---|---|
-| `bash tools/launch-win.sh` | 対話セッションで起動して残す（`-Diagnose` でログを出して停止） |
-| `tools/capture-win.ps1` | 起動 → スクリーンショット → 終了（動作確認用） |
-| `tools/build-shaders-win.ps1` | シェーダー AssetBundle を焼いてゲームに設置 |
+| `bash tools/launch-win.sh` | launch in the interactive session and leave it running |
+| `tools/capture-win.ps1` | launch, screenshot, quit — a smoke test |
+| `tools/build-shaders-win.ps1` | bake the shader bundle and install it |
+| `bash tools/bench-win.sh` | measure frame time on the real GPU |
 
 ---
 
-## 4. splat データを入れる
+## 4. Adding a capture
 
-### 4-1. 変換
+### 4-1. The quick way: drop in a .ply
+
+```
+<VelociDrone>\app\vdgs\myscene.ply
+```
+
+That is the whole procedure. The mod parses the header for the splat count and shows the
+file in the UI like any other scene; it is read and uploaded when you display it.
+
+Measured load times (RTX 3060): 0.32 s for 415k splats, 1.6 s for 2.17M, 2.3 s for 3.18M.
+Rendering lands about 7% behind the best offline format. See
+[ply-loading.md](ply-loading.md).
+
+Placement, if you need it, goes next to the file as `myscene.placement.json`.
+
+### 4-2. The converted way: smaller on disk, faster to load
+
+```bash
+bash tools/reprocess.sh [scene]
+```
+
+or by hand:
 
 ```bash
 Unity -batchmode -quit -nographics -projectPath unity/VDGSConverter \
       -executeMethod PlyExporter.Run \
       -vdgsInput /abs/path/scene.ply \
       -vdgsOutput /abs/path/build/splats/<name> \
-      -vdgsQuality Medium -logFile -
+      -vdgsQuality High -logFile -
 ```
 
-`-vdgsQuality` は `VeryHigh` / `High` / `Medium` / `Low` / `VeryLow`。
-Medium で 100 万 splats がおよそ 45MB になる。
+**Use `High`.** It is 84 bytes per splat, the fastest tier measured on the RTX 3060, and
+the most faithful. `VeryHigh` is 236 B/splat for no visual gain, and `Medium` and below
+render some captures far too dark. The reasoning is in
+[performance.md](performance.md).
 
-### 4-2. 破片を落とす（推奨）
+The output directory holds `meta.json` plus five binaries; copy it to
+`<VelociDrone>\app\vdgs\<name>\`.
 
-3DGS の再構成は被写体の周りに必ずゴミのガウシアンを撒く。飛行中は宙に浮いた
-破片として見えるので、変換前に切る：
+### 4-3. Orientation and scale
+
+**This is the fiddly part with real data.** COLMAP-derived captures come out mirrored,
+often upside down or tilted, and one unit is not any particular number of metres.
+
+The mirror is unconditional and has one fix:
 
 ```bash
+python3 tools/align_ply.py in.ply out.ply --mirror y
 ```
 
-bonsai の実例では 25% が破片で、落とすとバウンディングボックスが
-44x43x48 から 21x17x18 に締まった。
+Reflecting Y corrects the flip and the handedness together. `--rotate 180,0,0` cannot —
+it is a rotation, and a mirror is not. Full reasoning in [alignment.md](alignment.md).
 
-### 4-3. 向きとスケールを合わせる
+For everything else, use [SuperSplat](https://superspl.at/editor):
 
-**これが実データで一番手間のかかる工程。** COLMAP 由来のキャプチャは上下が逆だったり
-床が傾いていたりし、1 unit が何メートルかも決まっていない。
+1. drag the `.ply` into the browser
+2. **click the circle on the view cube** to switch to orthographic (front, side). Without
+   perspective you can actually see whether the floor is level
+3. select in the Scene Manager and type rotations into the **TRANSFORM panel**
+4. scale so the room is life-sized — 2.4 to 2.7 m floor to ceiling
+5. export as `.ply`
 
-**[SuperSplat](https://superspl.at/editor) でやる**のが確実：
-
-1. `.ply` をブラウザにドラッグ
-2. **View Cube の円をクリック**して正射影に切り替える（正面・側面）。
-   正射影なら床が水平かどうかが遠近感に邪魔されずに分かる
-3. Scene Manager で選択し、**TRANSFORM パネル**で回転を数値入力
-4. 部屋の高さが実寸（2.4〜2.7m 程度）になるようスケールを合わせる
-5. `.ply` で書き出す
-
-大きいファイルが重い場合は間引いたプレビューで角度を決められる：
+If the file is too heavy to work with, decide the angle on a thinned preview and then
+apply the same numbers at full resolution:
 
 ```bash
-python3 tools/align_ply.py big.ply preview.ply --rotate 0,0,0 --sample 150000
-```
-
-角度が分かったら、フル解像度に同じ回転を適用する：
-
-```bash
+python3 tools/align_ply.py big.ply preview.ply --sample 150000
 python3 tools/align_ply.py in.ply out.ply --rotate -12,0,3 --ceiling 2.6
 ```
 
-`--ceiling` を渡すと、その高さになるようスケールを決めて床を y=0 に落とす。
-回転は**各ガウシアンの向きにも適用される**（位置だけ回すと splat が傾いたままになる）。
+`--ceiling` derives scale from the stated height and drops the floor to y=0. Rotations are
+**applied to each gaussian's orientation as well**; rotating positions alone leaves every
+splat tilted.
 
-**注意点：**
+Things to know:
 
-- **SuperSplat の書き出しは Y が反転している。** エディタ上で正しく立っていても、
-  ply は Unity と上下が逆。**必ず `--rotate 180,0,0` を通すこと**：
+- **SuperSplat exports with Y inverted.** A capture standing upright in the editor comes
+  out upside down. `align_ply.py` checks the density profile and warns
+- **`PlyExporter` never changes orientation.** If it looks wrong, the data or the export is
+  wrong
+- **SuperSplat reorders points on export**, so you cannot recover the rotation by diffing
+  before and after. Write the TRANSFORM numbers down
+- **Automatic floor detection (`--up`) does not work** — it finds walls. See
+  [alignment.md](alignment.md)
+- **Do not crop.** Percentile cropping deletes the walls of any room shot from the inside.
+  If debris is in the way, state a box with `--bounds`
 
-  ```bash
-  python3 tools/align_ply.py supersplat-export.ply out.ply --rotate 180,0,0
-  ```
+### 4-4. Placement
 
-  `align_ply.py` は Y 方向の密度を見て、上下が逆なら警告する（部屋のキャプチャでは
-  床が最も密なので、最密面が上半分にあれば反転している）
-- **`PlyExporter` は向きを変えない。** 逆さまに見えるならデータか書き出しが原因
-- **SuperSplat の書き出しは点の順序を変える。** 変換前後を突き合わせて回転を
-  逆算することはできないので、TRANSFORM パネルの数値を控えておくこと
-- `align_ply.py --up` による床の自動検出は**動かない**（壁を床と誤検出する）。
-  詳細は [AGENTS.md](../AGENTS.md)
-
-### 4-4. 配置
-
-`<VelociDrone>\app\vdgs\<name>\placement.json`：
+`<VelociDrone>\app\vdgs\<name>\placement.json` (or `<name>.placement.json` beside a
+`.ply`):
 
 ```json
 {
@@ -201,17 +239,15 @@ python3 tools/align_ply.py in.ply out.ply --rotate -12,0,3 --ceiling 2.6
 }
 ```
 
-**位置合わせ機能は mod にはない。** GS 側が正しい座標・スケールで作られている前提で、
-`placement.json` はオフセットの微調整用に残してあるだけ（ゲーム内から変更する手段はない）。
-座標を合わせるのは撮影・学習側の仕事。
+**The mod has no alignment UI.** The capture is expected to arrive in correct coordinates
+at a correct scale; `placement.json` exists as a hand-edited last resort. Getting the
+coordinates right is the capture's job, not the mod's.
 
-`scale` は COLMAP 由来のデータだと任意単位になるので、必要なら手で書き換える。
+### 4-5. Binding to tracks
 
-### 4-5. トラックとの紐付け
+**Which capture appears is decided by track name.**
 
-**どの GS をどのトラックで出すかは、トラック名で決まる。**
-
-`<VelociDrone>\app\vdgs\bindings.json`：
+`<VelociDrone>\app\vdgs\bindings.json`:
 
 ```json
 {
@@ -220,22 +256,22 @@ python3 tools/align_ply.py in.ply out.ply --rotate -12,0,3 --ceiling 2.6
 }
 ```
 
-手で書いてもいいが、ゲーム内から作るほうが早い（§5）。
+You can write it by hand, but doing it from the UI is faster (§5).
 
-- **紐付けの無いトラックでは何も表示されない。** 間違った GS を出すより無害だから
-- 1つのトラックに複数の GS を紐付けられる
-- シーナリー（Empty Scene Day など）単位ではなく**トラック単位**。同じシーナリー上に
-  何本もトラックが載るため
+- **An unbound track shows nothing.** That is safer than showing the wrong capture
+- one track may bind several captures
+- binding is **per track, not per scenery**, because many tracks share one scenery
 
-`<VelociDrone>\app\vdgs\autospawn`（空ファイル）が無いと自動表示そのものが無効になる。
+Without `<VelociDrone>\app\vdgs\autospawn` (an empty file), automatic display is off
+entirely.
 
 ---
 
-## 5. 操作（ブラウザ）
+## 5. Operating it from a browser
 
-ゲームが起動すると、mod が **`http://<ホスト>:8777/`** で操作用の Web UI を出す。
-別マシンからでも開ける（Tailscale 越しなど）。Parsec でゲーム画面を見ながら、
-手元のブラウザで操作するのが想定運用。
+Once the game is running the mod serves a control UI at **`http://<host>:8777/`**. Open it
+from any machine, including over Tailscale — the intended setup is watching the game
+through Parsec while driving it from a browser on another computer.
 
 ```
 ┌─ VDGS Control ──────────────────────────────────┐
@@ -251,87 +287,87 @@ python3 tools/align_ply.py in.ply out.ply --rotate -12,0,3 --ceiling 2.6
 │  [Unbind this track]  [Hide all]                │
 ├─────────────────────────────────────────────────┤
 │  Bindings                                       │
-│  <track名>  →  shibuya          [remove]        │
+│  <track name>  →  shibuya       [remove]        │
 └─────────────────────────────────────────────────┘
 ```
 
-**ゲームのキーは一切奪わない。** トラックエディタの矢印キーも F7（シーン保存）も
-そのまま使える。UI は 1.5 秒ごとに自動更新され、ゲーム内でトラックを変えると
-「Current track」が追従する。
+**No game key is taken.** The track editor's arrow keys and F7 keep working. The UI
+refreshes every 1.5 seconds, so "Current track" follows along when you change track
+in-game.
 
-### 紐付けの手順
+### Binding a capture
 
-1. トラックをロードする（プレイでもエディタでもよい）
-2. UI で出したい GS の **show** を押す
-3. **Bind shown splat to this track**
-4. 以降そのトラックをロードすると、自動でその GS が出る
+1. load a track (flying or in the editor, either works)
+2. press **show** on the capture you want
+3. press **Bind shown splat to this track**
+4. from then on that track loads that capture automatically
 
-### 開発者向けキー（残置）
+### Developer keys (kept)
 
-| キー | 動作 |
+| Key | Action |
 |---|---|
-| F9 | 環境情報を `vdgs-probe.log` に追記 |
-| F10 | シーン構造を `vdgs-hierarchy.txt` にダンプ |
-| F12 | トラック名の探索ダンプ（`vdgs-track.txt`、検索語は `vdgs/needle.txt`） |
+| F9 | append environment info to `vdgs-probe.log` |
+| F10 | dump the scene tree to `vdgs-hierarchy.txt` |
+| F12 | dump the track-name search to `vdgs-track.txt` (needle in `vdgs/needle.txt`) |
 
-F5・F6・F7・F8 は**使っていない**。F7 はトラックエディタのシーン保存に
-割り当て済みで衝突する。
+F5, F6, F7 and F8 are **unused**. F7 is the track editor's save-scene and would collide.
 
 ### HTTP API
 
-UI が使っているものと同じ。スクリプトから叩ける。
+The same one the UI uses.
 
 | | |
 |---|---|
-| `GET /api/status` | 現在のトラック、表示中の GS、利用可能な GS、全紐付け |
-| `POST /api/load` | `{"splat":"name"}` — その GS だけを表示 |
-| `POST /api/unload` | `{}` — 全部隠す |
-| `POST /api/bind` | `{"splats":["name"]}` — 現在のトラックに紐付け |
-| `POST /api/unbind` | `{}` で現在のトラック、`{"track":"name"}` で任意のトラック |
+| `GET /api/status` | current track, what is shown, what is available, all bindings |
+| `POST /api/load` | `{"splat":"name"}` — show only that capture |
+| `POST /api/unload` | `{}` — hide everything |
+| `POST /api/bind` | `{"splats":["name"]}` — bind to the current track |
+| `POST /api/unbind` | `{}` for the current track, `{"track":"name"}` for any |
 
-**POST には必ずボディを付けること。** `HttpListener` は `Content-Length` の無い POST を
-mod のハンドラに渡す前に `411 Length Required` で弾く。`curl -X POST .../api/unload` は
-失敗し、`curl -X POST .../api/unload -d '{}'` は成功する。
+**Always send a body with a POST.** `HttpListener` rejects a POST with no `Content-Length`
+as `411 Length Required` before the mod's handler ever sees it, so
+`curl -X POST .../api/unload` fails and `curl -X POST .../api/unload -d '{}'` succeeds.
 
 ---
 
-## 6. 出力されるファイル
+## 6. Files the mod writes
 
-`<VelociDrone>\app\` 直下：
+Directly under `<VelociDrone>\app\`:
 
-| ファイル | 内容 |
+| File | Contents |
 |---|---|
-| `vdgs-probe.log` | 環境情報、シェーダーの状態、スポーン結果 |
-| `vdgs-perf.log` | 5 秒ごとのフレームタイム（fps / avg / worst / splat 数） |
-| `vdgs-track.log` | トラック名の検出、紐付け、GS の出し入れの履歴 |
-| `vdgs-hierarchy.txt` | F10 で吐いたシーン構造 |
-| `vdgs-track.txt` | F12 で吐いたトラック名の探索結果 |
-| `BepInEx\LogOutput.log` | BepInEx とプラグインのログ |
+| `vdgs-probe.log` | environment, shader status, spawn results |
+| `vdgs-perf.log` | frame time every 5 s (fps / avg / worst / splat count) |
+| `vdgs-track.log` | track detection, binding, show and hide history |
+| `vdgs-hierarchy.txt` | scene tree, from F10 |
+| `vdgs-track.txt` | track-name search, from F12 |
+| `BepInEx\LogOutput.log` | BepInEx and plugin logs |
 
 ---
 
-## 7. うまくいかないとき
+## 7. When it does not work
 
-| 症状 | 原因と対処 |
+| Symptom | Cause and fix |
 |---|---|
-| 何も表示されない | `-force-d3d12` を付け忘れ。`vdgs-probe.log` の `graphicsDeviceType` を確認 |
-| `shaders NOT READY` | バンドルが空。サイズが 1MB 未満なら焼き直し（§2-2） |
-| `shader.isSupported=false` | 同上。macOS で焼いた D3D12 バンドルは必ずこうなる |
-| プラグインが読まれない | SSH から起動していないか確認（§3）。`BepInEx\config\` が生成されていなければ Chainloader に到達していない |
-| 表示が破片だらけ | 元データの外れ値。`align_ply.py --bounds` で箱を明示する |
-| 小さすぎ / 大きすぎ | `placement.json` の `scale`。COLMAP のスケールは任意 |
-| 表示した瞬間に固まる | 数十 MB を GPU に一括アップロードするため。**飛ぶ前に表示させておく**。実測 2.9 秒 |
-| ログが例外で埋まる | `UnityLogListening = false`（§2-1）。実害は無い |
+| nothing appears | `-force-d3d12` missing. Check `graphicsDeviceType` in `vdgs-probe.log` |
+| `shaders NOT READY` | the bundle is empty. Under 1 MB means rebake (§2-2) |
+| `shader.isSupported=false` | same. A D3D12 bundle baked on macOS is always like this |
+| plugin never loads | check you did not launch over SSH (§3). No `BepInEx\config\` means the Chainloader never ran |
+| scattered debris | a stale `chunk.bin` from a previous conversion — the deploy now deletes those, so re-deploy. Otherwise outliers in the source; bound them with `align_ply.py --bounds` |
+| everything at the origin, in a blob | the opposite case: chunked data whose `chunk.bin` went missing |
+| too small or too large | `scale` in `placement.json`. COLMAP scale is arbitrary |
+| freezes the moment it appears | tens of MB going to the GPU at once. **Show it before you fly.** Measured 2.9 s |
+| log fills with exceptions | `UnityLogListening = false` (§2-1). Harmless |
 
 ---
 
-## 8. 注意
+## 8. One caution
 
-**リーダーボードとマルチプレイでは使わないこと。**
+**Do not use this on leaderboards or in multiplayer.**
 
-VelociDrone には `ACTk.Runtime.dll`（Anti-Cheat Toolkit）が同梱されている。
-実際に検出に使われているかは未確認だが、改造クライアントでタイムを投稿するのは
-規約違反にあたる。ローカル飛行専用と考えること。
+VelociDrone ships `ACTk.Runtime.dll` (Anti-Cheat Toolkit). Whether it is actually used for
+detection is unverified, but submitting times from a modified client violates the terms.
+Treat this as local flying only.
 
-PatchKit のアップデートが走るとプラグインとシェーダーは消える。`tools/deploy.sh` で
-入れ直す。BepInEx 本体も消えた場合は §2-1 からやり直し。
+A PatchKit update wipes the plugin and the shaders. Re-run `tools/deploy.sh`. If BepInEx
+itself is gone too, start again from §2-1.

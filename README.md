@@ -1,65 +1,71 @@
 # VDGS
 
-VelociDrone の中に 3D Gaussian Splatting シーンを表示する mod。
+*[日本語版](README.ja.md)*
 
-実際にスキャンした場所を FPV ドローンシムの中に持ち込んで飛ぶための道具。
+A mod that renders 3D Gaussian Splatting captures inside VelociDrone — so you can fly a
+real, scanned place in an FPV drone simulator.
 
-![bonsai を VelociDrone 内に表示](docs/bonsai-real-data.png)
+![bonsai rendered inside VelociDrone](docs/bonsai-real-data.png)
 
-## 動作実績
-
-| | |
-|---|---|
-| 最大 splat 数 | **3,177,554**（drjohnson 単体）／ 117 万を 3 シーン同時 |
-| 描画時間 | **9.0 ms**（317 万 splats、RTX 3060、ドローン目線・画角 120°） |
-| 深度 | ゲートや機体との前後関係、半透明ブレンドとも破綻なし |
-
-SH のパレット圧縮と視錐台カリングで、どちらも**画質を落とさずに** 13.3 → 9.0 ms。
-内訳は [docs/performance.md](docs/performance.md)。
-
-## 仕組み
-
-```
-<game>/vdgs/foo.ply を置く → プラグインが実行時に読んで描画
-                             ↑ ブラウザから操作（http://<host>:8777/）
-```
-
-外部ツールは要らない。事前に変換したい場合は 5 バイナリ + meta.json の形も読む。
-
-トラック名を1秒ごとに監視し、`bindings.json` の対応表に従って GS を自動で出し入れする。
-
-描画部分は [aras-p/UnityGaussianSplatting](https://github.com/aras-p/UnityGaussianSplatting)（MIT）
-の移植。編集機能・URP/HDRP パス・Burst 依存を落として、注入環境で動く形にしてある。
-
-## ドキュメント
+## What it does
 
 | | |
 |---|---|
-| [docs/USAGE.md](docs/USAGE.md) | 導入・起動・データ投入・操作 |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 内部構造と設計判断の理由 |
-| [docs/performance.md](docs/performance.md) | 描画コストの内訳と、削るための手 |
-| [docs/verification.md](docs/verification.md) | 描画結果を数値で検証する道具 |
-| [docs/alignment.md](docs/alignment.md) | キャプチャの向き合わせと鏡像の扱い |
-| [docs/ply-loading.md](docs/ply-loading.md) | .ply を実行時に読む仕組みと罠 |
-| [AGENTS.md](AGENTS.md) | 環境の実測値、踏んだ罠の全記録 |
+| Largest capture flown | **3,177,554 splats** (drjohnson), or 1.17M across three scenes at once |
+| Frame time | **9.0 ms** at 3.18M splats — RTX 3060, drone's eye view, 120° field of view |
+| Depth | Correct against gates and the aircraft; alpha blending holds up |
 
-## 必要なもの
+Palette-free SH packing and frustum culling took that from 13.3 ms to 9.0 ms, **neither of
+them costing image quality**. The breakdown is in [docs/performance.md](docs/performance.md).
 
-- VelociDrone（Unity 2021.3.45f2 ビルド）
-- **D3D12 対応 GPU** — splat のソートが Shader Model 6 の wave intrinsics を要求するため、
-  DX11 では動かない。ゲームは `-force-d3d12` で起動する
+## How it works
+
+```
+drop <game>/vdgs/foo.ply  →  the plugin reads it at load time and renders it
+                             ↑ drive it from a browser at http://<host>:8777/
+```
+
+No external tools. A 2.17M-splat capture loads in under a second. Pre-converted scenes
+(five binaries plus `meta.json`) still work if you have them.
+
+The plugin polls the loaded track name once a second and shows or hides captures according
+to `bindings.json`, so a scene appears on the tracks you bound it to and nowhere else.
+
+Rendering is a port of [aras-p/UnityGaussianSplatting](https://github.com/aras-p/UnityGaussianSplatting)
+(MIT), stripped of editing, the URP/HDRP paths and the Burst dependency so it runs inside
+an injected plugin.
+
+## Documentation
+
+| | |
+|---|---|
+| [docs/USAGE.md](docs/USAGE.md) | Install, launch, add captures, control it |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Internals, and why the design is what it is |
+| [docs/ply-loading.md](docs/ply-loading.md) | Reading .ply at load time, and its traps |
+| [docs/performance.md](docs/performance.md) | Where the frame time goes, and what moves it |
+| [docs/verification.md](docs/verification.md) | Checking the render with numbers, not eyes |
+| [docs/alignment.md](docs/alignment.md) | Orienting a capture, and the mirror everyone hits |
+| [AGENTS.md](AGENTS.md) | Measured facts about this environment and every trap hit (Japanese) |
+
+## Requirements
+
+- VelociDrone, built on Unity 2021.3.45f2
+- **A D3D12-capable GPU.** Sorting splats needs Shader Model 6 wave intrinsics, so DX11
+  will not do. Launch the game with `-force-d3d12`
 - BepInEx 5.4.23.5 (win_x64)
-- Unity 2021.3.45f2（シェーダー用。**Windows でのビルドが必須**）
-- Unity 2022.3.x（`.ply` 変換用。Mac 可）
 
-## 注意
+Building the mod additionally needs Unity 2021.3.45f2 **on Windows** for the shader bundle —
+macOS cannot compile D3D shaders. Adding a capture needs nothing: drop the `.ply` in.
 
-**リーダーボードとマルチプレイでは使わないこと。** VelociDrone には
-`ACTk.Runtime.dll`（Anti-Cheat Toolkit）が同梱されている。改造クライアントで
-タイムを投稿するのは規約違反にあたる。ローカル飛行専用。
+## Please do not
 
-## ライセンス
+**Use this on leaderboards or in multiplayer.** VelociDrone ships
+`ACTk.Runtime.dll` (Anti-Cheat Toolkit), and submitting times from a modified client is
+against its terms. Local flying only.
 
-`src/VDGS/GpuSorting.cs` と `unity/VDGSBundler/Assets/VDGS/Shaders/` は
-[aras-p/UnityGaussianSplatting](https://github.com/aras-p/UnityGaussianSplatting)（MIT）に由来する。
-GPU ソートはさらに [b0nes164/GPUSorting](https://github.com/b0nes164/GPUSorting)（MIT, Thomas Smith）由来。
+## Licence
+
+`src/VDGS/GpuSorting.cs` and `unity/VDGSBundler/Assets/VDGS/Shaders/` derive from
+[aras-p/UnityGaussianSplatting](https://github.com/aras-p/UnityGaussianSplatting) (MIT).
+The GPU sort in turn derives from [b0nes164/GPUSorting](https://github.com/b0nes164/GPUSorting)
+(MIT, Thomas Smith).

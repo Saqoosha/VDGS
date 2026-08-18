@@ -1,93 +1,104 @@
-# VDGS 内部構造
+# How VDGS is built
 
-このドキュメントは**なぜそうなっているか**を書く。手順は [USAGE.md](USAGE.md)、
-環境固有の実測値と踏んだ罠は [AGENTS.md](../AGENTS.md)。
+*[日本語版](ARCHITECTURE.ja.md)*
+
+This file is about **why it is the way it is**. Procedure lives in [USAGE.md](USAGE.md);
+environment-specific measurements and the traps behind them in [AGENTS.md](../AGENTS.md).
 
 ---
 
-## 全体像
+## The shape of it
 
 ```
-  Mac（開発）                          Windows（実行）
+  Mac (development)                   Windows (execution)
 ┌──────────────────────┐          ┌────────────────────────────────┐
 │ .ply / .spz          │          │  VelociDrone (Unity 2021.3.45f2)│
 │   │                  │          │  ┌──────────────────────────┐  │
 │   │ verify_orient.py │          │  │ BepInEx 5.4 (Doorstop)   │  │
 │   ▼                  │          │  │   └─ VDGS.dll            │  │
-│ PlyExporter          │          │  │        ├ SplatRenderer   │  │
-│ (Unity 2022.3)       │          │  │        ├ TrackName       │  │
-│   │                  │          │  │        ├ TrackBindings   │  │
-│   ▼                  │ deploy.sh│  │        └ WebControl :8777│  │
-│ meta.json + 5 .bin ──┼─────────▶│  └──────────────────────────┘  │
-│                      │   (scp)  │            ▲                    │
+│ PlyExporter          │          │  │        ├ PlyLoader       │  │
+│ (Unity 2022.3)       │          │  │        ├ SplatRenderer   │  │
+│   │  (optional)      │          │  │        ├ TrackName       │  │
+│   ▼                  │ deploy.sh│  │        ├ TrackBindings   │  │
+│ meta.json + 5 .bin ──┼─────────▶│  │        └ WebControl :8777│  │
+│ or the .ply itself   │   (scp)  │  └──────────────────────────┘  │
+│                      │          │            ▲                    │
 │ VDGSBundler          │          │            │ HTTP               │
 │ (Unity 2021.3.45f2)  │          └────────────┼────────────────────┘
-│   │ ※Windows で焼く │                       │
-│   ▼                  │                  ブラウザ（Mac から Tailscale 経由）
+│   │ bake on Windows  │                       │
+│   ▼                  │                a browser (from the Mac, over Tailscale)
 │ vdgs-shaders ────────┼──────────────────────┘
 └──────────────────────┘
 ```
 
-Unity プロジェクトが2つあるのは意図的。**バージョンを分けざるを得ない**：
+Two Unity projects, deliberately. **The versions cannot be the same:**
 
-| | Unity | 理由 |
+| | Unity | Why |
 |---|---|---|
-| `unity/VDGSBundler` | **2021.3.45f2** | シェーダーはゲームと同一バージョンでしか読めない |
-| `unity/VDGSConverter` | **2022.3.x** | UnityGaussianSplatting が `com.unity.collections` 2.x に依存し、2021.3 に入らない |
+| `unity/VDGSBundler` | **2021.3.45f2** | shaders only load into the exact version the game was built with |
+| `unity/VDGSConverter` | **2022.3.x** | UnityGaussianSplatting needs `com.unity.collections` 2.x, which will not install into 2021.3 |
 
-変換の出力はプレーンなバイナリなので、Converter 側のバージョンは何でもいい。
-Bundler 側だけが厳密。
-
----
-
-## AssetBundle だけで足りない理由
-
-VelociDrone のトラックエディタで置けるオブジェクトは、素の AssetBundle から
-読まれている（`trees`, `gates`, `barriers` …）。**そこに splat を足す形にはできない。**
-
-理由は 3 つ：
-
-1. **MonoBehaviour の型がゲーム側に存在しない。** AssetBundle 内のコンポーネントは
-   ゲームのアセンブリに同名クラスがあって初めて復元される。`SplatRenderer` は
-   ゲームに無いので、プレハブに載せても参照が壊れる
-2. **compute shader を dispatch する主体がいない。** splat のソートは毎フレーム
-   compute を回す必要があり、それを駆動する C# がどこかで動いていなければならない
-3. **CommandBuffer をカメラに挿す必要がある。** 描画はマテリアル1枚では完結せず、
-   カメラのレンダリングパイプラインに割り込む
-
-だからコード注入（BepInEx）が要る。AssetBundle は**シェーダーの入れ物としてのみ**使う。
+The converter's output is plain binary, so its version does not matter to anything
+downstream. Only the bundler's is strict.
 
 ---
 
-## データの形
+## Why an AssetBundle is not enough
 
-### ScriptableObject を捨てた理由
+Objects the track editor can place come from ordinary AssetBundles (`trees`, `gates`,
+`barriers`…). **Splats cannot simply be added to that set.** Three reasons:
 
-upstream（aras-p/UnityGaussianSplatting）は `GaussianSplatAsset` という
-ScriptableObject にデータを持つ。中身は**メタ情報 + 5 つの生バイナリ TextAsset**
-でしかない。
+1. **The MonoBehaviour types do not exist in the game.** A component inside a bundle is
+   restored only if a class of the same name exists in the game's assemblies.
+   `SplatRenderer` does not, so any prefab carrying it comes back with broken references
+2. **Nothing would dispatch the compute shaders.** Sorting runs every frame, and some C#
+   has to drive it
+3. **A CommandBuffer must be inserted into the camera.** Rendering is not one material; it
+   interrupts the camera's pipeline
 
-注入されたアセンブリの中では、これが使えない：
+Hence code injection through BepInEx. The AssetBundle is used **only as a container for
+shaders**.
 
-- `AssetDatabase` が存在しない（Editor 専用 API）
-- AssetBundle から ScriptableObject を復元するには、その型がゲーム側から解決できる
-  必要がある。`GaussianSplatAsset` はゲームに無い
+---
 
-**同じ中身をただのファイルとして置けば、この問題は消える。**
+## The data
+
+### Why the ScriptableObject was dropped
+
+Upstream (aras-p/UnityGaussianSplatting) stores everything in a `GaussianSplatAsset`
+ScriptableObject — which is nothing but **metadata plus five raw binary TextAssets**.
+
+Inside an injected assembly that does not work:
+
+- `AssetDatabase` does not exist; it is Editor-only
+- restoring a ScriptableObject from a bundle requires the game to resolve its type, and
+  `GaussianSplatAsset` is not in the game
+
+**Putting the same bytes on disk as plain files makes the problem disappear.**
 
 ```
 <game>/vdgs/<name>/
-  meta.json     splat 数、フォーマット、バウンディングボックス
-  chunk.bin     ChunkInfo[]（64 バイト/要素）。任意
-  pos.bin       位置。GraphicsBuffer.Target.Raw
-  other.bin     回転・スケール。同上
-  color.bin     色。Texture2D にアップロード
-  sh.bin        球面調和。同上
+  meta.json     splat count, formats, bounds
+  chunk.bin     ChunkInfo[] (64 bytes each). Optional
+  pos.bin       positions. GraphicsBuffer.Target.Raw
+  other.bin     rotation and scale. Same
+  color.bin     colour. Uploaded as a Texture2D
+  sh.bin        spherical harmonics. Same
 ```
 
-`SplatData.Load()` がこれを読み、`SplatRenderer` が GPU バッファに流す。
+`SplatData.Load()` reads it; `SplatRenderer` pushes it into GPU buffers.
 
-### `ChunkInfo` は 64 バイト
+### Or just a .ply
+
+`<game>/vdgs/<name>.ply` works as well. `PlyLoader` parses it at load time and produces
+exactly the buffers `SplatData` would have held, through `SplatData.FromBuffers`.
+
+The offline pipeline was the harder half of the workflow to distribute: it wants a second
+Unity install, a Python script and an SSH round trip. Reading the `.ply` directly removes
+all of it. The cost is 7% of frame time and a slightly larger footprint (132 B/splat);
+details and the three silent traps in the parser are in [ply-loading.md](ply-loading.md).
+
+### `ChunkInfo` is 64 bytes
 
 ```
 uint   colR, colG, colB, colA     4 x 4 = 16
@@ -97,197 +108,246 @@ uint   shR,  shG,  shB            3 x 4 = 12
                                         = 64
 ```
 
-HLSL 側と一致していなければならず、**間違えても例外は出ず、描画が静かに壊れる**。
-実データの変換結果（640 splats → 3 チャンク → 192 バイト）で裏を取ってある。
+This has to match the HLSL exactly, and **getting it wrong raises no exception — the
+rendering just quietly breaks**. Confirmed against a real conversion (640 splats → 3
+chunks → 192 bytes).
+
+### chunk.bin is dangerous in both directions
+
+The shader decides whether to decode chunk-relative values **purely from whether a chunk
+buffer is bound**. So:
+
+- a **leftover** `chunk.bin` applied to absolute positions extrapolates the capture into
+  space and raises scale to the eighth power — the "scattered debris" that cost a day
+- a **missing** one leaves every splat at its 0..1 weight, collapsing the capture into a
+  blob at the origin
+
+**`posFormat` does not settle it.** `Float32` is a storage width, not a coordinate space;
+chunked scenes store 0..1 weights in Float32 quite happily. A first attempt at guarding
+this inferred otherwise and broke every chunked capture. Only the conversion knows, so
+`PlyExporter` writes `chunkCount` into `meta.json` and `SplatData.AcceptChunks` compares
+against it. `deploy.sh` also deletes files that no longer exist in the source, which is
+what let the stale file survive in the first place.
 
 ---
 
-## 描画
+## Rendering
 
-`SplatRenderSystem` + `SplatRenderer` は upstream の移植だが、以下を落としてある：
+`SplatRenderSystem` and `SplatRenderer` are ports of upstream with these removed:
 
-- 編集機能（selection / cutouts / export）
-- URP・HDRP のパス（VelociDrone は Built-in RP）
-- `Unity.Mathematics` / `Unity.Collections` / `Burst` への依存
+- editing (selection, cutouts, export)
+- the URP and HDRP paths (VelociDrone is Built-in RP)
+- dependencies on `Unity.Mathematics`, `Unity.Collections` and `Burst`
 - `Unity.Profiling`
 
-結果、依存は UnityEngine だけになった。`GpuSorting.cs` は元から UnityEngine のみに
-依存していたので、namespace 以外は無改変。
+What is left depends on UnityEngine alone. `GpuSorting.cs` already did, so it is unchanged
+apart from its namespace.
 
-### フレームの流れ
+### A frame
 
 ```
 Camera.onPreCull
-  └ GatherSplatsForCamera      表示中の splat を集めて奥から手前に並べる
-  └ CommandBuffer を構築
-       ├ GetTemporaryRT        splat 専用の RT を確保（R16G16B16A16_SFloat）
-       ├ SortPoints            カメラ距離を compute で計算 → GPU radix sort
-       ├ CalcViewData          各 splat のスクリーン空間データを compute で計算
-       ├ DrawProcedural        1 splat = 1 quad、instancing で一括描画
-       └ Composite             RT をカメラターゲットに合成
-  └ CameraEvent.BeforeForwardAlpha に挿す
+  └ GatherSplatsForCamera      collect visible captures, back to front
+  └ build the CommandBuffer
+       ├ GetTemporaryRT        a dedicated RT (R16G16B16A16_SFloat)
+       ├ CalcDistances         camera distance per splat, plus frustum culling
+       ├ SortPoints            GPU radix sort
+       ├ PrepareDrawArgs       visible count into the indirect args buffer
+       ├ CalcViewData          screen-space data per splat, in compute
+       ├ DrawProceduralIndirect  one quad per visible splat, instanced
+       └ Composite             blend the RT onto the camera target
+  └ inserted at CameraEvent.BeforeForwardAlpha
 ```
 
-`BeforeForwardAlpha` に入れることで、**不透明ジオメトリの後・透明の前**に描かれる。
-ゲートや機体との前後関係が正しく出るのはこのため。
+`BeforeForwardAlpha` puts it **after opaque geometry and before transparents**, which is
+why depth against gates and the aircraft comes out right.
 
-### D3D12 が必須な理由
+### Culling shares the sort
 
-ソートに使う `DeviceRadixSort.hlsl` が Shader Model 6 の wave intrinsics
-（`WavePrefixSum`, `WaveReadLaneAt` など 41 箇所）を使う。DX11 にはこの命令が無い。
+Frustum culling lives in the distance pass rather than in a separate compaction pass,
+because that pass already decides draw order. A culled splat is given the maximum sort key
+and lands past everything visible; the visible count is accumulated **one atomic per
+wave** and fed to `DrawProceduralIndirect`. Worth 10.7% at zero cost to the image — the
+derivation, and the two errors in it, are in [performance.md](performance.md).
 
-`-force-vulkan` では**ゲーム自身**が描画できない（VelociDrone は Vulkan 向けに
-ビルドされていない）。よって **D3D12 の一択**。
+### Why D3D12 is required
+
+`DeviceRadixSort.hlsl` uses Shader Model 6 wave intrinsics (`WavePrefixSum`,
+`WaveReadLaneAt`, 41 uses). DX11 has no such instructions.
+
+`-force-vulkan` fails for a different reason: **the game itself** cannot render, because
+VelociDrone is not built for Vulkan. So D3D12 is the only option.
+
+### The backdrop
+
+`SplatBackdrop` puts a black, inward-facing box around a capture so the game's skybox does
+not show through the gaps. Two details worth knowing:
+
+- **every face points inward**, and `AssertFacesInward` measures each normal against the
+  centre rather than trusting the winding. The first version had all twelve triangles
+  backwards
+- **the floor sits at y = 0.01 in world space**, not at the box's own bottom, because the
+  game's ground plane is at 0 and would otherwise hide it. It is pinned through
+  `parent.InverseTransformPoint` so it stays there under any placement
 
 ---
 
-## トラックと GS の対応
+## Tracks and captures
 
-### 表示を決めるのはトラック名
+### Track name decides what is shown
 
-シーナリー（Empty Scene Day など）単位ではない。**1 つのシーナリーに何本もトラックが
-載る**ので、シーン単位で判定すると、そのマップを使う全トラックに splat が出てしまう。
+Not scenery. **One scenery carries many tracks**, so keying on the scene would put the
+capture on every track that uses that map.
 
 ```
-bindings.json:  { "<トラック名>": ["<GS名>", ...] }
+bindings.json:  { "<track name>": ["<capture name>", ...] }
 ```
 
-紐付けの無いトラックでは**何も表示しない**。間違った GS を出すより無害という判断。
+An unbound track shows nothing — safer than showing the wrong capture.
 
-### ポーリングにした理由
+### Why it polls
 
-`SceneManager.sceneLoaded` では足りない。ゲーム内の change track ダイアログは
-**Unity シーンを変えずにトラックだけ差し替える**。だから 1 秒ごとにトラック名を
-読み、変化したら splat を入れ替える（`PollTrack`）。
+`SceneManager.sceneLoaded` is not enough: the in-game change-track dialog **swaps the
+track without changing the Unity scene**. So the track name is read once a second and the
+captures are swapped when it changes (`PollTrack`).
 
-### トラック名の取得は総当たりで見つけた
+### Finding the track name took brute force
 
-Assembly-CSharp は難読化されていて、フィールド名は `glnoaiifnln` のような文字列。
-さらに**文字列定数がシャッフルされている**ため、デコンパイルしても嘘しか読めない。
+Assembly-CSharp is obfuscated — field names look like `glnoaiifnln` — and **the string
+constants are shuffled**, so decompiling produces confident lies.
 
-`TrackProbe`（F12）が、生きているオブジェクト・UI テキスト・プロパティ・コレクションを
-全部走査して、指定した文字列を含むフィールドを報告する。トラック名を
-`VDGSPROBE7777` のような固有な値にしておくと一発で出る。
+`TrackProbe` (F12) walks every live object, UI text, property and collection and reports
+which fields contain a given string. Name a track something unique like `VDGSPROBE7777`
+and it falls out immediately.
 
-見つかった carrier：
+The carriers found:
 
-| 場所 | 挙動 |
+| Where | Behaviour |
 |---|---|
-| `InGameChangeTrack.glnoaiifnln` | ロード中のトラックを追う。**第一候補** |
-| `RaceInfo2/View - Gameplay/TrackName`（TMP） | 飛行 HUD。同じ値。フォールバック |
-| ~~`EditorManager.nnpnlmbjocf`~~ | **使ってはいけない**（下記） |
+| `InGameChangeTrack.glnoaiifnln` | follows the loading track. **First choice** |
+| a `Track Name` label under `Current Track/Table Entry` | the only UI element that claims to be the current track |
+| `RaceInfo2/View - Gameplay/TrackName` (TMP) | the flight HUD. Correct while flying; **keeps the last flown name after returning to the editor**, so it goes last |
 
-`EditorManager.nnpnlmbjocf` は最初に見つかり、一見完璧に見えた。しかし実際は
-「最後に**エディタで**開いたトラック」で、別のトラックをロードして飛んでも更新されない。
-別トラックを開いて初めて発覚した。難読化された環境では、**1 つの値が一度正しく見えた
-だけでは根拠にならない**という教訓。
+Three things not to use:
 
-`TrackName.cs` は複数の carrier を順に試し、どれも解決できなければクラス内の
-全 string フィールドを走査するフォールバックまで持つ。アップデートで難読化名が
-変わっても、UI 経由で動き続ける。
+- **`EditorManager.nnpnlmbjocf`** — "the track last opened *in the editor*". It is found
+  first and looks perfect, and it does not update when you fly a different one. In an
+  obfuscated build, **one value looking right once is not evidence**
+- **`Tracks Admin Entry(Clone)/TrackEntry/Track` labels** — every track the user owns, one
+  per row. Not the current one
+- **a `Track Name` label matched by name alone** — the same modal also has a *column
+  header* whose text is literally `Track Name`. Match on the path
+
+`TrackName.cs` tries the carriers in order and falls back to scanning every string field
+in the class, so an update that renames obfuscated fields does not necessarily break it.
 
 ---
 
-## 操作面
+## Control
 
-### Web UI にした理由
+### Why a browser
 
-ゲーム内キーでの操作を試し、**全部潰れた**：
+In-game keys were tried, and **all of them were taken**:
 
-| キー | 衝突 |
+| Key | Conflict |
 |---|---|
-| F7 | トラックエディタのシーン保存 |
-| 矢印キー | トラックエディタのオブジェクト移動 |
-| Numpad | ノート PC に無い |
+| F7 | the track editor's save-scene |
+| arrow keys | the track editor's object movement |
+| numpad | absent on a laptop |
 
-さらに致命的なのは、**ゲームに HUD を描く場所がない**こと。キーを押しても結果が
-見えないので、ログを読むまで成功したか分からない。
+Worse, **there is nowhere in the game to draw a HUD**, so pressing a key gave no feedback
+at all until you read a log.
 
-プロセスの外に出すと、これが全部消える。加えて別マシンから操作できる
-（Parsec でゲーム画面を見ながら、手元の Mac のブラウザで操作する）。
+Moving out of the process removes all of it, and adds control from another machine
+(watching through Parsec, driving from the Mac's browser).
 
 ```
 HttpListener (:8777)
-  ├ GET  /            埋め込み HTML（WebUi.cs）
-  ├ GET  /api/status  現在のトラック / 表示中 / 利用可能 / 全紐付け
-  ├ POST /api/load    指定の GS だけ表示
-  ├ POST /api/unload  全部隠す
-  ├ POST /api/bind    現在のトラックに紐付け
-  └ POST /api/unbind  紐付けを解除
+  ├ GET  /            embedded HTML (WebUi.cs)
+  ├ GET  /api/status  current track / shown / available / all bindings
+  ├ POST /api/load    show one capture
+  ├ POST /api/unload  hide everything
+  ├ POST /api/bind    bind to the current track
+  └ POST /api/unbind  remove a binding
 ```
 
-### スレッド境界
+### The thread boundary
 
-`HttpListener` は専用スレッドで受ける。**Unity のオブジェクトはメインスレッドからしか
-触れない**ので、リクエストは `Queue<Action>` に積み、`Update()` から `Pump()` で流す。
+`HttpListener` runs on its own thread, and **Unity objects may only be touched from the
+main thread**. Requests are pushed onto a `Queue<Action>` and drained by `Pump()` from
+`Update()`.
 
-`GET /api/status` だけは値を返す必要があるため、メインスレッドに投げて
-`ManualResetEventSlim` で待つ（5 秒でタイムアウト。ゲームが停止していても
-ハングしないため）。
+`GET /api/status` has to return a value, so it posts to the main thread and waits on a
+`ManualResetEventSlim` with a 5-second timeout — otherwise a stalled game would hang the
+HTTP thread.
 
-### セキュリティ
+### Security
 
-**トラック名は攻撃者が書ける文字列。** VelociDrone はコミュニティのトラックを
-ダウンロードでき、その名前がそのまま UI に出る。サーバーは LAN 全体に開いている。
+**A track name is attacker-controlled text.** VelociDrone downloads community tracks and
+their names go straight into the UI, and the server is open to the whole LAN.
 
-3 つで守っている：
+Three defences:
 
-1. **`innerHTML` を使わない。** `createElement` + `textContent` で組む。
-   一度これを怠り、`<img src=x onerror=...>` という名前のトラックを 1 本落とすだけで
-   任意コードが動く状態を作ってしまった
-2. **CORS ヘッダを出さない。** UI は同一オリジンから配信されるので不要。
-   付けると利用者が開いた任意のサイトから API を叩ける
-3. **POST に `Content-Type: application/json` を要求する。** クロスオリジンのページは
-   preflight なしにこのヘッダを付けられず、CORS ポリシーも無いので通らない。
-   これが CSRF の防波堤。2 だけでは `text/plain` の simple request で抜けられる
-
----
-
-## 位置合わせを実装しない理由
-
-一度は実装した（キーで移動・回転・拡縮、`placement.json` に保存）。**削除した。**
-
-splat の座標をシムの中で合わせるのは、道具として筋が悪い：
-
-- ゲーム内には数値を表示する場所がなく、目分量になる
-- 撮影・学習側（Postshot など）は、そもそも正しい座標系で出力できる
-- mod 側に持つと、GS を差し替えるたびに合わせ直しになる
-
-`placement.json` は残してあるが、**手で書く最終手段**であって、ゲーム内から変更する
-手段は無い。
-
-同じ理由で**コリジョンも実装していない**。飛べるコースにしたければ、
-VelociDrone 純正のゲートやバリアを置けばよく、それらは最初からコリジョンを持つ。
+1. **No `innerHTML`.** Everything is `createElement` plus `textContent`. Skipping this
+   once left a state where downloading a single track named `<img src=x onerror=...>` ran
+   arbitrary code
+2. **No CORS header.** The UI is served from the same origin and does not need one. Adding
+   it would let any site the user visits drive this API
+3. **POST requires `Content-Type: application/json`.** A cross-origin page cannot set that
+   header without a preflight, and there is no CORS policy to satisfy it. That is the CSRF
+   barrier — 2 alone is escapable with a `text/plain` simple request
 
 ---
 
-## ファイル対応表
+## Why there is no alignment UI
 
-| ファイル | 責務 |
+There was one — move, rotate and scale on keys, saved to `placement.json`. **It was
+deleted.**
+
+Aligning splat coordinates inside the simulator is the wrong tool for the job:
+
+- there is nowhere in the game to display a number, so it is all done by eye
+- the capture and training side (Postshot and friends) can emit correct coordinates in the
+  first place
+- keeping it in the mod means redoing the alignment every time a capture is replaced
+
+`placement.json` remains as a **hand-edited last resort**; nothing in-game writes it.
+
+**Collision is absent for the same reason.** If a course needs something to fly through,
+VelociDrone's own gates and barriers already have colliders.
+
+---
+
+## What each file does
+
+| File | Responsibility |
 |---|---|
-| `Plugin.cs` | エントリポイント、各機能の配線、トラック監視 |
-| `SplatData.cs` | `meta.json` + 5 バイナリ → メモリ |
-| `SplatRenderer.cs` | GPU バッファ確保、CommandBuffer 構築、描画 |
-| `GpuSorting.cs` | 8bit radix sort（upstream ほぼ無改変） |
-| `ShaderBundle.cs` | AssetBundle からシェーダーを取得 |
-| `SplatScene.cs` | splat 1 つ分の生成・破棄・配置読み込み |
-| `TrackName.cs` | ロード中のトラック名を多段フォールバックで取得 |
-| `TrackBindings.cs` | `bindings.json` の読み書き |
-| `TrackProbe.cs` | 難読化されたゲームから文字列の在処を探す（F12） |
-| `WebControl.cs` | HTTP サーバー、スレッド境界の管理 |
-| `WebUi.cs` | ブラウザ UI（埋め込み HTML） |
-| `Probe.cs` | ランタイム環境の実測ダンプ（F9） |
-| `PerfLog.cs` | フレームタイム記録 |
-| `PostProcessFix.cs` | D3D12 強制の副作用対応（**効かない**。経緯の記録として残置） |
+| `Plugin.cs` | entry point, wiring, track polling |
+| `SplatData.cs` | `meta.json` + five binaries → memory; the chunk guard |
+| `PlyLoader.cs` | `.ply` → the same buffers, at load time |
+| `SplatRenderer.cs` | GPU buffers, CommandBuffer construction, drawing, culling |
+| `GpuSorting.cs` | 8-bit radix sort (near-unmodified upstream) |
+| `ShaderBundle.cs` | fetches shaders from the AssetBundle |
+| `SplatScene.cs` | one capture's lifetime, discovery and placement |
+| `SplatBackdrop.cs` | the inward-facing black box |
+| `TrackName.cs` | the loading track's name, through several fallbacks |
+| `TrackBindings.cs` | reads and writes `bindings.json` |
+| `TrackProbe.cs` | hunts strings inside the obfuscated game (F12) |
+| `WebControl.cs` | HTTP server and the thread boundary |
+| `WebUi.cs` | the browser UI (embedded HTML) |
+| `Probe.cs` | runtime environment dump (F9) |
+| `PerfLog.cs` | frame-time logging |
+| `PostProcessFix.cs` | an attempt at the `-force-d3d12` side effect (**it does not work**; kept as a record) |
 
 ---
 
-## 拡張するときに
+## If you extend it
 
-- **API を足す**: `WebControl.Handle()` に case を追加し、`Plugin` 側にハンドラを書いて
-  デリゲートに繋ぐ。Unity に触る処理は必ず `QueueOnMain` を通す
-- **UI を足す**: `WebUi.Html` に追記。**動的な値は必ず `textContent` で入れる**
-- **ゲームの内部状態を読みたい**: `TrackProbe` の needle を変えて F12。
-  デコンパイル結果の定数は信用しない
-- **シェーダーを変える**: `unity/VDGSBundler` で焼き直し。**Windows で**。
-  焼けたバンドルが 1MB 未満なら失敗している
+- **Adding an API**: add a case to `WebControl.Handle()`, write the handler in `Plugin` and
+  connect the delegate. Anything touching Unity must go through `QueueOnMain`
+- **Adding UI**: append to `WebUi.Html`. **Dynamic values go in through `textContent`,
+  always**
+- **Reading game state**: change the needle and press F12. Do not trust constants from a
+  decompile
+- **Changing shaders**: rebake `unity/VDGSBundler` **on Windows**. A bundle under 1 MB
+  means it failed

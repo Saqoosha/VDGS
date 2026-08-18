@@ -22,7 +22,7 @@ compute 'SplatUtilities'                   supported=True
 => shaders READY
 ```
 
-### 実測パフォーマンス（詳細は docs/performance.md）
+### 実測パフォーマンス（詳細は docs/performance.ja.md）
 
 **コストは splat 数と 1 splat あたりのバイト数で決まる。** RTX 3060 / D3D12、`RenderBench`
 でシーン内部・画角 120° から測った値（`bash tools/bench-win.sh`）：
@@ -203,7 +203,7 @@ bash tools/launch-win.sh
 
 **手順 1 は省ける。** `<game>/vdgs/foo.ply` を置けばプラグインが実行時に読む
 （217 万 splats で実測 **0.97 秒**、876 万で 3.34 秒）。変換済みディレクトリと同名なら**ディレクトリが勝つ**。
-速度は焼いた最速版の 7% 差、画質は測定に出ない差（詳細は docs/ply-loading.md）。
+速度は焼いた最速版の 7% 差、画質は測定に出ない差（詳細は docs/ply-loading.ja.md）。
 
 **ゲームは必ず `-force-d3d12` で起動する。** 素の D3D11 では splat シェーダーが動かない。
 
@@ -357,7 +357,7 @@ Y オフセットで持ち上げても直らない（位置の問題ではない
 **飛行用には室内を移動しながら撮ったキャプチャ（playroom / drjohnson 系）を使う。**
 新規に撮るなら、被写体だけでなく**床にレンズを向けたパスを必ず入れる**こと。
 
-### 向きとスケールは元データ依存（詳細は docs/alignment.md）
+### 向きとスケールは元データ依存（詳細は docs/alignment.ja.md）
 
 **COLMAP 由来のデータは向きもスケールも任意。** `PlyExporter` は向きを一切変えないので、
 直すべきは変換ではなく投入前の `.ply`。向き合わせは
@@ -369,7 +369,7 @@ Y オフセットで持ち上げても直らない（位置の問題ではない
 
 `align_ply.py` の使いどころは `--mirror`（後述）、`--rotate`（**クォータニオンにも適用
 される**）、`--sample`、`--ceiling`、`--bounds`。`--up` は動かない（経緯は
-docs/alignment.md）。
+docs/alignment.ja.md）。
 
 #### crop はしない（ツールごと削除済み）
 
@@ -380,7 +380,7 @@ docs/alignment.md）。
 品質を落とす選択肢は持たないと決めたので `tools/crop_ply.py` と cropped な ply は
 削除した。破片が目障りなら `align_ply.py --bounds` で箱を明示する。
 
-#### 3DGS は Unity で必ず鏡像になる（詳細は docs/alignment.md）
+#### 3DGS は Unity で必ず鏡像になる（詳細は docs/alignment.ja.md）
 
 3DGS（COLMAP 由来）は**右手系・Y-down**、Unity は**左手系・Y-up**。UnityGaussianSplatting
 は軸を一切変換しないので、ply をそのまま読むと必ず鏡像になる。被写体だけ見ていると
@@ -395,9 +395,9 @@ Y の反転（鏡映、行列式 -1）が**上下の反転と鏡像の解消を�
 
 **鏡映時にクォータニオンの `w` を反転してはいけない**（位置は完璧なまま楕円体だけが
 別方向を向き、針状に飛び散る）。**SuperSplat の書き出しは Y が反転している。**
-どちらも `align_ply.py` が処理済みで、経緯と検算方法は docs/alignment.md にある。
+どちらも `align_ply.py` が処理済みで、経緯と検算方法は docs/alignment.ja.md にある。
 
-#### 検証は目視でなく数値で（詳細は docs/verification.md）
+#### 検証は目視でなく数値で（詳細は docs/verification.ja.md）
 
 このプロジェクトで目視レビューは一度も欠陥を捕まえていない。鏡像も、残骸 chunk.bin も、
 正射影カメラも、全部「それらしい絵」を出した。道具は 3 つある：

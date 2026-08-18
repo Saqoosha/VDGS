@@ -1,360 +1,316 @@
-# 3DGS の描画時間を削る方法（調査）
+# Where the frame time goes
 
-drjohnson（317 万 splats）で RTX 3060 のファンが唸る問題。**品質を落とさずに**速くする
-方法を洗う。
+*[日本語版](performance.ja.md)*
 
-**結論を先に：RTX 3060 では SH のパレット圧縮でフレーム時間が 34% 減る（splat コスト
-だけ見れば 48% 減）。実装済み・品質劣化ほぼゼロ。まずこれを全シーンに適用する。**
+The problem: drjohnson (3.18M splats) made the RTX 3060's fan audible. This is what was
+measured and what moved it, **without giving up image quality**.
 
-**そして最大の教訓：Mac で測った結論は 3060 に移らなかった。** 同じ比較が Mac で 6.5%、
-3060 で 48%。M1 Max のユニファイドメモリが帯域を隠していた。**必ず実機で測ること。**
+**Two things worked: choosing the right format tier, and frustum culling.** Together they
+took drjohnson from 14.4 ms to 9.0 ms in the benchmark, and 26.8 ms to 17.3 ms in the game.
+
+**And the biggest lesson: a conclusion measured on the wrong machine did not transfer.**
+The same comparison gave 6.5% on an M1 Max and 48% on the RTX 3060, because unified memory
+hides bandwidth a discrete card has to pay for.
 
 ---
 
-## 1. コストの所在（実測）
+## 1. Locating the cost
 
-測定器は `RenderBench`（`unity/VDGSBundler`）。`Camera.Render()` の後に 1 画素だけ
-読み戻して GPU を同期させるので、1 反復が実フレームになる。
+The instrument is `RenderBench` in `unity/VDGSBundler`. It reads one pixel back after
+`Camera.Render()` to force a GPU sync, so each iteration is a real frame.
 
-### RTX 3060 / D3D12（本番機。`bash tools/bench-win.sh`）
+### RTX 3060 / D3D12 — the machine that matters (`bash tools/bench-win.sh`)
 
 ```
-                splats   B/splat    合計      床を引いた splat コスト
+                splats   B/splat    total     splat cost above the 4.16 ms floor
 empty                0        -    4.16 ms          -
-bonsai           1.16M      236    6.66 ms      2.50 ms   (2.16 ms/100万)
-playroom         1.92M       84    8.24 ms      4.08 ms   (2.13 ms/100万)
-drjohnson        3.18M      236   13.92 ms      9.76 ms   (3.07 ms/100万)
-drjohnson-shc    3.18M       46    9.20 ms      5.04 ms   (1.59 ms/100万)
+bonsai           1.16M      236    6.66 ms      2.50 ms   (2.16 ms/M)
+playroom         1.92M       84    8.24 ms      4.08 ms   (2.13 ms/M)
+drjohnson        3.18M      236   13.92 ms      9.76 ms   (3.07 ms/M)
+drjohnson-shc    3.18M       46    9.20 ms      5.04 ms   (1.59 ms/M)
 ```
 
-**drjohnson → drjohnson-shc で splat コストが 48% 減、フレーム全体で 34% 減。**
+### The harness had the same bug as the conclusion
 
-### M1 Max（参考。結論が違う）
+It originally read the whole 1024×1024 target back every frame to force the sync. That is
+free on unified memory and **dominant across PCIe**: an empty frame measured 17.55 ms on
+the RTX 3060 — slower than drawing two million splats. **Reading a single pixel syncs just
+as hard** and transfers four bytes.
 
-```
-empty            2.68 ms
-playroom         17.86 ms
-bonsai           21.52 ms
-drjohnson        32.31 ms
-drjohnson-shc    30.21 ms   ← 同じ比較が 6.5% しか出ない
-```
+### Breakdown
 
-**同じ 2 つのシーンを比べて Mac 6.5%、3060 48%。** ユニファイドメモリは帯域を隠す。
-ディスクリート GPU は隠さない。**結論は必ず実機で取ること。**
-
-### 測定器そのものの罠
-
-最初は毎フレーム 1024×1024 を丸ごと読み戻していた。Mac では誤差だが、**PCIe 越しの
-ディスクリート GPU では転送が支配的**になり、空フレームが 17.55 ms と「200 万 splat を
-描くより遅い」という無意味な数字を出した。**1 画素の読み戻しでも同期は取れる。**
-
-### 内訳
-
-| 要素 | 測り方 | 実測 | 割合 |
+| Component | How it was isolated | Measured | Share |
 |---|---|---:|---:|
-| SH の帯域 | 同じ幾何でデータ量だけ 5.1 倍減らす | 2.1 ms | 7% |
-| ソート | `m_SortNthFrame` を 1 → 10000 | 2.0 ms | 6% |
-| 画素の仕事 | 1024 → 2048（画素 4 倍） | ~2 ms | 6% |
-| **splat あたりの固定コスト** | 残り | **~28 ms** | **87%** |
+| SH bandwidth | same geometry, 5.1× less data | 2.1 ms | 7% |
+| Sorting | `m_SortNthFrame` 1 vs effectively off | 2.0 ms | 6% |
+| Pixel work | 1024 → 2048, four times the pixels | ~2 ms | 6% |
+| **Per-splat fixed cost** | the remainder | **~28 ms** | **87%** |
 
 ```
-sortNth=1  32.19 ms     512px  50.52 ms  ← 異常値（GPU クロックが上がりきらない）
-sortNth=2  31.08 ms    1024px  32.19 ms
-sortNth=4  30.38 ms    2048px  34.19 ms  ← 画素 4 倍で +6% だけ
+sortNth=1  32.19 ms      512px  50.52 ms  ← outlier; the GPU never clocks up
+sortNth=2  31.08 ms     1024px  32.19 ms
+sortNth=4  30.38 ms     2048px  34.19 ms  ← four times the pixels for +6%
 sortNth=∞  30.19 ms
 ```
 
-床を引いて splat 数で割ると **約 8 ms / 100万splat**。フォーマットが 1.8 倍違う
-playroom（7.92）と drjohnson-shc（8.66）がほぼ一致する。
+**"Bandwidth dominates" was concluded once and was wrong.** It fitted three in-game points
+from different scenes, framings and overdraw. A controlled comparison — same geometry,
+same camera, 5.1× less data — moved the frame by 6.5%, and that refuted it. Vary one
+thing at a time.
 
-**一度「帯域が支配的」と結論して間違えた。** ゲーム内の 3 点（シーンも構図も違う）に
-線を引いただけだった。統制した比較（同じ幾何・同じカメラ・データ量だけ 5.1 倍差）が
-6.5% しか出さなかった時点で否定された。仮説を立てたら変数を 1 つだけ動かすこと。
+### What the 87% is
 
-### 87% の正体
+The code says it plainly:
 
-コードを読むと構造がそのまま出ている：
+- `SplatRenderer` drew **every splat unconditionally** as an instanced quad, with no
+  compaction to the visible ones
+- `CSCalcViewData` spawns **a thread per splat**, projecting, building the 2D covariance
+  and evaluating SH
+- there was no frustum culling at all, only a behind-camera test
 
-- `SplatRenderer` は `DrawProcedural` で **全 splat を無条件にクアッド描画**する。
-  可視だけに絞る圧縮（indirect draw + カウント）が無い
-- `CSCalcViewData` はカメラ後方の splat で重い処理を飛ばすが、**スレッドは全 splat 分
-  立つ**。射影・3D→2D 共分散・SH 評価をそこで行う
-- 視錐台カリングは存在しない（`behindCam` の判定だけ）
-
-**317 万個すべてが、見えていようがいまいが、毎フレーム 1 スレッドと 1 クアッドを消費
-している。**
+**All 3.18M paid every frame, visible or not.**
 
 ---
 
-## 2. 品質を落とさない手（本命）
+## 2. What worked, at no cost to quality
 
-### 2.1 視錐台カリング＋インダイレクト描画（実装済み）
+### 2.1 Frustum culling with an indirect draw
 
-**実測：RTX 3060、drjohnson-shc をシーン内部・画角 120° から描いて 10.69 → 9.04 ms
-（15% 減）。画は完全に同一（最大差 0、一致率 100%）。**
+**Measured: 10.49 → 9.37 ms on drjohnson-shc from inside the scene at 120°, three runs
+each. Every pixel identical.**
 
-`m_FrustumCulling`（既定 on）。仕組み：
+`m_FrustumCulling`, on by default. How it works:
 
-1. `CSCalcDistances` で各 splat をクリップ空間の視錐台と照合する。ここで判定するのは、
-   **ここが描画順を決める場所だから**
-2. 外れた splat には**ソートキーの最大値**を書く。ソートは昇順なので、可視 splat の後ろに
-   全部沈む
-3. `DrawProceduralIndirect` で可視数だけ描く。可視数は wave 単位の atomic で数える
-   （splat ごとに atomic を撃つと、カリングで浮いた分を食い潰す）
+1. `CSCalcDistances` tests each splat against the clip-space frustum. **This is where it
+   belongs, because this is where draw order is decided**
+2. A culled splat gets **the maximum sort key**. The sort is ascending, so it parks past
+   everything visible
+3. `DrawProceduralIndirect` draws only the visible count, accumulated **one atomic per
+   wave** — three million contended increments would cost more than the cull saves
 
-圧縮パスを別に走らせずに、ラスタライザからも `CSCalcViewData` の有効な仕事からも
-同時に外れる。
+That removes it from the rasteriser and from `CSCalcViewData`'s useful work without a
+separate compaction pass.
 
-#### 余白は splat ごとに、チャンク単位の半径表から
+#### The margin comes from each splat's own size
 
-判定するのは splat の**中心**なので、中心が画面外でも裾が入り込む splat を守る余白が要る。
-どれだけ要るかは推測せず、**一致するまで上げて**決めた。
+The test is on splat **centres**, so a splat whose centre has left the view but whose
+skirt has not must still be kept. How much margin was measured, never chosen: raise it
+until the culled image matches the unculled one exactly.
 
-最初は「画面幅の何割」という**1 つの数**でやった。シーン中で最も大きい splat を守らねば
-ならないので **8 まで必要**で、大多数の小さい splat が過剰に払っていた：
-
-```
-margin 0.5   平均差 11.48/255   一致率   0.2%
-margin 2      平均差  1.78/255   一致率   6.6%
-margin 8      平均差  0.00/255   一致率 100%
-```
-
-そこで splat ごとの半径から余白を出すようにした。`sigma 4`（描画クアッドは ±2 シグマ
-なので、その 2 枚分）で完全一致する：
+A single global margin has to cover the largest gaussian anywhere in the capture, and
+captures hold a few enormous diffuse ones, so it needed to be **8 screen half-widths**:
 
 ```
-sigma 1   平均差 2.78068/255   一致率   5.7%
-sigma 2   平均差 1.06876/255   一致率  34.8%
-sigma 3   平均差 0.00072/255   一致率  99.8%
-sigma 4   平均差 0.00000/255   一致率 100%
+margin 0.5   mean difference 11.48/255   0.2% of pixels identical
+margin 2      1.78                       6.6%
+margin 8      0.00                     100%
 ```
 
-##### 半径は splat ごとに読んではいけない（散り読みになる）
-
-最初は距離パスで `LoadSplatScale(origIdx)` を直接呼んだ。**正しいが遅い。** `origIdx` は
-ソート済みキー配列から来るので、`other.bin` 全体（drjohnson で 57MB）への**ランダム
-アクセス**が毎フレーム発生し、余白を詰めて得た分を食い潰す。
-
-いまは **256 splat ごとの最大半径の表**をロード時に 1 回作る（`CSCalcChunkRadius`）。
-317 万 splats でも **50KB** でキャッシュに乗り、作るときは `idx` 順＝連番アクセスなので安い。
-
-##### 導出でも 1 つ間違えた
-
-クリップ空間の視錐台平面は**正規化されていない**。側面平面の勾配は `(P00, 0, -1)` なので、
-半径 r の球が越える量は `r * P00` ではなく **`r * sqrt(P00²+1)`**。画角 120° では 2 倍違う。
-
-もう 1 つ、距離パスは `_SplatFormat` に**位置フォーマットしか入れていなかった**
-（`LoadSplatPos` は下位バイトしか見ないので今まで露見しなかった）。`LoadSplatScale` は
-上位バイトから `other.bin` の stride を導くので、16 と 18 を取り違えて**別の splat の
-スケールを読んでいた**。症状は「余白を 20 倍にしても何も変わらない」。
-
-#### 実測（RTX 3060、drjohnson-shc、シーン内部・画角 120°）
+Deriving it per splat brings it down to **sigma 4** — two drawn quads' worth of slack,
+since the vertex shader emits ±2σ:
 
 ```
-カリング off  [10.87, 9.96, 10.65]   平均 10.49 ms
-カリング on   [ 9.39,  9.39,  9.32]  平均  9.37 ms
-                                      → 10.7% 減、ピクセル完全一致
+sigma 1   2.78068/255     5.7% identical
+sigma 2   1.06876/255    34.8%
+sigma 3   0.00072/255    99.8%
+sigma 4   0.00000/255   100%
 ```
 
-**「splat ごとにすれば 22% まで伸びる」という予測は外れた。** 実測は 10.7%。
-グローバル余白 8 の単発測定が 15% だったが、無効側のばらつきが 9% あるので
-その差は有意ではない。**3 つの無損失版はどれも 9.0〜9.4 ms に収まり、差は測定誤差の中。**
-チャンク表版を採ったのは、余白が最も詰まっていて、測定値のばらつきも最小
-（0.7% 対 9%）だったから。
+##### Do not read the radius per splat; it scatters
 
-効き幅を実測した（drjohnson、部屋の中心にカメラ）：
+Calling `LoadSplatScale(origIdx)` in the distance pass is correct **and slower than the
+cull it buys**: the index comes from the sorted key buffer, so the reads scatter across
+all 57 MB of drjohnson's `other.bin` every frame.
 
-| 画角 | 向き | 視錐台内の splat |
-|---|---|---:|
-| 90° | +Z | 31.4% |
-| 90° | +X | 79.8% |
-| 90° | 斜め | 51.6% |
-| 120° | +Z | 41.3% |
-| 120° | +X | 97.0% |
-| 120° | 斜め | 56.4% |
+A table of the largest radius per 256 splats, built once in index order where reads are
+sequential, is **50 KB** for three million splats and stays in cache.
 
-**向きで 3%〜69% と大きく振れる。** FPV は画角が広い（120〜150°）ので効きは小さめ。
-真横を向くとほぼ効かない。それでも平均 40% 前後は期待できる。
+##### Two errors in the derivation
 
-実装は 3 段：
+**Clip-space frustum planes are not unit length.** For the side planes the gradient with
+respect to view position is `(P00, 0, -1)`, so a sphere of radius r crosses at
+`r·√(P00²+1)`, not `r·P00`. At 120° that is a factor of two.
 
-1. `CSCalcViewData` の前に、**chunk 単位（256 splat）で境界ボックスを視錐台と判定**する
-   カーネルを足す。chunk の bounds は既に `ChunkInfo` にある（`Cluster16k` で焼くと
-   chunk が付く。素の VeryHigh では付かないので、まず付ける必要がある）
-2. 生き残った chunk の splat 索引を `AppendStructuredBuffer` に詰める
-3. `DrawProceduralIndirect` でその数だけ描く
+And the distance pass set `_SplatFormat` to **the position format alone**. `LoadSplatPos`
+only reads the low byte, so it never mattered — until `LoadSplatScale`, which derives the
+`other.bin` stride from the upper bytes. A 16-byte stride against 18-byte data reads a
+different splat's scale every time. **The symptom was a cull that ignored its own margin:
+raising the multiplier twentyfold changed nothing.** When a parameter sweep produces no
+response, suspect the parameter is not reaching the computation.
 
-**upstream にこの仕組みは無いので、自前で書く必要がある。** ただし境界ボックスは既に
-あるので、書くのは判定と圧縮だけ。
+#### What it is worth
 
-### 2.2 正確なタイル交差判定（rasterizer 側、可逆）
+**10.7%, pixel-identical.** The predicted 22% did not materialise. All three lossless
+variants land between 9.0 and 9.4 ms against a ~10.5 ms baseline and the differences sit
+inside the noise; the chunk-radius version ships because its margin is tightest and its
+timings are the most repeatable (0.7% spread against 9%).
 
-本家 CUDA 実装は**タイル単位**でラスタライズする。splat がどのタイルに触るかを保守的な
-矩形で見積もるため、実際には寄与しないタイルまで処理する。ここを厳密にすると、**画質を
-1 ビットも変えずに**仕事が減る：
+Its effectiveness depends entirely on where the camera looks. On drjohnson at 120°,
+between 41% and 97% of the capture falls inside the frustum.
 
-- [StopThePop](https://r4dl.github.io/StopThePop/)（SIGGRAPH 2024）— 階層ラスタライザ。
-  ブレンド前に寄与しない Gaussian を落とす **Tile-Based Culling** を持つ。ポッピング
-  （視点移動で splat の前後が入れ替わる現象）も同時に直る
-- [FlashGS](https://www.researchgate.net/publication/394512353_FlashGS_Efficient_3D_Gaussian_Splatting_for_Large-scale_and_High-resolution_Rendering)
-  — 楕円と矩形の厳密な交差判定、冗長性除去、適応スケジューリング、パイプライン化。
-  **1 桁の高速化**を主張
-- [Speedy-Splat](https://speedysplat.github.io/)（CVPR 2025）— 正確なタイル割り当てで
-  **ラスタライズ 2 倍**。枝刈りと組み合わせて通算 6 倍以上（枝刈りは訓練時なので別枠）
+### 2.2 Choosing the format tier — measure, do not count bytes
 
-**共通する鍵は「不透明度を考慮した境界」** — 固定の σ 倍ではなく、α が閾値を下回る
-ところで楕円を打ち切る。薄い splat の見積もりが劇的に小さくなる。
+Every tier on drjohnson. RTX 3060, inside at 120°, culling on, reference is Float32:
 
-**ぼくらのシェーダーは `quadPos *= 2` で、不透明度に関係なく固定サイズのクアッドを
-出している。** ここは改善余地がそのまま残っている。ただし画素の仕事は実測で 6% しか
-無いので、**この系統の効きは限定的**。本家 CUDA と違い、ぼくらのボトルネックは
-ラスタライズではない。
-
-### 2.3 全体ソートをやめる
-
-本家はタイルごとに独立したソート済みリストを持つ。ぼくらは**全 splat を 1 本の
-グローバルソート**にかけている。ただし実測でソートは 6% なので、ここを直しても取り分は
-小さい。
-
-- [Hybrid Transparency](https://arxiv.org/pdf/2410.08129) — 完全なソートを避けつつ
-  透視補正を保つ手法。ソートが効く場面では有効
-
-### 2.4 フォーマットの選択（測って決める。バイト数だけ見ると外す）
-
-drjohnson を全段測った。RTX 3060、シーン内部・画角 120°、カリング on、基準は
-Float32 全部の版：
-
-| 段 | B/splat | フレーム | Float32 との平均差 | k-means |
+| Tier | B/splat | frame | mean delta vs Float32 | k-means |
 |---|---:|---:|---:|---|
-| VeryHigh (Float32) | 236 | 14.01 ms | — | 不要 |
-| VeryHigh + Cluster16k SH | 47 | 9.38 ms | 1.44/255 | **10 分** |
-| **High (Norm16 / Float16x4 / Norm11)** | **84** | **8.80 ms** | **0.09/255** | **不要** |
-| Medium (Norm11 / Norm8x4 / Norm6) | 48 | — | **58.83/255** | 不要 |
+| VeryHigh (Float32) | 236 | 14.01 ms | — | no |
+| VeryHigh + Cluster16k SH | 47 | 9.38 ms | 1.44/255 | **10 minutes** |
+| **High (Norm16 / Float16x4 / Norm11)** | **84** | **8.80 ms** | **0.09/255** | **no** |
+| Medium (Norm11 / Norm8x4 / Norm6) | 48 | — | **58.83/255** | no |
 
-**High が三拍子そろって勝つ。** バイト数は Cluster16k の 1.8 倍なのに速く、しかも最も忠実。
+**High wins on all three counts.** It carries 1.8× the bytes of clustered SH and is still
+faster, and it is the most faithful of the lot.
 
-理由は**間接参照**。クラスタ化 SH は splat ごとに 2 バイトの索引を読み、それで 3.1MB の
-パレットへ散りアクセスする。その indirection が、Norm11 SH を 60 バイト連続で読むより高い。
-**「バイト数が少ない＝速い」は成り立たない。**
+The reason is **indirection**. Clustered SH reads a two-byte index per splat and then
+scatters into a 3.1 MB palette, and that costs more than reading Norm11 SH in sequence.
+**"Fewer bytes is faster" does not hold.**
 
-playroom-shc が元の playroom より遅かった（8.64 対 8.01 ms）のも同じ理由。一度
-「幾何が Float32 に上がったから」と書いたが**誤り**だった。
+playroom-shc being slower than playroom (8.64 vs 8.01 ms) was the same effect; the earlier
+explanation, blaming Float32 geometry, was wrong.
 
-そして playroom は**最初から High だった**。証拠は最初からあり、Cluster16k の実装は
-回り道だった。`-vdgsShFormat` は残してあるが、既定は使わない。
+And playroom **had always been High**. The evidence was there from the start; the
+Cluster16k implementation was a detour. `-vdgsShFormat` remains but is not used by default.
 
-#### Medium 以下は使ってはいけない
+#### Do not use Medium or below
 
-`Norm11 / Norm8x4 / Norm6` は drjohnson を **2.6 倍暗く**描く（明度 36.3 対 95.1、
-平均差 58.83/255）。形は合っている（IoU 0.9958）ので、崩れているのは色か不透明度。
-upstream の段の問題か、ぼくらの移植が Norm8x4/Norm6 を取り違えているかは**未解決**。
-testcube（Norm8x4/Norm6）は正常に見えるので、データ依存の可能性もある。
+`Norm11 / Norm8x4 / Norm6` renders drjohnson **2.6× too dark** (brightness 36.3 against
+95.1, mean difference 58.83/255). The geometry is right (IoU 0.9958), so the fault is in
+colour or opacity. Whether it is upstream's tier or this port is **unresolved** — testcube
+uses the same formats and looks correct, so it may be data-dependent.
 
-#### ランタイム読み込みへの含意
+#### Trap: `posFormat` says nothing about coordinate space
 
-**High は k-means を必要としないので、プラグインが実行時に作れる。** 変換の 10 分は
-まるごと k-means だった。実測（ゲームと同じ Mono、drjohnson 317 万 splats / 750MB）：
-
-```
-header 1 ms   read 213 ms   decode 2274 ms   sort 407 ms   合計 2.9 s
-```
-
-コールドディスクで +0.5 秒、パッキングで +1 秒として **3〜5 秒**。いまのスポーンが既に
-1.9 秒固まっている（バッファ転送）ので、同じ桁。
-
-**ply のフィールド構成は可変。** drjohnson-aligned.ply は 59 float で、標準の 62 と違って
-法線を持たない。オフセット決め打ちは即座に壊れるので、プロパティ一覧を名前で引くこと
-（`align_ply.py` が既にそうしている）。
-
-#### 罠：`posFormat` は座標空間を語らない
-
-クラスタ化 SH で焼くと `chunk.bin` が出力され、**`posFormat: Float32` のまま位置が
-0..1 のチャンク相対**になる：
+Baking with clustered SH emits `chunk.bin` and makes positions **chunk-relative 0..1
+weights while `posFormat` still reads `Float32`**:
 
 ```
-drjohnson       pos range  -23.186 .. 15.099   ← 絶対座標
-drjohnson-shc   pos range    0.000 ..  1.000   ← チャンク相対
+drjohnson       pos range  -23.186 .. 15.099   ← absolute
+drjohnson-shc   pos range    0.000 ..  1.000   ← chunk-relative
 ```
 
-`Float32` は**格納幅**であって絶対座標の意味ではない。最初に入れたガードは「Float32 なら
-chunk 不要」と決め打ちしていたため chunk を捨て、**シーン全体を原点の塊に潰した**。
-判定材料は変換側しか持たないので、`meta.json` の `chunkCount` と突き合わせる方式にした。
+`Float32` is a **storage width**, not a claim about the coordinate space. A guard that
+inferred "Float32 means absolute" and discarded the chunk data collapsed the whole capture
+into a blob at the origin — as silent as the scattered debris it was written to prevent.
+Only the conversion knows, so `PlyExporter` writes `chunkCount` into `meta.json` and the
+loader checks against it.
+
+### 2.3 Reading .ply at load time
+
+Not a rendering optimisation, but it changes the economics: the runtime loader produces
+132 B/splat and lands **7% behind the best baked format**, with no offline step at all.
+See [ply-loading.md](ply-loading.md).
 
 ---
 
-## 3. LOD（要・再訓練）
+## 3. What is capped by measurement
 
-遠くの splat をまとめて減らす。**手前の品質は保たれる**ので「品質を落とさない」に近いが、
-**既存の ply には後から掛けられない** — どれも訓練の構造そのものを変える。
+### Exact tile intersection (rasteriser side, lossless)
+
+The reference CUDA implementation rasterises **per tile**, estimating which tiles a splat
+touches with a conservative rectangle. Tightening that costs nothing in image quality:
+
+- [StopThePop](https://r4dl.github.io/StopThePop/) (SIGGRAPH 2024) — hierarchical
+  rasteriser with tile-based culling that drops non-contributing gaussians before blending,
+  and fixes popping at the same time
+- [FlashGS](https://www.researchgate.net/publication/394512353_FlashGS_Efficient_3D_Gaussian_Splatting_for_Large-scale_and_High-resolution_Rendering)
+  — exact ellipse/rectangle intersection, redundancy elimination, adaptive scheduling;
+  claims an order of magnitude
+- [Speedy-Splat](https://speedysplat.github.io/) (CVPR 2025) — precise tile allocation,
+  **2× on rasterisation**
+
+**The shared key is opacity-aware bounds** — cut the ellipse where α falls below a
+threshold rather than at a fixed σ.
+
+**Our shader emits a fixed-size quad (`quadPos *= 2`) regardless of opacity**, so the room
+is there. But pixel work measures 6% of the frame: unlike the CUDA reference, **our
+bottleneck is not rasterisation**, so this family is capped low.
+
+### Dropping the global sort
+
+The reference keeps a sorted list per tile; we run **one global sort over every splat**.
+Sorting measures 6%, so fixing it cannot return much.
+
+- [Hybrid Transparency](https://arxiv.org/pdf/2410.08129) — perspective-correct blending
+  without a full sort
+
+---
+
+## 4. LOD — needs retraining
+
+Reduces distant splats. **Near-field quality is preserved**, so it is close to lossless in
+the sense that matters, but **none of it can be applied to an existing .ply** — they all
+change the structure of training itself.
 
 - [Hierarchical 3D Gaussians](https://repo-sam.inria.fr/fungraph/hierarchical-3d-gaussians/)
-  （INRIA, SIGGRAPH 2024）— 本命。シーンをチャンクに分けて独立に訓練し、階層に統合。
-  中間ノードに統合された Gaussian を最適化して品質を保つ。レベル選択と滑らかな遷移つき
-- [Octree-GS](https://city-super.github.io/octree-gs/)（TPAMI 2025）— 疎点群から八分木を
-  作り、各レベルにアンカー Gaussian を割り当てる。視点に応じて必要な LOD を選び、
-  高レベルから累積。**grow-and-prune と段階的訓練**で LOD 階層に配置する
-- [LODGE](https://arxiv.org/abs/2505.23158)（NeurIPS 2025）— 深度考慮の 3D 平滑化 →
-  重要度枝刈り → 微調整で各レベルを作る。加えて**空間チャンクの動的ロード**で GPU
-  メモリも削る。境界のアーティファクトは不透明度ブレンドで回避
-- [HiGS](https://arxiv.org/html/2606.00352v1) — 階層レンダリングアーキテクチャ
+  (INRIA, SIGGRAPH 2024) — trains chunks independently and consolidates into a hierarchy,
+  optimising the gaussians merged into interior nodes; includes level selection and smooth
+  transitions
+- [Octree-GS](https://city-super.github.io/octree-gs/) (TPAMI 2025) — anchor gaussians per
+  octree level, accumulated from coarse to fine per view, arranged by a grow-and-prune and
+  progressive training scheme
+- [LODGE](https://arxiv.org/abs/2505.23158) (NeurIPS 2025) — depth-aware smoothing,
+  importance pruning and fine-tuning per level, plus dynamic loading of spatial chunks to
+  cut GPU memory; opacity blending hides the chunk seams
+- [HiGS](https://arxiv.org/html/2606.00352v1) — a hierarchical rendering architecture
 
-### 一部屋での効き
+### Inside one room
 
-**効きは限定的だと思う（未検証）。** LOD が効くのは距離のダイナミックレンジが大きい
-ときで、街なら数 m〜数 km ある。drjohnson は最大でも 40 units 程度で、tinywhoop の
-飛行距離はさらに短い。奥の壁も画面上でそれなりの大きさを保つ。
+**Probably limited, unverified.** LOD pays where the distance range is large — metres to
+kilometres in a city. drjohnson spans at most about 40 units and a tinywhoop flies a
+fraction of that; the far wall still covers a fair number of pixels.
 
-それでも Octree-GS の主張する「視錐台内の primitive が多すぎることがボトルネック」は
-ぼくらの実測と一致する。**LOD そのものより、その前提にある「視錐台内だけを描く」
-（= 2.1）のほうが先。**
-
----
-
-## 4. splat を減らす（品質を落とす。今回は対象外）
-
-「品質を落とすなら不要」との指示があるので記録のみ。文献では 90% 以上の枝刈りでも
-見た目がほぼ変わらないと報告されている：
-
-- [REFINE](https://arxiv.org/html/2606.09074) — レンダリング不要の重要度評価。
-  **訓練済みモデルに後から掛けられる**系統
-- [3DGS.zip サーベイ](https://onlinelibrary.wiley.com/doi/10.1111/cgf.70078?af=R)（CGF 2025）
-  — 圧縮・枝刈り手法の全体像と比較表
-
-「ほぼ変わらない」の判定は主観なので、**もし試すなら `compare_renders.py` で数値化して
-から**（IoU と平均画素差）。目視で判断しないこと。
+That said, Octree-GS's premise — that too many primitives inside the frustum is the
+bottleneck — matches what was measured here. **The prerequisite it rests on, drawing only
+what is inside the frustum, came first** (see 2.1).
 
 ---
 
-## 5. 順番
+## 5. Reducing splat count (costs quality; out of scope)
 
-| # | 手 | 品質 | 予測される効き | 手間 |
+Recorded only, since the instruction was not to trade quality. The literature reports 90%+
+pruning with little visible change:
+
+- [REFINE](https://arxiv.org/html/2606.09074) — rendering-free importance estimation,
+  **applicable to an already-trained model**
+- [3DGS.zip survey](https://onlinelibrary.wiley.com/doi/10.1111/cgf.70078?af=R) (CGF 2025)
+  — the landscape of compression and pruning, with comparisons
+
+"Little visible change" is a judgement call, so **if you try it, quantify it with
+`compare_renders.py`** — IoU and mean pixel difference. Do not decide by eye.
+
+---
+
+## 6. Practical conclusion
+
+The reliable lever now is **keeping a capture under about two million splats**. playroom
+is 1.92M at 8.24 ms; drjohnson is 3.18M at 8.80 ms on High; in-game, 3M is roughly where
+60 fps sits. Everything else is capped by the measurements above.
+
+| # | Lever | Quality | Worth | State |
 |---|---|---|---|---|
-| 1 | **視錐台カリング + indirect draw** | 劣化なし | 向き次第で 0〜69%、平均 40% 前後 | 中 |
-| 2 | 不透明度考慮のクアッド縮小 | 劣化なし | 画素の仕事が 6% しかないので小 | 小 |
-| 3 | SH パレット圧縮 | ほぼ劣化なし | fps 6.5%、**メモリ 5 倍** | 済 |
-| 4 | ソート頻度を下げる | ポッピング増 | 6% が上限 | 小 |
-| 5 | LOD | 遠景のみ劣化 | 一部屋では小さいと予想 | 大・要再訓練 |
-| 6 | 枝刈り | 劣化する | 削った分だけ線形 | 中・対象外 |
+| 1 | frustum culling + indirect draw | lossless | 10.7%, view-dependent | **shipped** |
+| 2 | the High format tier | most faithful | 37% against Float32 | **default** |
+| 3 | opacity-aware quad shrinking | lossless | small; pixel work is 6% | no |
+| 4 | sorting less often | more popping | 6% ceiling | no |
+| 5 | LOD | far field only | probably small in one room | needs retraining |
+| 6 | pruning | lossy | linear in what is cut | out of scope |
 
-**1 が唯一の大物。** コストが「視錐台内の splat 数」に比例する以上、そこを減らすのが
-筋で、しかも見えないものを捨てるだけなので画質は 1 ビットも変わらない。
-
-前提として **chunk 付きで焼く必要がある**（`Cluster16k` なら付く）。境界ボックスは
-既に `ChunkInfo` にあるので、書くのは判定カーネルと索引の圧縮、そして
-`DrawProceduralIndirect` への切り替え。
-
----
-
-## 測り方
+## How to measure
 
 ```bash
 UNITY=/Applications/Unity/Hub/Editor/2021.3.45f2/Unity.app/Contents/MacOS/Unity
 "$UNITY" -batchmode -quit -projectPath unity/VDGSBundler -executeMethod RenderBench.Run \
-  -vdgsScene "$PWD/build/splats/<name>" -vdgsSize 1024 -vdgsFrames 120 -logFile - \
-  | grep BENCH
+  -vdgsScene "$PWD/build/splats/<name>" -vdgsSize 1024 -vdgsFrames 120 -logFile - | grep BENCH
 ```
 
-`-vdgsScene none` で床。`-vdgsSortNth N` でソート頻度、`-vdgsSize` で解像度を振れる。
-**ゲームに送る前に Mac で切り分けられる。**
+`-vdgsScene none` measures the floor. `-vdgsSortNth N`, `-vdgsSize`, `-vdgsCull`,
+`-vdgsCullMargin` and `-vdgsInside` vary one thing at a time. **Framing the whole capture
+culls nothing, so `-vdgsInside 1` is the only way to measure culling.**
 
-ゲーム内の実測は `<game>/vdgs-perf.log`（5 秒ごと、fps / ms / splat 数）。
+On Windows, `bash tools/bench-win.sh [scenes]` does the same against the RTX 3060 and also
+accepts a bare `.ply`, reporting its load timings.
+
+In-game numbers land in `<game>/vdgs-perf.log` every five seconds:
+`time / fps / avg_ms / worst_ms / splats / scenes`. **That is the number decisions rest
+on**; the benchmark exists to isolate variables.

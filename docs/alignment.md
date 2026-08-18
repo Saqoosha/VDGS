@@ -1,33 +1,37 @@
-# キャプチャの向き合わせ
+# Orienting a capture
 
-**COLMAP 由来のデータは向きもスケールも任意。** `PlyExporter` は向きを一切変えないので、
-直すべきは変換ではなく投入前の `.ply` そのもの。向き合わせは
-[superspl.at/editor](https://superspl.at/editor) の正射影ビューでやる。
+*[日本語版](alignment.ja.md)*
 
-## 3DGS は Unity で必ず鏡像になる（upstream は座標変換をしない）
+**Data from COLMAP has an arbitrary orientation and an arbitrary scale.** `PlyExporter`
+changes neither, so what needs fixing is the `.ply` going in, not the conversion. Do the
+orienting in [superspl.at/editor](https://superspl.at/editor)'s orthographic views.
 
-**すべてのキャプチャが鏡像で表示される。** データ個別の問題ではない。
+## 3DGS always comes out mirrored in Unity
 
-3DGS（COLMAP 由来）は**右手系・Y-down**、Unity は**左手系・Y-up**。
-UnityGaussianSplatting のパッケージ全体を検索しても軸を反転する箇所は 1 つも無く、
-ply の座標をそのまま Unity 座標として読む。したがって必ず鏡像になる。
+**Every capture does.** It is not a property of any one file.
 
-被写体だけ見ていると気づかない。**文字・左右非対称なもので判定する**こと。
+3DGS, being COLMAP-derived, is **right-handed and Y-down**; Unity is **left-handed and
+Y-up**. Searching the whole of UnityGaussianSplatting turns up no axis conversion
+anywhere — the .ply's coordinates are read as Unity coordinates directly, so the result is
+always mirrored.
 
-**正しい変換は Y の 1 軸反転**：
+Watching the subject will not tell you. **Judge it on text, or on something
+left-right asymmetric.**
+
+The correct fix is a single reflection across Y:
 
 ```bash
 python3 tools/align_ply.py in.ply out.ply --mirror y
 ```
 
-Y の反転（鏡映、行列式 -1）は**上下の反転と鏡像の解消を同時に行う**。
-`--rotate 180,0,0` は X 軸まわりの**回転**（行列式 +1）なので、上下は直っても
-**鏡像は原理的に直らない**。ここを取り違えて長く回り道した。
+Reflecting Y (determinant −1) **fixes the flip and the handedness at the same time**.
+`--rotate 180,0,0` is a rotation (determinant +1), so it can correct which way is up while
+leaving the mirror in place — a distinction that cost a long detour.
 
-## 鏡映のときクォータニオンの w を反転してはいけない
+## Do not negate the quaternion's w when mirroring
 
-`R' = M R M` をクォータニオンに落とすと、**反転軸の成分と w はそのまま、
-残り 2 軸を反転**する：
+Expressed on a quaternion, `R' = M R M` **negates the two components that are not the
+mirrored axis, leaving w and the mirrored axis alone**:
 
 ```
 mirror x -> (w,  x, -y, -z)
@@ -35,77 +39,60 @@ mirror y -> (w, -x,  y, -z)
 mirror z -> (w, -x, -y,  z)
 ```
 
-w も反転したくなる（q と -q は同じ回転だから）が、**その同一性は 4 成分すべてを
-反転したときにしか成り立たない**。w だけ余分に反転すると、
+Negating w as well is tempting, since q and −q are the same rotation. **That identity only
+holds when all four components flip.** Negating w on its own breaks in a specific way:
 
-- **位置は完全に正しいまま**
-- **各ガウシアンの楕円体だけが別方向を向く**
+- **positions stay perfect**
+- **every ellipsoid points somewhere else**
 
-という壊れ方をする。画面上は「シーンの形は合っているのに、全体が針状に
-飛び散る」という見え方になり、原因が位置なのか向きなのか判別しづらい。
+On screen the scene keeps its shape while scattering into needles, which makes it hard to
+tell whether the fault is in position or orientation.
 
-実装を変えたら、行列で検算すること（`M·R·M` と一致するか）。
-ランダム回転 200 個で誤差 0 を確認済み。
+If you change the implementation, check it against the matrix — 200 random rotations
+agreed with `M·R·M` exactly.
 
-## SuperSplat の書き出しは Y が反転している
+## SuperSplat exports with Y inverted
 
-**エディタ上で完璧に立っていても、書き出した ply は Unity と上下が逆。**
-必ず `--rotate 180,0,0` を通すこと。
+**A capture standing perfectly upright in the editor comes out upside down relative to
+Unity.** Verified with a density histogram: the densest horizontal slice of a room is its
+floor, and after a SuperSplat export that slice sits at the top.
 
-これは実際に踏んだ。SuperSplat で正しく整列したファイルをそのまま変換してゲームに
-入れ、bounds も「床 y=0、天井 2.7m」と正しく見えた。**数字も見た目も正常だった。**
-実際には天井を地面に接地させていた。
+`align_ply.py` checks for this and warns when the densest surface is in the upper 60% of
+the range.
 
-luigi が「SuperSplat でも mod でも逆さま」だったので座標系は一致していると推論したが、
-それは誤りだった（元データの向きと書き出しの反転が偶然重なっていた）。
+## Automatic floor detection does not work
 
-**検証方法：Y 方向の密度ヒストグラム。** 部屋のキャプチャでは床が最も多くのガウシアンを
-持つので、**最密スライスが上半分にあれば上下逆**。`align_ply.py` はこれを自動で
-チェックして警告する：
+Three RANSAC variants were tried and all three found a wall. Worse, they return
+**plausible numbers** — a `tilt 1.4°` that turns out to be 1.4° against a wall, only
+discovered after loading the scene into the game. Iterative inlier refinement made it
+worse, not better: 11.9° → 23.7°, because each pass pulls harder toward whichever large
+surface holds the most points.
 
-```
-  density check : densest slice at y=2.48 (98% up the range)
-  *** WARNING: the densest surface is near the TOP.
-```
+**"The plane with the most points" and "the plane a human calls the floor" are different
+things**, and the second is not determined by geometry alone. SuperSplat's orthographic
+view is the right tool.
 
-推論ではなく測定で判定できる唯一の手段だったので、ツールに組み込んである。
+What `align_ply.py` is still for:
 
-## その他の書き出し仕様
-
-- **法線を落とす**（62 プロパティ → 59）。3DGS では未使用なので変換は問題なく通る
-- **点の順序を保存しない。** 変換前後のファイルを突き合わせて回転を逆算することは
-  できない（Kabsch が使えない）。フル解像度に同じ変換を移したいなら、TRANSFORM
-  パネルの数値を控えるか、フル解像度の方を SuperSplat で開き直す
-## 床の自動検出は動かない
-
-**COLMAP 由来のデータは向きもスケールも任意。** 上下が逆だったり、床が傾いていたり、
-1 unit が何メートルか決まっていない。
-
-**`PlyExporter` は向きを一切変えない**（luigi が上下逆に見えたので変換を疑ったが、
-SuperSplat で開いても同じく逆さまだった → 元データがそういう向き）。
-つまり直すべきは変換ではなく、投入前の `.ply` そのもの。
-
-**向き合わせは SuperSplat でやる。** [superspl.at/editor](https://superspl.at/editor) は
-1.8 から正射影ビュー（View Cube の円をクリック）を持ち、TRANSFORM パネルで回転・
-スケールを数値入力できる。正射影で見れば床が水平かどうか一目で分かる。
-
-**床の自動検出は諦めた。** RANSAC を 3 通り試して 3 回とも壁を床と誤検出し、しかも
-`tilt 1.4 度` のような**もっともらしい数字**を返すので気づけない（実際は壁に対する
-1.4 度で、ゲームに入れて初めて発覚）。インライアの反復リファインは精度を上げるどころか
-`11.9 度 → 23.7 度` に悪化させた — 反復するほど「点が多い大きな面」に引かれる。
-
-**「点が最も多い平面」と「人間が床と認識する平面」は別物**で、後者は幾何だけからは
-決まらない。SuperSplat の正射影ビューが正しい道具。
-
-`tools/align_ply.py` に残っている使いどころ：
-
-| オプション | 用途 |
+| Option | Use |
 |---|---|
-| `--rotate X,Y,Z` | ビューアで読んだ角度を正確に適用。**クォータニオンにも適用される** |
-| `--sample N` | 間引いてプレビューを作る（SuperSplat に投げやすくする） |
-| `--ceiling H` | 天井高からスケールを決め、床を y=0 に落とす |
-| ~~`--up`~~ | 床の自動検出。**動かない**。経緯の記録として残置 |
+| `--mirror x\|y\|z` | The handedness fix above |
+| `--rotate X,Y,Z` | Apply an angle read off a viewer. **Applied to the quaternions too** |
+| `--sample N` | Thin the cloud for a preview that SuperSplat will open quickly |
+| `--ceiling H` | Derive scale from a known ceiling height and drop the floor to y=0 |
+| `--bounds` | State an explicit box, when debris needs excluding |
+| ~~`--up`~~ | Automatic floor detection. **Does not work**; kept as a record |
 
-回転は位置だけでなく**各ガウシアンの向きクォータニオンにも適用が必要**。位置だけ回すと
-点群は正しく見えるのに全 splat が傾いたままになる。
+A rotation has to be applied to **each gaussian's orientation quaternion**, not only to
+positions. Rotating positions alone leaves a point cloud that looks right and every splat
+tilted.
 
+## Cropping: don't
+
+Percentile cropping trims the outer shell, and **a room photographed from the inside has
+its walls there**, so it deletes the room rather than the debris. playroom lost 28% of its
+splats — 540,000 — and visibly thinned.
+
+`tools/crop_ply.py` and the cropped .ply files were deleted rather than kept: a tool whose
+only effect is to degrade quality is a trap to leave lying around. If debris really is in
+the way, name an explicit box with `align_ply.py --bounds`.
