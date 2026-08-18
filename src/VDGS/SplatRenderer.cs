@@ -125,8 +125,10 @@ namespace VDGS
 
                 gs.CalcViewData(cmb, cam);
 
-                cmb.DrawProcedural(gs.m_GpuIndexBuffer, matrix, displayMat, 0,
-                    MeshTopology.Triangles, 6, gs.SplatCount, mpb);
+                // Indirect, so the instance count comes from the GPU-side cull rather
+                // than from the CPU guessing how much of the scene is on screen.
+                cmb.DrawProceduralIndirect(gs.m_GpuIndexBuffer, matrix, displayMat, 0,
+                    MeshTopology.Triangles, gs.m_GpuDrawArgs, 0, mpb);
             }
             return matComposite;
         }
@@ -189,6 +191,11 @@ namespace VDGS
         internal static readonly int DisplayChunks = Shader.PropertyToID("_DisplayChunks");
         internal static readonly int GaussianSplatRT = Shader.PropertyToID("_GaussianSplatRT");
         internal static readonly int SplatSortKeys = Shader.PropertyToID("_SplatSortKeys");
+        internal static readonly int MatrixObjectToClip = Shader.PropertyToID("_MatrixObjectToClip");
+        internal static readonly int CullEnabled = Shader.PropertyToID("_CullEnabled");
+        internal static readonly int CullMargin = Shader.PropertyToID("_CullMargin");
+        internal static readonly int SplatVisibleCount = Shader.PropertyToID("_SplatVisibleCount");
+        internal static readonly int SplatDrawArgs = Shader.PropertyToID("_SplatDrawArgs");
         internal static readonly int SplatSortDistances = Shader.PropertyToID("_SplatSortDistances");
         internal static readonly int MatrixMV = Shader.PropertyToID("_MatrixMV");
         internal static readonly int MatrixObjectToWorld = Shader.PropertyToID("_MatrixObjectToWorld");
@@ -212,6 +219,34 @@ namespace VDGS
         public int m_SHOrder = 3;
         public bool m_SHOnly;
         public int m_SortNthFrame = 1;
+
+        /// <summary>
+        /// Skip splats outside the view. Costs nothing in quality - they are not on
+        /// screen - and per-splat work is 87% of the frame, so this is the only large
+        /// lossless win available. How much it saves depends entirely on which way the
+        /// camera looks: measured on drjohnson, between 31% and 97% of the capture falls
+        /// inside a 120 degree frustum.
+        /// </summary>
+        public bool m_FrustumCulling = true;
+
+        /// <summary>
+        /// How far past the screen edge a splat's centre may sit and still be kept, as a
+        /// fraction of the half-width. The test is on centres, so this is what protects a
+        /// large splat whose centre has left the view but whose skirt has not.
+        ///
+        /// 8 is not a guess: the value was raised until the culled image matched the
+        /// unculled one exactly. Measured on drjohnson from inside, at 120 degrees:
+        ///
+        ///     margin 0.5   mean pixel difference 11.48/255   0.2% of pixels identical
+        ///     margin 2      1.78                             6.6%
+        ///     margin 8      0.00                             100%
+        ///
+        /// It has to be this wide because one margin has to cover the biggest splat in
+        /// the scene, and captures contain a few enormous diffuse ones. The saving is
+        /// 15% rather than the 22% a lossy 0.5 would give - see docs/performance.md for
+        /// the per-splat bound that would recover the difference.
+        /// </summary>
+        public float m_CullMargin = 8f;
         public float m_PointDisplaySize = 3.0f;
 
         // Matches GaussianCutout.ShaderData: Matrix4x4 + uint.
@@ -236,6 +271,8 @@ namespace VDGS
         private GraphicsBuffer m_GpuSHData;
         private Texture m_GpuColorData;
         internal GraphicsBuffer m_GpuChunks;
+        private GraphicsBuffer m_GpuVisibleCount;
+        internal GraphicsBuffer m_GpuDrawArgs;   // read by the render system's indirect draw
         internal bool m_GpuChunksValid;
         internal GraphicsBuffer m_GpuView;
         internal GraphicsBuffer m_GpuIndexBuffer;
@@ -398,6 +435,18 @@ namespace VDGS
             m_GpuSortKeys = new GraphicsBuffer(GraphicsBuffer.Target.Structured, count, 4)
             { name = "VDGS SortIndices" };
 
+            DisposeBuffer(ref m_GpuVisibleCount);
+            DisposeBuffer(ref m_GpuDrawArgs);
+            m_GpuVisibleCount = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1, 4)
+            { name = "VDGS VisibleCount" };
+            m_GpuDrawArgs = new GraphicsBuffer(GraphicsBuffer.Target.IndirectArguments, 5, 4)
+            { name = "VDGS DrawArgs" };
+            // Until the first sort runs the args buffer is empty, and an indirect draw
+            // reading zeros would simply draw nothing on frame one. Seed it with the full
+            // count so a scene is visible immediately and stays visible if sorting is
+            // skipped by m_SortNthFrame.
+            m_GpuDrawArgs.SetData(new uint[] { 6, (uint)count, 0, 0, 0 });
+
             var cs = ShaderBundle.SplatUtilities;
             cs.SetBuffer((int)KernelIndices.SetIndices, Props.SplatSortKeys, m_GpuSortKeys);
             cs.SetInt(Props.SplatCount, m_GpuSortDistances.count);
@@ -493,6 +542,16 @@ namespace VDGS
             worldToCamMatrix.m22 *= -1;
 
             var cs = ShaderBundle.SplatUtilities;
+
+            // Kernel indices for these are looked up by name: the enum's 0/1/2 mirror the
+            // first three #pragma kernel lines, and hard-coding two more would break the
+            // moment upstream adds a kernel above them.
+            int kReset = cs.FindKernel("CSResetVisibleCount");
+            int kArgs = cs.FindKernel("CSPrepareDrawArgs");
+
+            cmd.SetComputeBufferParam(cs, kReset, Props.SplatVisibleCount, m_GpuVisibleCount);
+            cmd.DispatchCompute(cs, kReset, 1, 1, 1);
+
             int k = (int)KernelIndices.CalcDistances;
             cmd.SetComputeBufferParam(cs, k, Props.SplatSortDistances, m_GpuSortDistances);
             cmd.SetComputeBufferParam(cs, k, Props.SplatSortKeys, m_GpuSortKeys);
@@ -502,10 +561,23 @@ namespace VDGS
             cmd.SetComputeMatrixParam(cs, Props.MatrixMV, worldToCamMatrix * matrix);
             cmd.SetComputeIntParam(cs, Props.SplatCount, m_SplatCount);
             cmd.SetComputeIntParam(cs, Props.SplatChunkCount, m_GpuChunksValid ? m_GpuChunks.count : 0);
+            cmd.SetComputeBufferParam(cs, k, Props.SplatVisibleCount, m_GpuVisibleCount);
+            cmd.SetComputeIntParam(cs, Props.CullEnabled, m_FrustumCulling ? 1 : 0);
+            cmd.SetComputeFloatParam(cs, Props.CullMargin, Mathf.Max(0f, m_CullMargin));
+            // Object -> clip, with the platform's projection conventions applied. The
+            // distance pass only has the modelview matrix, and a hand-rolled projection
+            // here would be wrong on exactly one graphics API and right on the others.
+            cmd.SetComputeMatrixParam(cs, Props.MatrixObjectToClip,
+                GL.GetGPUProjectionMatrix(cam.projectionMatrix, true) * cam.worldToCameraMatrix * matrix);
+
             cs.GetKernelThreadGroupSizes(k, out uint gsX, out _, out _);
             cmd.DispatchCompute(cs, k, (m_GpuSortDistances.count + (int)gsX - 1) / (int)gsX, 1, 1);
 
             m_Sorter.Dispatch(cmd, m_SorterArgs);
+
+            cmd.SetComputeBufferParam(cs, kArgs, Props.SplatVisibleCount, m_GpuVisibleCount);
+            cmd.SetComputeBufferParam(cs, kArgs, Props.SplatDrawArgs, m_GpuDrawArgs);
+            cmd.DispatchCompute(cs, kArgs, 1, 1, 1);
         }
 
         private static void DisposeBuffer(ref GraphicsBuffer buf)
@@ -525,6 +597,8 @@ namespace VDGS
             DisposeBuffer(ref m_GpuOtherData);
             DisposeBuffer(ref m_GpuSHData);
             DisposeBuffer(ref m_GpuChunks);
+            DisposeBuffer(ref m_GpuVisibleCount);
+            DisposeBuffer(ref m_GpuDrawArgs);
             DisposeBuffer(ref m_GpuView);
             DisposeBuffer(ref m_GpuIndexBuffer);
             DisposeBuffer(ref m_GpuSortDistances);

@@ -15,6 +15,10 @@ SCENES="${1:-playroom,bonsai,drjohnson,drjohnson-shc}"
 SIZE="${VDGS_BENCH_SIZE:-1024}"
 FRAMES="${VDGS_BENCH_FRAMES:-120}"
 SORTNTH="${VDGS_BENCH_SORTNTH:-1}"
+# Framing the whole capture culls nothing; the drone flies inside it.
+INSIDE="${VDGS_BENCH_INSIDE:-0}"
+CULL="${VDGS_BENCH_CULL:-1}"
+CULLMARGIN="${VDGS_BENCH_CULLMARGIN:-0.5}"
 
 quiet() { grep -vE "WARNING: |store now, decrypt later|may need to be upgraded|openssh.com/pq" || true; }
 
@@ -33,5 +37,5 @@ rm -f "$TAR"
 
 echo "== benchmarking on $HOST =="
 ssh -o BatchMode=yes "$HOST" \
-  "powershell -ExecutionPolicy Bypass -File %USERPROFILE%\\bench-win.ps1 -Scenes $SCENES -Size $SIZE -Frames $FRAMES -SortNth $SORTNTH" \
+  "powershell -ExecutionPolicy Bypass -File %USERPROFILE%\\bench-win.ps1 -Scenes $SCENES -Size $SIZE -Frames $FRAMES -SortNth $SORTNTH -Inside $INSIDE -Cull $CULL -CullMargin $CULLMARGIN" \
   2>&1 | quiet

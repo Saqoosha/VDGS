@@ -16,6 +16,8 @@
 #pragma kernel CSScaleSelection
 #pragma kernel CSExportData
 #pragma kernel CSCopySplats
+#pragma kernel CSResetVisibleCount
+#pragma kernel CSPrepareDrawArgs
 
 // DeviceRadixSort
 #pragma multi_compile __ KEY_UINT KEY_INT KEY_FLOAT
@@ -46,6 +48,21 @@ int _SelectionMode;
 
 RWStructuredBuffer<uint> _SplatSortDistances;
 RWStructuredBuffer<uint> _SplatSortKeys;
+
+// Frustum culling. Every splat costs a compute thread and an instanced quad whether or
+// not it is on screen, and that per-splat cost is 87% of the frame - so the cheapest
+// thing to do with an invisible splat is not to look at it.
+//
+// The cull happens here, in the distance pass, because this is where the draw order is
+// decided. A culled splat gets the maximum sort key; the sort is ascending, so it parks
+// past every visible splat and the indirect draw simply stops before reaching it. That
+// removes it from the rasteriser and from CSCalcViewData's useful work in one move,
+// without a separate compaction pass.
+float4x4 _MatrixObjectToClip;
+uint _CullEnabled;
+float _CullMargin;
+RWStructuredBuffer<uint> _SplatVisibleCount;
+RWStructuredBuffer<uint> _SplatDrawArgs;
 uint _SplatCount;
 
 // radix sort etc. friendly, see http://stereopsis.com/radix.html
@@ -75,10 +92,46 @@ void CSCalcDistances (uint3 id : SV_DispatchThreadID)
 
     uint origIdx = _SplatSortKeys[idx];
 
-    float3 pos = LoadSplatPos(origIdx);
-    pos = mul(_MatrixMV, float4(pos.xyz, 1)).xyz;
+    float3 posObj = LoadSplatPos(origIdx);
+    float3 pos = mul(_MatrixMV, float4(posObj.xyz, 1)).xyz;
 
-    _SplatSortDistances[idx] = FloatToSortableUint(pos.z);
+    bool culled = false;
+    if (_CullEnabled != 0)
+    {
+        float4 clip = mul(_MatrixObjectToClip, float4(posObj, 1));
+        // The test is on the splat's centre, so the frustum is widened by _CullMargin to
+        // keep a splat whose centre has just left the screen but whose skirt has not.
+        // The margin is a fraction of the half-width, and only a splat covering more than
+        // half of it could be wrongly dropped.
+        float lim = clip.w * (1.0 + _CullMargin);
+        culled = clip.w <= 0 || abs(clip.x) > lim || abs(clip.y) > lim;
+    }
+
+    _SplatSortDistances[idx] = culled ? 0xFFFFFFFFu : FloatToSortableUint(pos.z);
+
+    // One atomic per wave rather than per splat: three million contended increments
+    // would cost more than the culling saves.
+    uint waveVisible = WaveActiveCountBits(!culled);
+    if (WaveIsFirstLane() && waveVisible > 0)
+        InterlockedAdd(_SplatVisibleCount[0], waveVisible);
+}
+
+[numthreads(1,1,1)]
+void CSResetVisibleCount (uint3 id : SV_DispatchThreadID)
+{
+    _SplatVisibleCount[0] = 0;
+}
+
+[numthreads(1,1,1)]
+void CSPrepareDrawArgs (uint3 id : SV_DispatchThreadID)
+{
+    // DrawProceduralIndirect with an index buffer: indexCountPerInstance, instanceCount,
+    // startIndex, baseVertexIndex, startInstance.
+    _SplatDrawArgs[0] = 6;
+    _SplatDrawArgs[1] = _SplatVisibleCount[0];
+    _SplatDrawArgs[2] = 0;
+    _SplatDrawArgs[3] = 0;
+    _SplatDrawArgs[4] = 0;
 }
 
 RWStructuredBuffer<SplatViewData> _SplatViewData;

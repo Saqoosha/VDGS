@@ -38,6 +38,7 @@ public static class RenderCompare
             var outFile = Required("-vdgsOutFile");
             int size = ParseInt("-vdgsSize", 1024);
             float focal = ParseFloat("-vdgsFocal", 0f);
+            int cull = ParseInt("-vdgsCull", 1);
 
             var pos = ParseVec("-vdgsCamPos", Vector3.zero);
             var fwd = ParseVec("-vdgsCamFwd", Vector3.forward).normalized;
@@ -50,7 +51,7 @@ public static class RenderCompare
                 ? 2f * Mathf.Atan(size / (2f * focal)) * Mathf.Rad2Deg
                 : ParseFloat("-vdgsFov", 40f);
 
-            Render(scene, outFile, size, pos, fwd, up, fov);
+            Render(scene, outFile, size, pos, fwd, up, fov, cull);
             if (Application.isBatchMode) EditorApplication.Exit(0);
         }
         catch (System.Exception e)
@@ -61,7 +62,7 @@ public static class RenderCompare
     }
 
     private static void Render(string sceneDir, string outFile, int size,
-                               Vector3 pos, Vector3 fwd, Vector3 up, float fov)
+                               Vector3 pos, Vector3 fwd, Vector3 up, float fov, int cull)
     {
         var data = SplatData.Load(sceneDir, out var error);
         if (data == null) throw new System.Exception("load failed: " + error);
@@ -77,6 +78,9 @@ public static class RenderCompare
             "Assets/VDGS/Shaders/SplatUtilities.compute");
         if (r.m_ShaderSplats == null || r.m_CSSplatUtilities == null)
             throw new System.Exception("shaders not found in Assets/VDGS/Shaders");
+        // Culling must not change a single pixel; -vdgsCull 0 is how that gets proven.
+        r.m_FrustumCulling = cull != 0;
+        r.m_CullMargin = ParseFloat("-vdgsCullMargin", r.m_CullMargin);
         r.SetData(data);
 
         var camGo = new GameObject("VDGS_CompareCam");

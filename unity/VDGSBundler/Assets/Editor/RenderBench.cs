@@ -36,8 +36,14 @@ public static class RenderBench
             int size = ParseInt("-vdgsSize", 1024);
             int frames = ParseInt("-vdgsFrames", 120);
             int warmup = ParseInt("-vdgsWarmup", 30);
+            // Framing the whole capture culls nothing, so it cannot measure culling at
+            // all. -vdgsInside puts the camera in the middle of the scene with an FPV-ish
+            // field of view, which is where the drone actually is.
+            bool inside = ParseInt("-vdgsInside", 0) != 0;
+            int cull = ParseInt("-vdgsCull", 1);
+            float fov = ParseInt("-vdgsFov", inside ? 120 : 60);
 
-            Bench(scene, size, frames, warmup);
+            Bench(scene, size, frames, warmup, inside, cull, fov);
             if (Application.isBatchMode) EditorApplication.Exit(0);
         }
         catch (System.Exception e)
@@ -47,7 +53,8 @@ public static class RenderBench
         }
     }
 
-    private static void Bench(string sceneDir, int size, int frames, int warmup)
+    private static void Bench(string sceneDir, int size, int frames, int warmup,
+                              bool inside, int cull, float fov)
     {
         GameObject go = null;
         var label = "empty";
@@ -78,6 +85,8 @@ public static class RenderBench
             // share measurable. A high value renders with a stale order, which is wrong
             // to look at but exactly right for attributing time.
             r.m_SortNthFrame = ParseInt("-vdgsSortNth", 1);
+            r.m_FrustumCulling = cull != 0;
+            r.m_CullMargin = ParseFloat("-vdgsCullMargin", r.m_CullMargin);
             r.SetData(data);
         }
 
@@ -86,12 +95,12 @@ public static class RenderBench
         cam.orthographic = false;
         // Wide enough that the whole capture is on screen: the point is to make every
         // splat do work, not to find a flattering angle.
-        cam.fieldOfView = 60f;
+        cam.fieldOfView = fov;
         cam.clearFlags = CameraClearFlags.SolidColor;
         cam.backgroundColor = Color.black;
         cam.nearClipPlane = 0.05f;
         cam.farClipPlane = radius * 20f + 100f;
-        var dist = radius / Mathf.Tan(30f * Mathf.Deg2Rad) * 1.1f;
+        var dist = inside ? 0f : radius / Mathf.Tan(fov * 0.5f * Mathf.Deg2Rad) * 1.1f;
         camGo.transform.position = centre - Vector3.forward * dist;
         camGo.transform.rotation = Quaternion.LookRotation(Vector3.forward, Vector3.up);
 
@@ -119,9 +128,10 @@ public static class RenderBench
         var p10 = times[frames / 10];
 
         Debug.Log(string.Format(CultureInfo.InvariantCulture,
-            "[VDGS] BENCH {0}  splats={1}  {2}x{2}  frames={3}  sortNth={7}   " +
+            "[VDGS] BENCH {0}  splats={1}  {2}x{2}  frames={3}  sortNth={7}  cull={8}  view={9}   " +
             "mean {4:0.00} ms   median {5:0.00} ms   best10% {6:0.00} ms",
-            label, splats, size, frames, mean, median, p10, ParseInt("-vdgsSortNth", 1)));
+            label, splats, size, frames, mean, median, p10, ParseInt("-vdgsSortNth", 1),
+            cull, inside ? "inside" : "whole"));
 
         Object.DestroyImmediate(tex);
         cam.targetTexture = null;
@@ -157,6 +167,12 @@ public static class RenderBench
             if (string.Equals(args[i], flag, System.StringComparison.OrdinalIgnoreCase))
                 return args[i + 1];
         return null;
+    }
+
+    private static float ParseFloat(string flag, float fallback)
+    {
+        return float.TryParse(Arg(flag), NumberStyles.Float,
+            CultureInfo.InvariantCulture, out var v) ? v : fallback;
     }
 
     private static int ParseInt(string flag, int fallback)

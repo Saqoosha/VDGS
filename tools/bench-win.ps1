@@ -19,6 +19,9 @@ param(
     [int]$Size = 1024,
     [int]$Frames = 120,
     [int]$SortNth = 1,
+    [int]$Inside = 0,
+    [int]$Cull = 1,
+    [double]$CullMargin = 0.5,
     [string]$Tgz = '%USERPROFILE%\vdgs-bench.tgz',
     [string]$Project = '%USERPROFILE%\VDGSBench'
 )
@@ -44,7 +47,8 @@ function Invoke-Bench([string]$sceneDir, [string]$label) {
 
     $argv = "-batchmode -quit -force-d3d12 -projectPath `"$Project`" " +
             "-executeMethod RenderBench.Run -vdgsScene `"$sceneDir`" " +
-            "-vdgsSize $Size -vdgsFrames $Frames -vdgsSortNth $SortNth -logFile `"$log`""
+            "-vdgsSize $Size -vdgsFrames $Frames -vdgsSortNth $SortNth " +
+            "-vdgsInside $Inside -vdgsCull $Cull -vdgsCullMargin $CullMargin -logFile `"$log`""
 
     $action = New-ScheduledTaskAction -Execute $editor -Argument $argv -WorkingDirectory $Project
     $principal = New-ScheduledTaskPrincipal -UserId (whoami).Trim() -LogonType Interactive -RunLevel Limited
