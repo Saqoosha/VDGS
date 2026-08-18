@@ -39,7 +39,7 @@ drjohnson-shc + カリング   3.18M       47     9.0 ms
 
 - **SH のパレット圧縮**（`-vdgsShFormat Cluster16k`）— 元が Float32 SH なら splat コストが
   48% 減。既に Norm11 の playroom には効かない
-- **視錐台カリング**（`m_FrustumCulling`、既定 on）— 内部視点で 15% 減、ピクセル完全一致
+- **視錐台カリング**（`m_FrustumCulling`、既定 on）— 内部視点で 10.7% 減、ピクセル完全一致
 
 **測定は必ず実機で。** 同じ比較が M1 Max で 6.5%、RTX 3060 で 48%。ユニファイドメモリが
 帯域を隠す。
