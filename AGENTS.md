@@ -183,7 +183,7 @@ python3 tools/make_test_ply.py build/testdata/testcube.ply   # 合成テスト�
 bash tools/deploy.sh
 
 # 3. シェーダーバンドルを焼く（w 上で実行。macOS では不可能）
-ssh user@windows-box "powershell -ExecutionPolicy Bypass -File %USERPROFILE%\build-shaders-win.ps1"
+bash tools/bake-shaders.sh
 
 # 4. ゲームを起動（セッション1、D3D12 強制）
 ssh user@windows-box "powershell -ExecutionPolicy Bypass -File %USERPROFILE%\vdgs-run-interactive.ps1 -GameArgs '-force-d3d12'"
@@ -201,8 +201,16 @@ VDGS_BENCH_INSIDE=1 bash tools/bench-win.sh       # ドローン目線（カリ�
 VDGS_BENCH_INSIDE=1 VDGS_BENCH_CULL=0 bash tools/bench-win.sh   # カリング無しと比較
 ```
 
-**シェーダーを変えたら `w` でバンドルを焼き直す**（手順 3）。焼かないとゲーム側は古い
-シェーダーのまま動き、C# だけ新しいという食い違いになる。
+**シェーダーを変えたら `bash tools/bake-shaders.sh` で焼き直す。** 焼かないとゲーム側は
+古いシェーダーのまま動き、C# だけ新しいという食い違いになる。
+
+- tgz は**プロジェクトディレクトリごと**固める必要がある（`build-shaders-win.ps1` は
+  `%USERPROFILE%` に展開するため）。中身だけ固めると `unpack failed: VDGSBundler missing`
+  になり、転送の失敗に見える
+- **バンドルが 1MB を切ったら失敗を疑う。** splat シェーダーは `#pragma require
+  wavebasic/waveballot` を宣言していて、プロジェクトのグラフィックス API が D3D12 で
+  ないと**エラーを出さずに** unsupported として焼かれる。バンドルは正常にロードでき、
+  `shader.isSupported` が false になるだけ。正常な値は約 150 万バイト
 
 #### `vdgs-run-interactive.ps1` は既定でゲームを残す。`-Diagnose` を付けると殺す
 
