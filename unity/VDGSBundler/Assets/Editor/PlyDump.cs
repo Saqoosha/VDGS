@@ -31,6 +31,21 @@ public static class PlyDump
             File.WriteAllBytes(Path.Combine(outDir, "other.bin"), data.OtherData);
             File.WriteAllBytes(Path.Combine(outDir, "color.bin"), data.ColorData);
             File.WriteAllBytes(Path.Combine(outDir, "sh.bin"), data.ShData);
+            // meta.json too, so the dump is a loadable scene and not just buffers -
+            // which makes the runtime loader usable as an offline converter, and lets the
+            // Windows benchmark measure the format it produces.
+            var meta = "{\n" +
+                $"  \"formatVersion\": {SplatData.kCurrentVersion},\n" +
+                $"  \"splatCount\": {data.SplatCount},\n" +
+                $"  \"chunkCount\": {(data.ChunkData == null ? 0 : data.ChunkData.Length / 64)},\n" +
+                $"  \"boundsMin\": [{data.BoundsMin.x:R}, {data.BoundsMin.y:R}, {data.BoundsMin.z:R}],\n" +
+                $"  \"boundsMax\": [{data.BoundsMax.x:R}, {data.BoundsMax.y:R}, {data.BoundsMax.z:R}],\n" +
+                $"  \"posFormat\": \"{data.PosFormat}\",\n" +
+                $"  \"scaleFormat\": \"{data.ScaleFormat}\",\n" +
+                $"  \"colorFormat\": \"{data.ColorFmt}\",\n" +
+                $"  \"shFormat\": \"{data.ShFormat}\"\n}}\n";
+            File.WriteAllText(Path.Combine(outDir, "meta.json"), meta);
+
             Debug.Log($"[VDGS] PLYDUMP {data.SplatCount:N0} splats -> {outDir}  " +
                       $"pos={data.PosData.Length} other={data.OtherData.Length} " +
                       $"color={data.ColorData.Length} sh={data.ShData.Length}\n" +

@@ -147,9 +147,17 @@ namespace VDGS
                 return null;
             }
 
-            // Float32 throughout, no chunks. Deliberately the simplest target: it isolates
-            // whether the parse is right from whether the packing is right, and those are
-            // separate ways to be wrong. Compaction comes after this matches.
+            // Half precision for colour and spherical harmonics, full for geometry.
+            //
+            // Those two are 208 of the 236 bytes a splat costs at Float32, and halving
+            // them needs no chunks: the tighter formats below Float16 store 0..1 weights
+            // that only become real values through a chunk's min/max, so they would drag
+            // in a Morton sort and per-chunk bounds. Float16 is absolute, so it is a
+            // straight swap - 236 bytes per splat down to 132.
+            //
+            // Colour survives it easily; it is a 0..1 quantity and half gives about three
+            // decimal digits. SH coefficients are small and get multiplied by band
+            // constants below 3, so they survive too.
             var posData = new byte[count * 12];
             var otherData = new byte[count * 16];      // packed rotation + float3 scale
             // A capture with no f_rest_* needs no SH buffer at all - the shader skips the
@@ -157,10 +165,10 @@ namespace VDGS
             // nelson-full is 8.76M splats, which is 1.68 GB of zeros, 78% of the largest
             // array the runtime can address, uploaded to the GPU and traversed every frame
             // to be multiplied by nothing.
-            var shData = new byte[shFloats > 0 ? count * 192 : 16];
+            var shData = new byte[shFloats > 0 ? count * 96 : 16];   // 45 halves, padded to 16
 
             SplatData.CalcTextureSize(count, out int texW, out int texH);
-            var colorData = new byte[texW * texH * 16];
+            var colorData = new byte[texW * texH * 8];               // half4 per texel
 
             int oX = h["x"], oY = h["y"], oZ = h["z"];
             int oOpacity = h["opacity"];
@@ -209,31 +217,29 @@ namespace VDGS
                 // SplatIndexToPixelIndex in the HLSL. Writing it linearly scrambles
                 // colour in 16x16 blocks while leaving the geometry perfect.
                 MortonTexel(i, texW, out int tx, out int ty);
-                int c = (ty * texW + tx) * 16;
-                Put(colorData, c,
-                    0.5f + kSH_C0 * F(bytes, b + oC0),
-                    0.5f + kSH_C0 * F(bytes, b + oC1),
-                    0.5f + kSH_C0 * F(bytes, b + oC2));
-                Put(colorData, c + 12, Sigmoid(F(bytes, b + oOpacity)));
+                int c = (ty * texW + tx) * 8;
+                PutHalf(colorData, c,     0.5f + kSH_C0 * F(bytes, b + oC0));
+                PutHalf(colorData, c + 2, 0.5f + kSH_C0 * F(bytes, b + oC1));
+                PutHalf(colorData, c + 4, 0.5f + kSH_C0 * F(bytes, b + oC2));
+                PutHalf(colorData, c + 6, Sigmoid(F(bytes, b + oOpacity)));
 
                 if (oRest < 0) continue;
                 // The .ply groups f_rest by channel - 15 reds, then 15 greens, then 15
                 // blues - while the shader reads it coefficient by coefficient as rgb
                 // triples. Transpose, or every band comes out in the wrong colour.
-                int sh = i * 192;
+                int sh = i * 96;
                 for (int k = 0; k < 15; k++)
                 {
-                    Put(shData, sh + k * 12,
-                        F(bytes, b + oRest + k * 4),
-                        F(bytes, b + oRest + (15 + k) * 4),
-                        F(bytes, b + oRest + (30 + k) * 4));
+                    PutHalf(shData, sh + k * 6,     F(bytes, b + oRest + k * 4));
+                    PutHalf(shData, sh + k * 6 + 2, F(bytes, b + oRest + (15 + k) * 4));
+                    PutHalf(shData, sh + k * 6 + 4, F(bytes, b + oRest + (30 + k) * 4));
                 }
             }
 
             return SplatData.FromBuffers(
                 Path.GetFileNameWithoutExtension(path), count, min, max,
                 SplatData.VectorFormat.Float32, SplatData.VectorFormat.Float32,
-                SplatData.ColorFormat.Float32x4, SplatData.SHFormat.Float32,
+                SplatData.ColorFormat.Float16x4, SplatData.SHFormat.Float16,
                 posData, otherData, colorData, shData, null,
                 shFloats > 0 ? 3 : 0);
         }
@@ -251,6 +257,13 @@ namespace VDGS
             Buffer.BlockCopy(BitConverter.GetBytes(a), 0, dst, off, 4);
             Buffer.BlockCopy(BitConverter.GetBytes(b), 0, dst, off + 4, 4);
             Buffer.BlockCopy(BitConverter.GetBytes(c), 0, dst, off + 8, 4);
+        }
+
+        private static void PutHalf(byte[] dst, int off, float v)
+        {
+            ushort h = Mathf.FloatToHalf(v);
+            dst[off] = (byte)(h & 0xFF);
+            dst[off + 1] = (byte)(h >> 8);
         }
 
         private static void Put(byte[] dst, int off, uint v)
