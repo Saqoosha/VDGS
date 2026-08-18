@@ -138,8 +138,6 @@ Medium で 100 万 splats がおよそ 45MB になる。
 破片として見えるので、変換前に切る：
 
 ```bash
-python3 tools/crop_ply.py in.ply out.ply --percentile 5   # 外周 5% を落とす
-python3 tools/crop_ply.py in.ply --stats                  # 分布だけ見る
 ```
 
 bonsai の実例では 25% が破片で、落とすとバウンディングボックスが
@@ -320,7 +318,7 @@ mod のハンドラに渡す前に `411 Length Required` で弾く。`curl -X PO
 | `shaders NOT READY` | バンドルが空。サイズが 1MB 未満なら焼き直し（§2-2） |
 | `shader.isSupported=false` | 同上。macOS で焼いた D3D12 バンドルは必ずこうなる |
 | プラグインが読まれない | SSH から起動していないか確認（§3）。`BepInEx\config\` が生成されていなければ Chainloader に到達していない |
-| 表示が破片だらけ | 元データの外れ値。`crop_ply.py` で切る（§4-2） |
+| 表示が破片だらけ | 元データの外れ値。`align_ply.py --bounds` で箱を明示する |
 | 小さすぎ / 大きすぎ | `placement.json` の `scale`。COLMAP のスケールは任意 |
 | 表示した瞬間に固まる | 数十 MB を GPU に一括アップロードするため。**飛ぶ前に表示させておく**。実測 2.9 秒 |
 | ログが例外で埋まる | `UnityLogListening = false`（§2-1）。実害は無い |

@@ -12,7 +12,7 @@
 ┌──────────────────────┐          ┌────────────────────────────────┐
 │ .ply / .spz          │          │  VelociDrone (Unity 2021.3.45f2)│
 │   │                  │          │  ┌──────────────────────────┐  │
-│   │ crop_ply.py      │          │  │ BepInEx 5.4 (Doorstop)   │  │
+│   │ verify_orient.py │          │  │ BepInEx 5.4 (Doorstop)   │  │
 │   ▼                  │          │  │   └─ VDGS.dll            │  │
 │ PlyExporter          │          │  │        ├ SplatRenderer   │  │
 │ (Unity 2022.3)       │          │  │        ├ TrackName       │  │

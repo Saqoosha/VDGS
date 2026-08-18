@@ -27,7 +27,10 @@ SH_FORMAT="${VDGS_SH_FORMAT:-Cluster16k}"
 # scene:source  — sources are SuperSplat exports unless noted
 SCENES=(
   "bonsai:bonsai2-aligned.ply"
-  "playroom:playroom-aligned.ply"
+  # NOT playroom-aligned.ply: that is the raw export, three times larger in every
+  # dimension. The scene actually in use came from playroom-nocrop.ply, already
+  # room-scaled with its floor near y=0.
+  "playroom:playroom-nocrop.ply"
   "drjohnson:drjohnson-aligned.ply"
   "luigi:luigi.ply"
 )
