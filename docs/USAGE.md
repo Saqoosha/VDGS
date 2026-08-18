@@ -170,8 +170,8 @@ Unity -batchmode -quit -nographics -projectPath unity/VDGSConverter \
       -vdgsQuality High -logFile -
 ```
 
-**Use `High`.** It is 84 bytes per splat, the fastest tier measured on the RTX 3060, and
-the most faithful. `VeryHigh` is 236 B/splat for no visual gain, and `Medium` and below
+**Use `High`.** It is the converter's default now, 84 bytes per splat, the fastest tier
+measured on the RTX 3060, and the most faithful. `VeryHigh` is 236 B/splat for no visual gain, and `Medium` and below
 render some captures far too dark. The reasoning is in
 [performance.md](performance.md).
 

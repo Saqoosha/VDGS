@@ -18,7 +18,7 @@ using UnityEngine;
 /// Batch usage:
 ///   Unity -batchmode -quit -projectPath unity/VDGSConverter \
 ///         -executeMethod PlyExporter.Run \
-///         -vdgsInput /path/to/scene.ply -vdgsOutput /path/to/out -vdgsQuality Medium
+///         -vdgsInput /path/to/scene.ply -vdgsOutput /path/to/out [-vdgsQuality High]
 ///         [-vdgsShFormat Cluster16k]   # compress SH only, keep geometry exact
 /// </summary>
 public static class PlyExporter
@@ -44,10 +44,11 @@ public static class PlyExporter
         {
             var input = GetArg("-vdgsInput");
             var output = GetArg("-vdgsOutput");
-            var quality = GetArg("-vdgsQuality") ?? "Medium";
+            var quality = GetArg("-vdgsQuality") ?? "High";
 
             if (string.IsNullOrEmpty(input) || string.IsNullOrEmpty(output))
-                throw new Exception("usage: -vdgsInput <ply> -vdgsOutput <dir> [-vdgsQuality Medium] [-vdgsShFormat Cluster16k]");
+                throw new Exception("usage: -vdgsInput <ply> -vdgsOutput <dir> [-vdgsQuality High] [-vdgsShFormat Cluster16k]");
+            WarnIfQualityIsKnownBad(quality);
             if (!File.Exists(input))
                 throw new Exception("input not found: " + input);
 
@@ -69,14 +70,44 @@ public static class PlyExporter
         }
     }
 
+    /// <summary>
+    /// Refuse to let a known-broken tier be picked silently.
+    ///
+    /// Medium and below (Norm11 positions, Norm8x4 colour, Norm6 SH) render drjohnson
+    /// 2.6x too dark - brightness 36.3 against 95.1, a mean difference of 58.83/255 -
+    /// while the geometry stays correct (IoU 0.9958). Whether the fault is upstream's
+    /// tier or this port is unresolved, and nothing here needs those tiers: High is
+    /// 84 bytes per splat, the fastest measured on an RTX 3060, and the most faithful
+    /// (0.09/255 against Float32). So the tier is not fixed, it is signposted.
+    ///
+    /// A warning rather than an error: someone deliberately measuring the tiers should
+    /// still be able to produce one.
+    /// </summary>
+    private static void WarnIfQualityIsKnownBad(string quality)
+    {
+        if (quality.Equals("Medium", StringComparison.OrdinalIgnoreCase) ||
+            quality.Equals("Low", StringComparison.OrdinalIgnoreCase) ||
+            quality.Equals("VeryLow", StringComparison.OrdinalIgnoreCase))
+        {
+            Debug.LogWarning("[VDGS] quality '" + quality + "' is known to render some " +
+                "scenes far too dark (drjohnson measures 2.6x dark at Medium). Use High " +
+                "unless you are deliberately measuring the tiers - it is smaller than " +
+                "VeryHigh, faster, and the most faithful of the presets.");
+        }
+    }
+
     /// <summary>Drives GaussianSplatAssetCreator's private conversion path.</summary>
     /// <summary>
     /// Drives the conversion, optionally overriding the SH format on its own.
     ///
     /// Spherical harmonics dominate everything else: at Float32 they are 192 bytes per
-    /// splat against 12 for position, and 81% of drjohnson's 750 MB. Rendering cost
-    /// tracks bytes per splat almost linearly (see docs/performance.md), so compressing
-    /// SH alone is the largest available win.
+    /// splat against 12 for position, and 81% of drjohnson's 750 MB.
+    ///
+    /// This was written believing frame time tracked bytes per splat. It does not: the
+    /// High preset carries 84 bytes to Cluster16k's 47 and still renders faster, because
+    /// a palette costs an indirection per splat where Norm11 SH is a sequential read
+    /// (see docs/performance.md). The override still works and still shrinks the files;
+    /// it is simply no longer the way to make rendering fast.
     ///
     /// The quality presets cannot express it: SH clustering only switches on at Low and
     /// VeryLow, which drag position, scale and colour down with it. Applying the preset

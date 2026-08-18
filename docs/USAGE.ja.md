@@ -164,7 +164,7 @@ Unity -batchmode -quit -nographics -projectPath unity/VDGSConverter \
       -vdgsQuality High -logFile -
 ```
 
-**`High` を使うこと。** 84 バイト/splat で、RTX 3060 で最も速く、最も忠実。
+**`High` を使うこと。** コンバータの既定値。84 バイト/splat で、RTX 3060 で最も速く、最も忠実。
 `VeryHigh` は 236 バイト/splat 払って見た目が変わらず、`Medium` 以下はシーンによって
 極端に暗くなる。根拠は [performance.ja.md](performance.ja.md)。
 

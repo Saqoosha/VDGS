@@ -189,7 +189,7 @@ python3 tools/make_test_ply.py build/testdata/testcube.ply   # 合成テスト�
   -batchmode -quit -nographics -projectPath unity/VDGSConverter \
   -executeMethod PlyExporter.Run \
   -vdgsInput <abs path>.ply -vdgsOutput <abs path>/build/splats/<name> \
-  -vdgsQuality Medium -logFile -
+  -vdgsQuality High -logFile -
 
 # 2. プラグイン + splat データを w へ（Mac）
 bash tools/deploy.sh
