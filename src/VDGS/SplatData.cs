@@ -64,6 +64,36 @@ namespace VDGS
 
         public bool HasChunks => ChunkData != null && ChunkData.Length > 0;
 
+        /// <summary>
+        /// Build a scene from buffers produced in memory rather than read from disk.
+        ///
+        /// Used by PlyLoader, so a capture can be dropped in as a .ply and converted at
+        /// load time instead of going through a Python script and a second Unity install
+        /// that only the author can run.
+        /// </summary>
+        internal static SplatData FromBuffers(
+            string name, int count, Vector3 boundsMin, Vector3 boundsMax,
+            VectorFormat pos, VectorFormat scale, ColorFormat color, SHFormat sh,
+            byte[] posData, byte[] otherData, byte[] colorData, byte[] shData, byte[] chunkData)
+        {
+            return new SplatData
+            {
+                Name = name,
+                SplatCount = count,
+                BoundsMin = boundsMin,
+                BoundsMax = boundsMax,
+                PosFormat = pos,
+                ScaleFormat = scale,
+                ColorFmt = color,
+                ShFormat = sh,
+                PosData = posData,
+                OtherData = otherData,
+                ColorData = colorData,
+                ShData = shData,
+                ChunkData = chunkData,
+            };
+        }
+
         /// <summary>Loads a splat scene directory. Returns null and fills <paramref name="error"/> on failure.</summary>
         public static SplatData Load(string dir, out string error)
         {

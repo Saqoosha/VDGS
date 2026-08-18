@@ -64,7 +64,12 @@ public static class RenderBench
 
         if (sceneDir != "none")
         {
-            var data = SplatData.Load(sceneDir, out var error);
+            // A .ply goes through the runtime loader, a directory through the on-disk one.
+            // -vdgsPlyNoMirror keeps the loader's transform identical to the offline
+            // converter's, which is how the two are compared.
+            var data = sceneDir.EndsWith(".ply", System.StringComparison.OrdinalIgnoreCase)
+                ? PlyLoader.Load(sceneDir, out var error, Arg("-vdgsPlyNoMirror") == null)
+                : SplatData.Load(sceneDir, out error);
             if (data == null) throw new System.Exception("load failed: " + error);
 
             label = Path.GetFileName(sceneDir);
