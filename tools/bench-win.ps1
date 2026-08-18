@@ -71,6 +71,8 @@ function Invoke-Bench([string]$sceneDir, [string]$label) {
     }
 
     if (Test-Path $log) {
+        Select-String -Path $log -Pattern '\[VDGS\] ply ' | Select-Object -Last 1 |
+            ForEach-Object { Write-Output ('  ' + $_.Line.Trim()) }
         $line = Select-String -Path $log -Pattern '\[VDGS\] BENCH' | Select-Object -Last 1
         if ($line) { Write-Output $line.Line.Trim() }
         else {
@@ -87,6 +89,9 @@ Write-Output "== graphics device =="
 Invoke-Bench 'none' 'floor'
 
 foreach ($s in $Scenes.Split(',')) {
+    # a bare .ply in the vdgs folder is a scene too - the runtime loader reads it
+    $ply = Join-Path $game "vdgs\$s.ply"
+    if (Test-Path $ply) { Invoke-Bench $ply $s; continue }
     $dir = Join-Path $game "vdgs\$s"
     if (-not (Test-Path (Join-Path $dir 'meta.json'))) {
         Write-Output "  $s : not deployed"

@@ -1,7 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
+using Stopwatch = System.Diagnostics.Stopwatch;
 using System.Globalization;
 using System.IO;
+using System.Runtime.InteropServices;
 using UnityEngine;
 
 namespace VDGS
@@ -120,6 +123,12 @@ namespace VDGS
 
         private static SplatData LoadInner(string path, ref string error, bool mirrorY)
         {
+            // Timings go to the log because this runs while the game is frozen: how long
+            // a capture takes to appear is a user-visible number, and which phase owns it
+            // decides whether it is worth moving off the main thread.
+            var sw = Stopwatch.StartNew();
+            double tHeader, tRead;
+
             byte[] bytes;
             Header h;
             using (var fs = File.OpenRead(path))
@@ -127,7 +136,9 @@ namespace VDGS
                 h = ReadHeader(fs, ref error);
                 if (h == null) return null;
             }
+            tHeader = sw.Elapsed.TotalMilliseconds; sw.Restart();
             bytes = File.ReadAllBytes(path);
+            tRead = sw.Elapsed.TotalMilliseconds; sw.Restart();
 
             long need = (long)h.DataStart + (long)h.Count * h.Stride;
             if (bytes.LongLength < need)
@@ -177,10 +188,23 @@ namespace VDGS
             int oC0 = h["f_dc_0"], oC1 = h["f_dc_1"], oC2 = h["f_dc_2"];
             int oRest = shFloats > 0 ? h["f_rest_0"] : -1;
 
+            // Decoding is 97% of the load - 3.15 s of the 3.25 s a 2.17M capture takes on
+            // the RTX 3060 host - and every splat is independent, writing to its own
+            // disjoint slice of each buffer. Splitting it across cores is a much smaller
+            // change than moving the whole load off the main thread, and it attacks the
+            // part that actually costs.
+            int workers = Mathf.Clamp(SystemInfo.processorCount, 1, 16);
+            int perWorker = (count + workers - 1) / workers;
+            var mins = new Vector3[workers];
+            var maxs = new Vector3[workers];
+
+            Parallel.For(0, workers, w =>
+            {
             var min = new Vector3(float.MaxValue, float.MaxValue, float.MaxValue);
             var max = new Vector3(float.MinValue, float.MinValue, float.MinValue);
 
-            for (int i = 0; i < count; i++)
+            int lo = w * perWorker, hi = Mathf.Min(lo + perWorker, count);
+            for (int i = lo; i < hi; i++)
             {
                 int b = h.DataStart + i * h.Stride;
 
@@ -236,8 +260,27 @@ namespace VDGS
                 }
             }
 
+            mins[w] = min; maxs[w] = max;
+            });
+
+            var minAll = new Vector3(float.MaxValue, float.MaxValue, float.MaxValue);
+            var maxAll = new Vector3(float.MinValue, float.MinValue, float.MinValue);
+            for (int w = 0; w < workers; w++)
+            {
+                if (w * perWorker >= count) continue;     // a worker with no splats never wrote
+                minAll = Vector3.Min(minAll, mins[w]);
+                maxAll = Vector3.Max(maxAll, maxs[w]);
+            }
+
+            Debug.Log(string.Format(CultureInfo.InvariantCulture,
+                "[VDGS] ply '{0}' {1:N0} splats {2:0.0} MB   header {3:0} ms  read {4:0} ms  " +
+                "decode {5:0} ms   total {6:0.00} s",
+                Path.GetFileNameWithoutExtension(path), count, bytes.LongLength / 1e6,
+                tHeader, tRead, sw.Elapsed.TotalMilliseconds,
+                (tHeader + tRead + sw.Elapsed.TotalMilliseconds) / 1000.0));
+
             return SplatData.FromBuffers(
-                Path.GetFileNameWithoutExtension(path), count, min, max,
+                Path.GetFileNameWithoutExtension(path), count, minAll, maxAll,
                 SplatData.VectorFormat.Float32, SplatData.VectorFormat.Float32,
                 SplatData.ColorFormat.Float16x4, SplatData.SHFormat.Float16,
                 posData, otherData, colorData, shData, null,
@@ -247,28 +290,48 @@ namespace VDGS
         private static float F(byte[] b, int off) => BitConverter.ToSingle(b, off);
         private static float Sigmoid(float v) => 1f / (1f + Mathf.Exp(-v));
 
+        /// <summary>
+        /// Reinterpret a float's bits without allocating.
+        ///
+        /// BitConverter.GetBytes returns a fresh byte[4], and this writes about ten floats
+        /// per splat - twenty million allocations for a two-million-splat capture. That is
+        /// slow single-threaded and worse across cores, where the threads end up fighting
+        /// over the allocator instead of decoding: splitting the loop across cores made it
+        /// twice as slow until this was fixed.
+        /// </summary>
+        [StructLayout(LayoutKind.Explicit)]
+        private struct FloatBits
+        {
+            [FieldOffset(0)] public float F;
+            [FieldOffset(0)] public uint U;
+        }
+
         private static void Put(byte[] dst, int off, float a)
         {
-            Buffer.BlockCopy(BitConverter.GetBytes(a), 0, dst, off, 4);
+            var b = new FloatBits { F = a };
+            Put(dst, off, b.U);
         }
 
         private static void Put(byte[] dst, int off, float a, float b, float c)
         {
-            Buffer.BlockCopy(BitConverter.GetBytes(a), 0, dst, off, 4);
-            Buffer.BlockCopy(BitConverter.GetBytes(b), 0, dst, off + 4, 4);
-            Buffer.BlockCopy(BitConverter.GetBytes(c), 0, dst, off + 8, 4);
+            Put(dst, off, a);
+            Put(dst, off + 4, b);
+            Put(dst, off + 8, c);
+        }
+
+        private static void Put(byte[] dst, int off, uint v)
+        {
+            dst[off] = (byte)v;
+            dst[off + 1] = (byte)(v >> 8);
+            dst[off + 2] = (byte)(v >> 16);
+            dst[off + 3] = (byte)(v >> 24);
         }
 
         private static void PutHalf(byte[] dst, int off, float v)
         {
             ushort h = Mathf.FloatToHalf(v);
-            dst[off] = (byte)(h & 0xFF);
+            dst[off] = (byte)h;
             dst[off + 1] = (byte)(h >> 8);
-        }
-
-        private static void Put(byte[] dst, int off, uint v)
-        {
-            Buffer.BlockCopy(BitConverter.GetBytes(v), 0, dst, off, 4);
         }
 
         /// <summary>

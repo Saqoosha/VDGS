@@ -20,9 +20,11 @@ SH のパレット圧縮と視錐台カリングで、どちらも**画質を落
 ## 仕組み
 
 ```
-.ply → 生バイナリ5個 + meta.json → BepInEx プラグインが GPU に流して描画
-                                    ↑ ブラウザから操作（http://<host>:8777/）
+<game>/vdgs/foo.ply を置く → プラグインが実行時に読んで描画
+                             ↑ ブラウザから操作（http://<host>:8777/）
 ```
+
+外部ツールは要らない。事前に変換したい場合は 5 バイナリ + meta.json の形も読む。
 
 トラック名を1秒ごとに監視し、`bindings.json` の対応表に従って GS を自動で出し入れする。
 
@@ -38,6 +40,7 @@ SH のパレット圧縮と視錐台カリングで、どちらも**画質を落
 | [docs/performance.md](docs/performance.md) | 描画コストの内訳と、削るための手 |
 | [docs/verification.md](docs/verification.md) | 描画結果を数値で検証する道具 |
 | [docs/alignment.md](docs/alignment.md) | キャプチャの向き合わせと鏡像の扱い |
+| [docs/ply-loading.md](docs/ply-loading.md) | .ply を実行時に読む仕組みと罠 |
 | [AGENTS.md](AGENTS.md) | 環境の実測値、踏んだ罠の全記録 |
 
 ## 必要なもの

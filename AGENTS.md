@@ -201,6 +201,10 @@ bash tools/bake-shaders.sh
 ssh user@windows-box "powershell -ExecutionPolicy Bypass -File %USERPROFILE%\vdgs-run-interactive.ps1 -GameArgs '-force-d3d12'"
 ```
 
+**手順 1 は省ける。** `<game>/vdgs/foo.ply` を置けばプラグインが実行時に読む
+（217 万 splats で実測 **0.97 秒**、876 万で 3.34 秒）。変換済みディレクトリと同名なら**ディレクトリが勝つ**。
+速度は焼いた最速版の 7% 差、画質は測定に出ない差（詳細は docs/ply-loading.md）。
+
 **ゲームは必ず `-force-d3d12` で起動する。** 素の D3D11 では splat シェーダーが動かない。
 
 ```bash
@@ -673,15 +677,15 @@ F5・F6・F7・F8 は**使っていない**。操作は Web UI から。
 
 ## 残タスク
 
-- **飛行中の体感が未確認。** 数字は 37 → 58 fps だが、実際に飛んだ感触は誰も見ていない。
-  `drjohnson-shc` は配置済みでシェーダーも焼いてある
-- **`bonsai-shc` / `playroom-shc` に切り替えていない。** 変換も配置も検証も済んでいるが、
-  `bindings.json` はまだ古い名前を指している。playroom は**切り替えないほうが速い**
-  （元が Norm11 SH なので SH で稼げず、幾何が Float32 に上がるぶん遅くなる）
-- **描画コストの伸びしろは薄い。** カリングも SH 圧縮も限界まで来ていて、残る手
-  （不透明度を考慮したクアッド縮小、per-tile ソート）は画素の仕事が実測 6% しかないので
-  上限が低い。**確実なのはキャプチャを 200 万 splats 以下に収めること**
-  （playroom は 191 万で 6.1 ms）
+- **`.ply` 直置きを飛んで確かめていない。** `<game>/vdgs/nelson.ply`（217 万 splats）は
+  設置済みで、mod は認識している。飛行中のロード時間と体感が未確認
+- **完全な High パッキングは未実装。** いまのローダーは 132 B/splat で、焼いた最速版
+  （84 B/splat）との差は 0.64 ms（7%）。Norm16 + chunk + Morton を入れれば埋まるが、
+  符号化が 5 種類増える。**差に見合うかは疑問**
+- **異方性から板と針を見分けるには中間軸が要る。** `max/min` だけでは両方 100 になり、
+  「針だらけ」という誤診を招く（実際に一度出した）。log 空間で
+  `t = (log(mid)-log(min))/(log(max)-log(min))` を取ると `t≈0` が針、`t≈1` が板。
+  **3DGS の壁と床は板で、正常**。上から見るとエッジオンで線に見えるだけ
 - **`vdgs-run-interactive.ps1` がリポジトリ外**（`w` の `%USERPROFILE%\`）にしかない。
   版管理されておらず、末尾の `Stop-Process` のような仕掛けが見えにくい。`tools/` に
   取り込むべき
