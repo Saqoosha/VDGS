@@ -155,7 +155,8 @@ public static class PlyExporter
         Directory.CreateDirectory(outDir);
 
         WriteBytes(outDir, "chunk.bin", asset.chunkData);
-        var chunkCount = asset.chunkData == null ? 0 : asset.chunkData.Length / kChunkInfoSize;
+        // chunkData is a TextAsset, not a byte[] - .bytes is where the payload lives.
+        var chunkCount = asset.chunkData == null ? 0 : asset.chunkData.bytes.Length / kChunkInfoSize;
         WriteBytes(outDir, "pos.bin", asset.posData);
         WriteBytes(outDir, "other.bin", asset.otherData);
         WriteBytes(outDir, "color.bin", asset.colorData);
