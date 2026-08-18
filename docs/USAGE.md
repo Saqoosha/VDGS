@@ -100,7 +100,7 @@ DirectX がスワップチェーンを作れず、Unity は Mono のロードす
 `tools/launch-win.ps1` がそれをやる：
 
 ```bash
-scp tools/launch-win.ps1 <host>:C:/Users/<user>/launch.ps1
+bash tools/launch-win.sh          # ships the script and runs it
 ssh <host> "powershell -ExecutionPolicy Bypass -File C:\Users\<user>\launch.ps1 -GameArgs '-force-d3d12'"
 ```
 
@@ -111,7 +111,7 @@ ssh <host> "powershell -ExecutionPolicy Bypass -File C:\Users\<user>\launch.ps1 
 
 | ファイル | 用途 |
 |---|---|
-| `tools/launch-win.ps1` | 対話セッションで起動して残す |
+| `bash tools/launch-win.sh` | 対話セッションで起動して残す（`-Diagnose` でログを出して停止） |
 | `tools/capture-win.ps1` | 起動 → スクリーンショット → 終了（動作確認用） |
 | `tools/build-shaders-win.ps1` | シェーダー AssetBundle を焼いてゲームに設置 |
 

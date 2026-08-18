@@ -198,7 +198,7 @@ bash tools/deploy.sh
 bash tools/bake-shaders.sh
 
 # 4. ゲームを起動（セッション1、D3D12 強制）
-ssh user@windows-box "powershell -ExecutionPolicy Bypass -File %USERPROFILE%\vdgs-run-interactive.ps1 -GameArgs '-force-d3d12'"
+bash tools/launch-win.sh
 ```
 
 **手順 1 は省ける。** `<game>/vdgs/foo.ply` を置けばプラグインが実行時に読む
@@ -228,19 +228,22 @@ VDGS_BENCH_INSIDE=1 VDGS_BENCH_CULL=0 bash tools/bench-win.sh   # カリング�
   ないと**エラーを出さずに** unsupported として焼かれる。バンドルは正常にロードでき、
   `shader.isSupported` が false になるだけ。正常な値は約 150 万バイト
 
-#### `vdgs-run-interactive.ps1` は既定でゲームを残す。`-Diagnose` を付けると殺す
+#### 起動スクリプトは既定でゲームを残す。`-Diagnose` を付けると殺す
 
-このスクリプトは元々、末尾で無条件に `Stop-Process -Force` していた。ログを回収する
-診断用として書かれたためだが、**「起動して 40 秒ほどで静かに落ちるゲーム」にしか見えない**：
+`bash tools/launch-win.sh` が `tools/launch-win.ps1` を `w` に送って走らせる。**毎回送る
+のが要点** — 以前は `w` に手で置いた版とリポジトリの版が別々に育ち、片方にしかない処理が
+あった。
+
+`-Diagnose` を付けたときだけ、ログを整形して出したうえでゲームを止める。**この末尾は元々
+無条件に走っていて、「起動して 40 秒ほどで静かに落ちるゲーム」にしか見えなかった**：
 
 - `Stop-Process -Force` はプロセスを即座に終わらせるので、**クラッシュダンプも Windows の
   イベントログも残らず、Player.log は行の途中で切れる**
-- タイミングは「ログ待ち + `Start-Sleep 25`」なので毎回ほぼ同じ ≒ 本物のバグに見える
-- スクリプトの出力を `grep pid` で絞っていると `=== stopping ===` が視界に入らない
+- タイミングは固定の `Start-Sleep` なので毎回ほぼ同じ ≒ 本物のバグに見える
+- 出力を `grep pid` で絞っていると `=== stopping ===` が視界に入らない
 
 これを「起動直後に Web API を叩くとクラッシュする」と誤診し、長い回り道をした。実際は
-API と無関係（45 秒連続ポーリングで無傷）。**`Start-ScheduledTask` を直接叩いた回だけ
-生き残った**という観測が唯一のヒントだった。ゲームが理由もなく死んだら、まず
+API と無関係（45 秒連続ポーリングで無傷）。ゲームが理由もなく死んだら、まず
 **自分が起動に使ったスクリプトの最後まで読む**こと。
 
 ### Windows 側の Unity
@@ -577,7 +580,7 @@ F12（`vdgs-track.txt`）でトラック名を検索して、新しいフィー�
   ハンドラまで届かないので、`curl -X POST .../api/unload` は失敗する。`-d '{}'` を付ける
 - **API のポーリングはゲームを落とさない。** 45 秒連続で `GET /api/status` を叩いても
   全部 200、ゲームは無事。一度「起動直後のポーリングで 40 秒後に落ちる」と結論したが
-  **誤り**だった。真相は `vdgs-run-interactive.ps1` の末尾（下記）
+  **誤り**だった。真相は起動スクリプトの末尾（`開発フロー` 参照）
 
 ### UI のセキュリティ（軽く扱わないこと）
 
@@ -686,9 +689,6 @@ F5・F6・F7・F8 は**使っていない**。操作は Web UI から。
   「針だらけ」という誤診を招く（実際に一度出した）。log 空間で
   `t = (log(mid)-log(min))/(log(max)-log(min))` を取ると `t≈0` が針、`t≈1` が板。
   **3DGS の壁と床は板で、正常**。上から見るとエッジオンで線に見えるだけ
-- **`vdgs-run-interactive.ps1` がリポジトリ外**（`w` の `%USERPROFILE%\`）にしかない。
-  版管理されておらず、末尾の `Stop-Process` のような仕掛けが見えにくい。`tools/` に
-  取り込むべき
 
 ## 参考
 
