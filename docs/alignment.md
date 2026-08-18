@@ -78,6 +78,7 @@ What `align_ply.py` is still for:
 |---|---|
 | `--mirror x\|y\|z` | The handedness fix above |
 | `--rotate X,Y,Z` | Apply an angle read off a viewer. **Applied to the quaternions too** |
+| `--max-sigma PCT` | Drop gaussians larger than PCT% of the scene. See below |
 | `--sample N` | Thin the cloud for a preview that SuperSplat will open quickly |
 | `--ceiling H` | Derive scale from a known ceiling height and drop the floor to y=0 |
 | `--bounds` | State an explicit box, when debris needs excluding |
@@ -86,6 +87,60 @@ What `align_ply.py` is still for:
 A rotation has to be applied to **each gaussian's orientation quaternion**, not only to
 positions. Rotating positions alone leaves a point cloud that looks right and every splat
 tilted.
+
+## Cutting the giants, by size and not by position
+
+3DGS blows gaussians up wherever the training had nothing to constrain them — sky, and
+anything past the end of the camera path. They come out enormous, half-transparent, and
+sitting outside the capture. Measured on utlida-full (4,003,388 splats, extent 93.4):
+
+```
+sigma band       splats     share    median dist from centre   share of drawn area
+0.0-0.2% of ext  3,757,600  93.86%          18% of extent             2.3%
+0.2-1.0%           228,520   5.71%          33%                       6.3%
+1.0-5.0%            15,702   0.39%          51%                      10.3%
+5.0-20%              1,388   0.03%          88%                      20.6%
+20-1000%               178   0.004%        148%                      60.5%
+```
+
+**178 gaussians — four thousandths of one percent — are 60% of everything drawn.** The
+largest is 1.8 scene-extents wide. They are what "I can see very large splats" means, and
+they are also why that capture dropped frames: pure overdraw.
+
+```bash
+python3 tools/align_ply.py in.ply out.ply --max-sigma 5
+```
+
+**Size is the right filter, and position is not.** A `--bounds` box would take the walls
+of any room captured from the inside, and a connectivity filter cannot touch these at all:
+a gaussian 1.8 extents wide overlaps everything, so it is connected to the main cluster by
+construction. Only its size distinguishes it.
+
+**Verify the threshold, do not pick one.** Rendered from fixed cameras and subtracted:
+
+| | pixels lost | pixels gained | the lost pixels, in the original |
+|---|---|---|---|
+| `--max-sigma 5` | 0.00% / 12.57% | 0.000% | brightness 37, contrast 18 — against 62 and 26 for the kept ones |
+| `--max-sigma 1` | 75.69% / 66.35% | 0.000% | brightness 88, contrast 22 — **the same as the kept ones** |
+
+At 5 what disappears is dimmer and flatter than what stays: that is fog. At 1 what
+disappears is as bright and as detailed as what stays: that is the scene. **Nothing was
+gained at either setting**, so the filter introduces nothing.
+
+**Only utlida needed it.** Across the other captures the same threshold removes 11-27% of
+drawn area from splats that are all within 22% of extent — plausible background that
+belongs in the picture. Scan before applying:
+
+```
+utlida-full    1,559 (0.039%)  83.7% of area   worst splat 179.8% of extent
+utlida-lod1    1,054 (0.053%)  82.2%                        165.7%
+calico-lod3      361 (0.015%)  27.3%                         19.4%
+nelson-full      442 (0.005%)  15.3%                         21.5%
+textilni-lod3     12 (0.0005%) 11.8%                         21.9%
+nelson-lod2      131 (0.006%)  11.4%                         13.1%
+```
+
+Give no output path to get the report without writing a file.
 
 ## Cropping: don't
 

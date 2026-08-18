@@ -8,6 +8,16 @@ namespace VDGS
     /// Rolling frame-time log. The whole point of putting splats in a flight sim is that
     /// it stays fast enough to fly, and that number cannot be read off a screenshot - so
     /// it is sampled continuously and written where an SSH session can read it.
+    ///
+    /// It appends across launches, and that is load-bearing. It used to truncate on
+    /// startup, which quietly destroyed the thing the log exists for: comparing a change
+    /// against the run before it. Measuring the giant-splat cull on utlida meant flying
+    /// the original, quitting, and flying the pruned version - and quitting is exactly
+    /// what erased the baseline. The comparison survived only because the numbers had
+    /// already been read out by hand.
+    ///
+    /// Growth is not a concern worth trading that for: one sample per 5 seconds is about
+    /// 45 KB per hour of flying.
     /// </summary>
     internal class PerfLog
     {
@@ -21,7 +31,17 @@ namespace VDGS
         internal PerfLog(string path)
         {
             m_Path = path;
-            try { File.WriteAllText(m_Path, "time     fps    avg_ms  worst_ms  splats  scenes\n"); }
+            try
+            {
+                // Column header once, on the first ever run; a session banner every time.
+                // The per-sample stamp is HH:mm:ss, so without the date on the banner two
+                // runs a day apart interleave into one indistinguishable column of times.
+                if (!File.Exists(m_Path))
+                    File.AppendAllText(m_Path, "time     fps    avg_ms  worst_ms  splats  scenes\n");
+                File.AppendAllText(m_Path, string.Format(
+                    "=== session {0} ==={1}",
+                    DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"), Environment.NewLine));
+            }
             catch { }
         }
 

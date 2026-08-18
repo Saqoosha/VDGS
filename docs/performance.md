@@ -314,3 +314,8 @@ accepts a bare `.ply`, reporting its load timings.
 In-game numbers land in `<game>/vdgs-perf.log` every five seconds:
 `time / fps / avg_ms / worst_ms / splats / scenes`. **That is the number decisions rest
 on**; the benchmark exists to isolate variables.
+
+The log **survives a relaunch** — each run appends under a `=== session <date>` banner.
+It used to truncate on startup, which destroyed the only thing it is for: comparing a
+change against the run before it. Any A/B that needs quitting the game between halves —
+which is most of them — was silently losing its baseline.

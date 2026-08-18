@@ -1,11 +1,25 @@
 #!/usr/bin/env bash
 # Build the VDGS plugin and push it to the Windows box over Tailscale SSH.
 #
+#   bash tools/deploy.sh              # plugin + every scene under build/splats/
+#   bash tools/deploy.sh --plugin     # plugin only
+#
+# --plugin exists because the scenes are 2.2 GB and the DLL is 100 KB, so a one-line
+# C# change was paying five minutes of Tailscale to re-send splat data that had not
+# changed. Resist the urge to write a second script for that - the launch path was
+# once split in two and the copies drifted until each had a step the other lacked.
+#
 # The game path contains spaces and the remote default shell is PowerShell, which
 # does not treat backslash as an escape. Quoting a spaced path through scp is a
 # reliable way to lose the file, so we scp to a space-free staging path and let a
 # PowerShell Copy-Item put it in place.
 set -euo pipefail
+
+# Written as an if, not `[ ] && x`: under `set -e` that form's exit status is the
+# test's, and whether bash then kills the script is subtle enough that someone would
+# eventually "fix" it in the wrong direction.
+PLUGIN_ONLY=0
+if [ "${1:-}" = "--plugin" ]; then PLUGIN_ONLY=1; fi
 
 HOST="${VDGS_HOST:-user@windows-box}"
 GAME='%USERPROFILE%\Downloads\Velocidrone Windows Launcher\app'
@@ -25,7 +39,7 @@ scp -o BatchMode=yes -q "$ROOT/src/VDGS/bin/Release/VDGS.dll" "$HOST:$STAGE/VDGS
 # so it is never staged from here - see tools/build-shaders-win.ps1.
 
 # Splat scenes: build/splats/<name>/ -> <game>/vdgs/<name>/
-if [ -d "$ROOT/build/splats" ]; then
+if [ "$PLUGIN_ONLY" = 0 ] && [ -d "$ROOT/build/splats" ]; then
   for dir in "$ROOT/build/splats"/*/; do
     [ -d "$dir" ] || continue
     name="$(basename "$dir")"
@@ -37,9 +51,10 @@ fi
 
 echo "== install =="
 ssh -o BatchMode=yes "$HOST" "
+  \$PLUGIN_ONLY = $PLUGIN_ONLY
   Copy-Item '$STAGE\\VDGS.dll' '$GAME\\BepInEx\\plugins\\VDGS.dll' -Force
   New-Item -ItemType Directory -Force -Path '$GAME\\vdgs' | Out-Null
-  if (Test-Path '$STAGE\\splats') {
+  if ($PLUGIN_ONLY -eq 0 -and (Test-Path '$STAGE\\splats')) {
     foreach (\$d in Get-ChildItem '$STAGE\\splats' -Directory) {
       \$dst = Join-Path '$GAME\\vdgs' \$d.Name
       New-Item -ItemType Directory -Force -Path \$dst | Out-Null

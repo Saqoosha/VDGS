@@ -26,6 +26,35 @@ nelson-full  8,759,558 splats  490.5 MB   header 2 ms  read 265 ms  decode 3078 
 **Reading the file is 100–265 ms of that. The rest is decode**, which is per-splat and
 independent, so it runs across cores (`Parallel.For`).
 
+### That is the parse. The stall you feel is about three times bigger
+
+`PlyBench` times header, read, decode and sort. **It stops before
+`GraphicsBuffer.SetData`**, and the upload is not free — so quoting 0.97 s as "the load
+time" understates what happens on screen. Measured in-game from `vdgs-perf.log`, where the
+spawn frame shows up as `worst_ms`:
+
+```
+                splats     SH   file      in-game stall
+nelson-lod2  2,171,895   none   121.6 MB      2.95 s
+calico-lod3  2,401,279   none   134.5 MB      3.10 s   (twice, identical)
+nelson-full  8,759,558   none   490.5 MB     11.97 s
+utlida-lod1  2,001,694   deg 3  472.4 MB      6.77 s
+textilni     2,320,155   deg 3  547.6 MB      8.00 s
+utlida-full  4,003,388   deg 3  944.8 MB     13.0 / 13.2 / 14.0 s
+```
+
+Two things fall straight out:
+
+- **The rate is per splat, not per byte, and it is remarkably stable**: 1.34 µs/splat
+  without spherical harmonics, 3.39 µs/splat with degree 3. Every scene above lands within
+  4% of its group.
+- **Spherical harmonics cost 2.5× the load time.** Per byte, an SH capture actually loads
+  *faster* (~70 MB/s against ~42), because the per-splat work is amortised over more data.
+
+So a four-million-splat capture with harmonics takes **thirteen seconds** to appear. The
+advice to show a scene before flying is not a nicety — at that size it is the difference
+between a stutter and a stopped game.
+
 ### Parallelising made it slower until the allocations were gone
 
 `Put` originally went through `BitConverter.GetBytes`, which returns a fresh `byte[4]`.

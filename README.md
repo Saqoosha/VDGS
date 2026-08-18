@@ -25,8 +25,10 @@ drop <game>/vdgs/foo.ply  →  the plugin reads it at load time and renders it
                              ↑ drive it from a browser at http://<host>:8777/
 ```
 
-No external tools. A 2.17M-splat capture loads in under a second. Pre-converted scenes
-(five binaries plus `meta.json`) still work if you have them.
+No external tools. A 2.17M-splat capture parses in under a second and is on screen in
+about three; a four-million-splat capture with spherical harmonics takes thirteen, so show
+a scene before you fly rather than during. Pre-converted scenes (five binaries plus
+`meta.json`) still work if you have them.
 
 The plugin polls the loaded track name once a second and shows or hides captures according
 to `bindings.json`, so a scene appears on the tracks you bound it to and nowhere else.

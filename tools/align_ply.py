@@ -269,6 +269,70 @@ def mirror_axis(rows, props, axis):
     rows[:, rot] = out.astype(np.float32)
 
 
+def scene_extent(xyz):
+    """Robust diagonal of the capture: the 1st..99th percentile box.
+
+    Not min..max, because the outliers this file exists to find would set the
+    very number they are measured against."""
+    lo, hi = np.percentile(xyz, 1, axis=0), np.percentile(xyz, 99, axis=0)
+    return float(np.linalg.norm(hi - lo))
+
+
+def prune_giants(rows, props, pct):
+    """Drop gaussians larger than pct% of the scene, and say what that cost.
+
+    3DGS blows up gaussians in regions it barely saw - sky, and anything past
+    the edge of the camera path - because nothing in the loss constrains them.
+    They come out enormous, half-transparent, and sitting outside the capture.
+
+    Measured on utlida-full (4,003,388 splats, extent 93.4):
+
+        sigma band      splats     share   dist from centre   drawn area
+        0.0-0.2%      3,757,600   93.86%          18% ext          2.3%
+        0.2-1.0%        228,520    5.71%          33%              6.3%
+        1.0-5.0%         15,702    0.39%          51%             10.3%
+        5.0-20%           1,388    0.03%          88%             20.6%
+        20-1000%            178    0.004%        148%             60.5%
+
+    178 splats - four thousandths of one percent - are 60% of everything drawn.
+    Cutting at 5% removes 0.04% of the capture and 81% of the drawn area.
+
+    This is not the splat-count reduction that trades quality away. It removes
+    blobs that hide the scene and cost the frame; the structure is in the other
+    99.96%. textilni-lod3 arrived already clean (90 splats over 1% of extent)
+    and is the one capture whose size distribution is an order tighter.
+
+    Size, not position, is the right filter here: --bounds would take the walls
+    of any room captured from the inside along with the junk.
+    """
+    ix, iy, iz = props.index("x"), props.index("y"), props.index("z")
+    si = [props.index(f"scale_{i}") for i in range(3)]
+
+    xyz = rows[:, [ix, iy, iz]].astype(np.float64)
+    ext = scene_extent(xyz)
+    sigma = np.exp(rows[:, si].astype(np.float64)).max(axis=1)
+    limit = ext * pct / 100.0
+
+    keep = sigma <= limit
+    cut = int((~keep).sum())
+    if cut == 0:
+        print(f"  --max-sigma {pct}%: nothing above {limit:.3f} units; kept all {len(rows)}")
+        return rows
+
+    # A splat is rasterised as a +-2 sigma quad, so area goes as sigma^2. This is
+    # the number worth reporting: the count alone makes the change look trivial.
+    area = sigma ** 2
+    removed_area = 100.0 * area[~keep].sum() / area.sum()
+
+    print(f"  --max-sigma {pct}%: extent {ext:.2f} -> limit {limit:.3f} units")
+    print(f"    removed {cut:,} of {len(rows):,} splats ({100.0*cut/len(rows):.4f}%)"
+          f", {removed_area:.1f}% of drawn area")
+    print(f"    largest kept {sigma[keep].max():.3f}"
+          f" ({100.0*sigma[keep].max()/ext:.2f}% of extent)"
+          f", largest removed {sigma.max():.3f} ({100.0*sigma.max()/ext:.1f}%)")
+    return rows[keep]
+
+
 def apply_transform(rows, props, R, floor_y, scale):
     """Rotate, drop the floor to y=0 and scale - positions, orientations and sizes."""
     ix, iy, iz = props.index("x"), props.index("y"), props.index("z")
@@ -321,6 +385,13 @@ def main():
                     help="rotate a further 180 deg about X. Use when the result comes "
                          "out upside down: which side of the floor plane is 'up' cannot "
                          "be decided from the plane alone.")
+    ap.add_argument("--max-sigma", type=float, metavar="PCT",
+                    help="drop gaussians whose largest sigma exceeds PCT%% of the scene "
+                         "extent. Aimed at the handful of enormous half-transparent "
+                         "blobs 3DGS leaves in unconstrained regions: on utlida-full, "
+                         "--max-sigma 5 removes 0.04%% of the splats and 81%% of the "
+                         "drawn area. Filters by size, not position, so it does not eat "
+                         "the walls of a room captured from the inside.")
     ap.add_argument("--sample", type=int, metavar="N",
                     help="keep only N splats (random). For making light preview files "
                          "that a browser viewer can open quickly.")
@@ -338,10 +409,30 @@ def main():
     print(f"input: {len(rows)} splats")
     print(f"  bounds {xyz.min(0).round(2)} .. {xyz.max(0).round(2)}")
 
+    if args.max_sigma is not None:
+        rows = prune_giants(rows, props, args.max_sigma)
+        xyz = rows[:, [ix, iy, iz]].astype(np.float64)
+        print(f"  bounds {xyz.min(0).round(2)} .. {xyz.max(0).round(2)}")
+
     if args.mirror:
         mirror_axis(rows, props, args.mirror)
         xyz = rows[:, [ix, iy, iz]].astype(np.float64)
         print(f"  mirrored across {args.mirror}")
+
+    # --mirror, --max-sigma and --sample each say completely what to do; nothing
+    # about a floor is needed to carry them out. Requiring --up anyway rejected
+    # them, so `align_ply.py in.ply out.ply --mirror y` - the command the docs give
+    # for the handedness fix - exited 1 with "--up is required" and wrote nothing.
+    # reprocess.sh only ever worked because it also passes --rotate 0,0,0.
+    row_op = args.mirror or args.max_sigma is not None or args.sample
+    if row_op and not args.rotate and not args.up and not args.detect:
+        if not args.output:
+            print("(no output path given; nothing written)")
+            return
+        check_floor_is_down(rows, props)
+        write_ply(args.output, header, rows)
+        print(f"\nwrote {args.output}  ({len(rows):,} splats)")
+        return
 
     if args.rotate:
         deg = [float(v) for v in args.rotate.split(",")]

@@ -53,6 +53,11 @@ drjohnson-shc  (Cluster16k)   17.30 ms   57.8 fps    ← 36% 減
 `vdgs-perf.log` は 5 秒ごとに `time / fps / avg_ms / worst_ms / splats / scenes` を追記
 する。`worst_ms` は直近 5 秒の最悪フレーム。**飛んで、あとで読むだけ。**
 
+**起動をまたいでも残る**（`=== session <日付>` の区切りが入る）。以前は起動のたびに
+`File.WriteAllText` で全消ししていて、**比較対象そのものを毎回壊していた** — utlida の
+巨大 splat 除去を測るには「元を飛ぶ → 終了 → 除去版を飛ぶ」が要るのに、その終了が
+基準値を消す。数字を先に手で読み出していたから助かった。
+
 **測定は必ず実機で。** 同じ比較が M1 Max で 6.5%、RTX 3060 で 48%。ユニファイドメモリが
 帯域を隠す。ベンチ（`tools/bench-win.sh`）は切り分け用で、判断は実機の値で下す。
 
@@ -143,6 +148,27 @@ Velocidrone 1.17 がインストール済み：
 デコンパイル済みソース（267万行、gitignore 済み）: `research/decompiled/Assembly-CSharp.decompiled.cs`
 クラス名とメソッドの構造は読める。定数だけが嘘。
 
+### 難読化されているのは Assembly-CSharp だけ。globalgamemanagers は素で読める
+
+**「このゲームの静的解析は信用するな」は Assembly-CSharp の話であって、シリアライズ
+データには当てはまらない。** `globalgamemanagers` はプレーンな Unity のシリアライズ
+データで、UnityPy がそのまま読む。**レイヤーと衝突マトリクスは難読化されていない。**
+
+| 項目 | 値 |
+|---|---|
+| Fixed Timestep | **0.0025（400 Hz）** |
+| Gravity | **-10.78**（9.81 ではない） |
+| ドローンのレイヤー | `QuadColliders`(13) |
+| 衝突相手 | `Default`(0) |
+| Office のコライダー数 | 598、すべて `Default` |
+
+400 Hz でも 150 km/h では **1 ステップ 0.104 m** 進む。**厚さ 10 cm 未満の壁は
+すり抜ける。**
+
+ゲームが何と衝突するかを知りたいときは、リフレクションで探るより 2 分で読める。
+
+（コリジョン設計セッションの実測。こちらでは未検証だが、手順は再現可能）
+
 ### アンチチート
 
 `ACTk.Runtime.dll`（Anti-Cheat Toolkit）が同梱されている。Assembly-CSharp 側での
@@ -193,6 +219,7 @@ python3 tools/make_test_ply.py build/testdata/testcube.ply   # 合成テスト�
 
 # 2. プラグイン + splat データを w へ（Mac）
 bash tools/deploy.sh
+bash tools/deploy.sh --plugin    # DLL だけ（splat 2.2GB を送り直さない）
 
 # 3. シェーダーバンドルを焼く（w 上で実行。macOS では不可能）
 bash tools/bake-shaders.sh
@@ -202,7 +229,12 @@ bash tools/launch-win.sh
 ```
 
 **手順 1 は省ける。** `<game>/vdgs/foo.ply` を置けばプラグインが実行時に読む
-（217 万 splats で実測 **0.97 秒**、876 万で 3.34 秒）。変換済みディレクトリと同名なら**ディレクトリが勝つ**。
+（217 万 splats のパースが **0.97 秒**）。変換済みディレクトリと同名なら**ディレクトリが勝つ**。
+
+**ただし 0.97 秒は体感する数字ではない。** `PlyBench` は `GraphicsBuffer.SetData` の前で
+止まる。ゲーム内の実測は 217 万で **2.95 秒**、400 万＋SH で **13〜14 秒**。レートは
+バイトではなく splat ごとで、**SH 無し 1.34 µs/splat、3 次 3.39 µs/splat**（詳細は
+docs/ply-loading.ja.md）。
 速度は焼いた最速版の 7% 差、画質は測定に出ない差（詳細は docs/ply-loading.ja.md）。
 
 **ゲームは必ず `-force-d3d12` で起動する。** 素の D3D11 では splat シェーダーが動かない。
@@ -389,6 +421,13 @@ docs/alignment.ja.md）。
 ```bash
 python3 tools/align_ply.py in.ply out.ply --mirror y
 ```
+
+**同じ結論に別のツールから到達した記録：** PlayCanvas の `splat-transform` は、ply の
+読み込み時に「Z 軸 180 度回転」を適用するとドキュメントに書いている。**v3.3.0 では嘘。**
+軸ごとに独立して検証すると（元データの x を [3.0, 3.834] だけ残してどこに落ちるか見る、
+y と z も同様）、実際の操作は **Y の反転だけ** — 回転ではなく鏡映、行列式 -1、
+`--mirror y` と同じ。副産物として、そこから出るメッシュは既に Unity の座標系にある。
+（コリジョン設計セッションの実測）
 
 Y の反転（鏡映、行列式 -1）が**上下の反転と鏡像の解消を同時に行う**。`--rotate 180,0,0`
 は回転（行列式 +1）なので鏡像は原理的に直らない。

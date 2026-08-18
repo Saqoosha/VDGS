@@ -225,6 +225,10 @@ Things to know:
   [alignment.md](alignment.md)
 - **Do not crop.** Percentile cropping deletes the walls of any room shot from the inside.
   If debris is in the way, state a box with `--bounds`
+- **If you can see individual enormous splats**, that is 3DGS blowing up an unconstrained
+  region, and a handful of them can be most of what gets drawn. Cut by size, not position:
+  `--max-sigma 5`. Measure first — run it without an output path for a report. See
+  [alignment.md](alignment.md)
 
 ### 4-4. Placement
 
@@ -337,7 +341,7 @@ Directly under `<VelociDrone>\app\`:
 | File | Contents |
 |---|---|
 | `vdgs-probe.log` | environment, shader status, spawn results |
-| `vdgs-perf.log` | frame time every 5 s (fps / avg / worst / splat count) |
+| `vdgs-perf.log` | frame time every 5 s (fps / avg / worst / splat count). Appends across launches |
 | `vdgs-track.log` | track detection, binding, show and hide history |
 | `vdgs-hierarchy.txt` | scene tree, from F10 |
 | `vdgs-track.txt` | track-name search, from F12 |

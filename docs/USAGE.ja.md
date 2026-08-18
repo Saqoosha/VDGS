@@ -215,6 +215,9 @@ python3 tools/align_ply.py in.ply out.ply --rotate -12,0,3 --ceiling 2.6
   詳細は [alignment.ja.md](alignment.ja.md)
 - **crop はしない。** パーセンタイルで外周を切ると、内側から撮った部屋では壁が消える。
   破片が目障りなら `--bounds` で箱を明示する
+- **巨大な splat が個別に見えるなら**、3DGS が制約の無い領域を膨らませた跡。数個で描画面積の
+  大半を占めることがある。位置ではなくサイズで切る：`--max-sigma 5`。出力パス無しで実行すれば
+  報告だけ出るので、**先に測る**。詳細は [alignment.ja.md](alignment.ja.md)
 
 ### 4-4. 配置
 
@@ -327,7 +330,7 @@ mod のハンドラに渡す前に `411 Length Required` で弾く。`curl -X PO
 | ファイル | 内容 |
 |---|---|
 | `vdgs-probe.log` | 環境情報、シェーダーの状態、スポーン結果 |
-| `vdgs-perf.log` | 5 秒ごとのフレームタイム（fps / avg / worst / splat 数） |
+| `vdgs-perf.log` | 5 秒ごとのフレームタイム（fps / avg / worst / splat 数）。起動をまたいで追記 |
 | `vdgs-track.log` | トラック名の検出、紐付け、GS の出し入れの履歴 |
 | `vdgs-hierarchy.txt` | F10 で吐いたシーン構造 |
 | `vdgs-track.txt` | F12 で吐いたトラック名の探索結果 |
