@@ -219,27 +219,52 @@ sigma 4   平均差 0.00000/255   一致率 100%
 - [Hybrid Transparency](https://arxiv.org/pdf/2410.08129) — 完全なソートを避けつつ
   透視補正を保つ手法。ソートが効く場面では有効
 
-### 2.4 SH のパレット圧縮（メモリには効く、fps には効かない）
+### 2.4 フォーマットの選択（測って決める。バイト数だけ見ると外す）
 
-ランタイムもシェーダーも既に対応済み（`SHFormat.Cluster64k`〜`Cluster4k`）。使っていな
-かったので `PlyExporter` に `-vdgsShFormat` を足した：
+drjohnson を全段測った。RTX 3060、シーン内部・画角 120°、カリング on、基準は
+Float32 全部の版：
+
+| 段 | B/splat | フレーム | Float32 との平均差 | k-means |
+|---|---:|---:|---:|---|
+| VeryHigh (Float32) | 236 | 14.01 ms | — | 不要 |
+| VeryHigh + Cluster16k SH | 47 | 9.38 ms | 1.44/255 | **10 分** |
+| **High (Norm16 / Float16x4 / Norm11)** | **84** | **8.80 ms** | **0.09/255** | **不要** |
+| Medium (Norm11 / Norm8x4 / Norm6) | 48 | — | **58.83/255** | 不要 |
+
+**High が三拍子そろって勝つ。** バイト数は Cluster16k の 1.8 倍なのに速く、しかも最も忠実。
+
+理由は**間接参照**。クラスタ化 SH は splat ごとに 2 バイトの索引を読み、それで 3.1MB の
+パレットへ散りアクセスする。その indirection が、Norm11 SH を 60 バイト連続で読むより高い。
+**「バイト数が少ない＝速い」は成り立たない。**
+
+playroom-shc が元の playroom より遅かった（8.64 対 8.01 ms）のも同じ理由。一度
+「幾何が Float32 に上がったから」と書いたが**誤り**だった。
+
+そして playroom は**最初から High だった**。証拠は最初からあり、Cluster16k の実装は
+回り道だった。`-vdgsShFormat` は残してあるが、既定は使わない。
+
+#### Medium 以下は使ってはいけない
+
+`Norm11 / Norm8x4 / Norm6` は drjohnson を **2.6 倍暗く**描く（明度 36.3 対 95.1、
+平均差 58.83/255）。形は合っている（IoU 0.9958）ので、崩れているのは色か不透明度。
+upstream の段の問題か、ぼくらの移植が Norm8x4/Norm6 を取り違えているかは**未解決**。
+testcube（Norm8x4/Norm6）は正常に見えるので、データ依存の可能性もある。
+
+#### ランタイム読み込みへの含意
+
+**High は k-means を必要としないので、プラグインが実行時に作れる。** 変換の 10 分は
+まるごと k-means だった。実測（ゲームと同じ Mono、drjohnson 317 万 splats / 750MB）：
 
 ```
-                 splats      形式         合計      B/splat
-drjohnson     3,177,554   sh=Float32     750 MB      236
-drjohnson-shc 3,177,554   sh=Cluster16k  148 MB       46
-   sh.bin      610 MB → 1.5 MB
+header 1 ms   read 213 ms   decode 2274 ms   sort 407 ms   合計 2.9 s
 ```
 
-見た目は **IoU 0.9934、平均差 1.58/255（0.6%）でほぼ同一**。**しかし fps は 6.5% しか
-上がらない。**
+コールドディスクで +0.5 秒、パッキングで +1 秒として **3〜5 秒**。いまのスポーンが既に
+1.9 秒固まっている（バッファ転送）ので、同じ桁。
 
-意味があるのは：VRAM に複数シーンを同時に載せるとき、スポーン時の
-`GraphicsBuffer.SetData`（数十〜数百 MB のアップロード）によるスタッターを減らしたいとき。
-
-```
--vdgsQuality VeryHigh -vdgsShFormat Cluster16k
-```
+**ply のフィールド構成は可変。** drjohnson-aligned.ply は 59 float で、標準の 62 と違って
+法線を持たない。オフセット決め打ちは即座に壊れるので、プロパティ一覧を名前で引くこと
+（`align_ply.py` が既にそうしている）。
 
 #### 罠：`posFormat` は座標空間を語らない
 

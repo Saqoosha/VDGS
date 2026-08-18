@@ -37,8 +37,10 @@ drjohnson-shc + カリング   3.18M       47     9.0 ms
 
 効いた手は 2 つだけで、どちらも品質は落とさない：
 
-- **SH のパレット圧縮**（`-vdgsShFormat Cluster16k`）— 元が Float32 SH なら splat コストが
-  48% 減。既に Norm11 の playroom には効かない
+- **`High` で焼く**（`reprocess.sh` の既定）— Norm16/Float16x4/Norm11、84 B/splat。
+  Float32（236 B）比で 14.01 → 8.80 ms、しかも**最も忠実**（平均差 0.09/255）。
+  Cluster16k（47 B）より**速い** — パレットの間接参照が連続読みより高いため。
+  **Medium 以下は使わない**（drjohnson が 2.6 倍暗くなる）
 - **視錐台カリング**（`m_FrustumCulling`、既定 on）— 内部視点で 10.7% 減、ピクセル完全一致
 
 **ゲーム内の実測が最終的な数字。** 同じトラック・同じセッションでシーンだけ入れ替えた：

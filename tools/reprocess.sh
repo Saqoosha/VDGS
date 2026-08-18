@@ -17,12 +17,22 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 UNITY="${VDGS_UNITY:-/Applications/Unity/Hub/Editor/2022.3.42f1/Unity.app/Contents/MacOS/Unity}"
 CONVERTER="$ROOT/unity/VDGSConverter"
-QUALITY="${VDGS_QUALITY:-VeryHigh}"
-# Palette-compressed spherical harmonics. Measured on the RTX 3060 (the machine that
-# matters - an M1 Max hides this behind unified memory): drjohnson's splat cost falls
-# 48%, the whole frame 34%, for a mean pixel difference of 1.58/255. Geometry stays at
-# full Float32 precision because the preset is applied first and only SH is overridden.
-SH_FORMAT="${VDGS_SH_FORMAT:-Cluster16k}"
+QUALITY="${VDGS_QUALITY:-High}"
+# High is Norm16 positions and scales, Float16x4 colour, Norm11 spherical harmonics -
+# 84 bytes per splat, and it beats every other tier measured on the RTX 3060:
+#
+#   drjohnson  Float32 everything    236 B/splat   14.01 ms   reference
+#              Cluster16k SH          47 B/splat    9.38 ms   1.44/255 mean difference
+#              High                   84 B/splat    8.80 ms   0.09/255
+#
+# Palette-compressed SH is smaller but slower: each splat reads a two-byte index and then
+# scatters into a 3 MB palette, and that indirection costs more than reading Norm11 SH in
+# sequence. High is also the most faithful of the three, and needs no k-means, so a
+# runtime loader can produce it.
+#
+# Do NOT drop to Medium. Norm11/Norm8x4/Norm6 renders drjohnson 2.6x too dark
+# (58.83/255 mean difference) - whether that is upstream's tier or our port is unresolved.
+SH_FORMAT="${VDGS_SH_FORMAT:-}"   # empty = whatever the quality preset picks
 
 # scene:source  — sources are SuperSplat exports unless noted
 SCENES=(
@@ -67,7 +77,7 @@ for entry in "${SCENES[@]}"; do
       -vdgsInput "$mirrored" \
       -vdgsOutput "$ROOT/build/splats/$name" \
       -vdgsQuality "$QUALITY" \
-      -vdgsShFormat "$SH_FORMAT" \
+      ${SH_FORMAT:+-vdgsShFormat "$SH_FORMAT"} \
       -logFile - ) >"$log" 2>&1
   status=$?
   set -e
