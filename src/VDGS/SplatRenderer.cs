@@ -118,7 +118,9 @@ namespace VDGS
                 mpb.SetFloat(Props.SplatScale, gs.m_SplatScale);
                 mpb.SetFloat(Props.SplatOpacityScale, gs.m_OpacityScale);
                 mpb.SetFloat(Props.SplatSize, gs.m_PointDisplaySize);
-                mpb.SetInt(Props.SHOrder, gs.m_SHOrder);
+                int shOrder = Mathf.Min(gs.m_SHOrder, gs.Data.ShOrder);
+                mpb.SetInt(Props.SHOrder, shOrder);
+                mpb.SetInt(Props.SplatSHOrder, shOrder);
                 mpb.SetInt(Props.SHOnly, gs.m_SHOnly ? 1 : 0);
                 mpb.SetInt(Props.DisplayIndex, 0);
                 mpb.SetInt(Props.DisplayChunks, 0);
@@ -186,6 +188,7 @@ namespace VDGS
         internal static readonly int SplatSize = Shader.PropertyToID("_SplatSize");
         internal static readonly int SplatCount = Shader.PropertyToID("_SplatCount");
         internal static readonly int SHOrder = Shader.PropertyToID("_SHOrder");
+        internal static readonly int SplatSHOrder = Shader.PropertyToID("_SplatSHOrder");
         internal static readonly int SHOnly = Shader.PropertyToID("_SHOnly");
         internal static readonly int DisplayIndex = Shader.PropertyToID("_DisplayIndex");
         internal static readonly int DisplayChunks = Shader.PropertyToID("_DisplayChunks");
@@ -566,7 +569,9 @@ namespace VDGS
             cmb.SetComputeVectorParam(cs, Props.VecWorldSpaceCameraPos, camPos);
             cmb.SetComputeFloatParam(cs, Props.SplatScale, m_SplatScale);
             cmb.SetComputeFloatParam(cs, Props.SplatOpacityScale, m_OpacityScale);
-            cmb.SetComputeIntParam(cs, Props.SHOrder, m_SHOrder);
+            int shOrder = Mathf.Min(m_SHOrder, m_Data.ShOrder);
+            cmb.SetComputeIntParam(cs, Props.SHOrder, shOrder);
+            cmb.SetComputeIntParam(cs, Props.SplatSHOrder, shOrder);
             cmb.SetComputeIntParam(cs, Props.SHOnly, m_SHOnly ? 1 : 0);
 
             cs.GetKernelThreadGroupSizes((int)KernelIndices.CalcViewData, out uint gsX, out _, out _);

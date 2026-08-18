@@ -152,7 +152,12 @@ namespace VDGS
             // separate ways to be wrong. Compaction comes after this matches.
             var posData = new byte[count * 12];
             var otherData = new byte[count * 16];      // packed rotation + float3 scale
-            var shData = new byte[count * 192];        // 45 floats, padded to a multiple of 16
+            // A capture with no f_rest_* needs no SH buffer at all - the shader skips the
+            // read when _SplatSHOrder is 0. Allocating it anyway is not a rounding error:
+            // nelson-full is 8.76M splats, which is 1.68 GB of zeros, 78% of the largest
+            // array the runtime can address, uploaded to the GPU and traversed every frame
+            // to be multiplied by nothing.
+            var shData = new byte[shFloats > 0 ? count * 192 : 16];
 
             SplatData.CalcTextureSize(count, out int texW, out int texH);
             var colorData = new byte[texW * texH * 16];
@@ -229,7 +234,8 @@ namespace VDGS
                 Path.GetFileNameWithoutExtension(path), count, min, max,
                 SplatData.VectorFormat.Float32, SplatData.VectorFormat.Float32,
                 SplatData.ColorFormat.Float32x4, SplatData.SHFormat.Float32,
-                posData, otherData, colorData, shData, null);
+                posData, otherData, colorData, shData, null,
+                shFloats > 0 ? 3 : 0);
         }
 
         private static float F(byte[] b, int off) => BitConverter.ToSingle(b, off);

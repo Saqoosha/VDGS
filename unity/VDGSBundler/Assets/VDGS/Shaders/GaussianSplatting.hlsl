@@ -464,6 +464,10 @@ float3 LoadSplatScale(uint idx)
     return scale;
 }
 
+/// Highest spherical-harmonics band this scene actually has. Zero means the capture
+/// carries none, which is common for handheld LiDAR scanners.
+uint _SplatSHOrder;
+
 SplatData LoadSplatData(uint idx)
 {
     SplatData s = (SplatData)0;
@@ -508,6 +512,18 @@ SplatData LoadSplatData(uint idx)
     if (shFormat > VECTOR_FMT_6)
         shIndex = LoadUShort(_SplatOther, otherAddr + otherStride - 2);
 
+    // Captures made by handheld LiDAR scanners often carry no spherical harmonics at
+    // all - _SHOrder is then 0 and every band below is multiplied out anyway, so read
+    // nothing. Without this the buffer is still traversed in full: 1.68 GB of zeros for
+    // an 8.8M-splat scene, touched every frame to be discarded.
+    if (_SplatSHOrder == 0)
+    {
+        // col is applied to s.sh.col at the end of this function, after the chunk
+        // interpolation, so setting it here would use the pre-chunk value.
+        s.sh = (SplatSHData)0;
+    }
+    else
+    {
     uint shOffset = shIndex * shStride;
     uint4 shRaw0 = _SplatSH.Load4(shOffset);
     uint4 shRaw1 = _SplatSH.Load4(shOffset + 16);
@@ -598,6 +614,8 @@ SplatData LoadSplatData(uint idx)
         s.sh.sh13 = DecodePacked_5_6_5(shRaw1.z);
         s.sh.sh14 = DecodePacked_5_6_5(shRaw1.z >> 16);
         s.sh.sh15 = DecodePacked_5_6_5(shRaw1.w);
+    }
+
     }
 
     // if raw data is chunk-relative, convert to final values by interpolating between chunk min/max

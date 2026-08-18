@@ -56,6 +56,14 @@ namespace VDGS
         public ColorFormat ColorFmt { get; private set; }
         public SHFormat ShFormat { get; private set; }
 
+        /// <summary>
+        /// Highest spherical-harmonics band this capture actually carries. Handheld LiDAR
+        /// scanners routinely emit degree 0, and .ply files from them have no f_rest_*
+        /// at all. The renderer clamps its own SH order to this, which lets a scene with
+        /// no harmonics skip both the buffer and the per-frame read.
+        /// </summary>
+        public int ShOrder { get; private set; } = 3;
+
         public byte[] ChunkData { get; private set; }
         public byte[] PosData { get; private set; }
         public byte[] OtherData { get; private set; }
@@ -74,7 +82,8 @@ namespace VDGS
         internal static SplatData FromBuffers(
             string name, int count, Vector3 boundsMin, Vector3 boundsMax,
             VectorFormat pos, VectorFormat scale, ColorFormat color, SHFormat sh,
-            byte[] posData, byte[] otherData, byte[] colorData, byte[] shData, byte[] chunkData)
+            byte[] posData, byte[] otherData, byte[] colorData, byte[] shData, byte[] chunkData,
+            int shOrder = 3)
         {
             return new SplatData
             {
@@ -91,6 +100,7 @@ namespace VDGS
                 ColorData = colorData,
                 ShData = shData,
                 ChunkData = chunkData,
+                ShOrder = shOrder,
             };
         }
 

@@ -96,8 +96,14 @@ public static class RenderCompare
         // Black, so the reference renderer's background can be matched exactly and the
         // difference image is not dominated by whatever each tool clears to.
         cam.backgroundColor = Color.black;
-        cam.nearClipPlane = 0.2f;   // matches the WebGL viewer's znear
-        cam.farClipPlane = 200f;    // and its zfar
+        // 0.2 / 200 matches the WebGL reference viewer, which is what the comparison
+        // needs - but an outdoor capture is hundreds of units across and vanishes behind
+        // a 200-unit far plane without a word. Grow the far plane to hold the scene when
+        // it does not fit, keeping the reference values for everything that does.
+        float reach = Vector3.Distance(pos, (data.BoundsMin + data.BoundsMax) * 0.5f)
+                    + (data.BoundsMax - data.BoundsMin).magnitude;
+        cam.nearClipPlane = 0.2f;
+        cam.farClipPlane = Mathf.Max(200f, reach * 1.2f);
         camGo.transform.position = pos;
         camGo.transform.rotation = Quaternion.LookRotation(fwd, up);
 
