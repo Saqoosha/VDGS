@@ -55,6 +55,21 @@ So a four-million-splat capture with harmonics takes **thirteen seconds** to app
 advice to show a scene before flying is not a nicety — at that size it is the difference
 between a stutter and a stopped game.
 
+**Those are cold-cache numbers, and a warm cache is about four times faster.** Same files,
+same build, second visit within one boot:
+
+```
+                  cold     warm
+utlida-full-s5   12.8 s    3.5 s
+utlida-lod1-s5    6.6 s    1.6 s
+textilni-lod3     8.0 s    1.7 s
+```
+
+Quote the cold figure when the question is "what does a person hitting this for the first
+time experience", which is the honest default. Quote the warm one only when you know the
+file has already been read this boot — a benchmark loop, for instance, measures the warm
+path from its second iteration onward and will flatter itself if you let it.
+
 ### Parallelising made it slower until the allocations were gone
 
 `Put` originally went through `BitConverter.GetBytes`, which returns a fresh `byte[4]`.

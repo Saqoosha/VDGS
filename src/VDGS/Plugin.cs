@@ -346,13 +346,15 @@ namespace VDGS
             if (m_Perf != null)
             {
                 int splats = 0, spawned = 0;
+                string shown = null;
                 foreach (var s in m_Scenes)
                 {
                     if (!s.Spawned) continue;
                     spawned++;
                     splats += s.SplatCount;
+                    shown = shown == null ? s.Name : shown + "," + s.Name;
                 }
-                m_Perf.Tick(splats, spawned);
+                m_Perf.Tick(splats, spawned, shown);
             }
         }
 

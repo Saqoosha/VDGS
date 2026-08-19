@@ -341,7 +341,7 @@ Directly under `<VelociDrone>\app\`:
 | File | Contents |
 |---|---|
 | `vdgs-probe.log` | environment, shader status, spawn results |
-| `vdgs-perf.log` | frame time every 5 s (fps / avg / worst / splat count). Appends across launches |
+| `vdgs-perf.log` | frame time every 5 s (fps / avg / worst / splat count). Appends across launches, with `=== session` and `--- shown:` markers |
 | `vdgs-track.log` | track detection, binding, show and hide history |
 | `vdgs-hierarchy.txt` | scene tree, from F10 |
 | `vdgs-track.txt` | track-name search, from F12 |

@@ -330,7 +330,7 @@ mod のハンドラに渡す前に `411 Length Required` で弾く。`curl -X PO
 | ファイル | 内容 |
 |---|---|
 | `vdgs-probe.log` | 環境情報、シェーダーの状態、スポーン結果 |
-| `vdgs-perf.log` | 5 秒ごとのフレームタイム（fps / avg / worst / splat 数）。起動をまたいで追記 |
+| `vdgs-perf.log` | 5 秒ごとのフレームタイム（fps / avg / worst / splat 数）。起動をまたいで追記、`=== session` と `--- shown:` の区切り付き |
 | `vdgs-track.log` | トラック名の検出、紐付け、GS の出し入れの履歴 |
 | `vdgs-hierarchy.txt` | F10 で吐いたシーン構造 |
 | `vdgs-track.txt` | F12 で吐いたトラック名の探索結果 |

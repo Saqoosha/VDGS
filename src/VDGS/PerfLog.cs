@@ -27,6 +27,7 @@ namespace VDGS
         private float m_Accum;
         private int m_Frames;
         private float m_Worst;
+        private string m_Shown = null;
 
         internal PerfLog(string path)
         {
@@ -45,8 +46,32 @@ namespace VDGS
             catch { }
         }
 
-        internal void Tick(int splatCount, int sceneCount)
+        /// <summary>
+        /// Sample a frame, and note which scenes are on screen when that changes.
+        ///
+        /// <paramref name="shown"/> exists because the splat count does not identify a
+        /// scene. drjohnson-high and drjohnson-shc are the same capture at different
+        /// quality, so both log 3,177,554 - and a run comparing exactly those two, which
+        /// is the comparison the format choice rests on, produced a log where the two
+        /// halves were indistinguishable afterwards.
+        ///
+        /// Written as a marker line on change rather than a seventh column, so the
+        /// six-column format every parser already reads stays intact.
+        /// </summary>
+        internal void Tick(int splatCount, int sceneCount, string shown = null)
         {
+            if (shown != m_Shown)
+            {
+                m_Shown = shown;
+                try
+                {
+                    File.AppendAllText(m_Path, string.Format(
+                        "--- shown: {0}{1}",
+                        string.IsNullOrEmpty(shown) ? "(none)" : shown, Environment.NewLine));
+                }
+                catch { }
+            }
+
             var dt = Time.unscaledDeltaTime;
             m_Accum += dt;
             m_Frames++;

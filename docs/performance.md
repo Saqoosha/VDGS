@@ -162,6 +162,16 @@ Every tier on drjohnson. RTX 3060, inside at 120°, culling on, reference is Flo
 **High wins on all three counts.** It carries 1.8× the bytes of clustered SH and is still
 faster, and it is the most faithful of the lot.
 
+**That ordering is from the bench, and the bench is not the game.** Only two of these
+tiers have ever been flown, Float32 at 26.83 ms and Cluster16k at 17.30 ms; High never
+has. The gap between High and Cluster16k is 0.20 ms here, and the bench renders from a
+fixed camera while the game does not — culling swings between 41% and 97% of a capture
+depending on where you look, which is a far bigger lever than 0.20 ms.
+
+**Fidelity is settled**: 0.09/255 against Float32, measured on pixels.
+**The speed ordering between High and Cluster16k is not.** If a flight reverses it, the
+flight is right.
+
 The reason is **indirection**. Clustered SH reads a two-byte index per splat and then
 scatters into a 3.1 MB palette, and that costs more than reading Norm11 SH in sequence.
 **"Fewer bytes is faster" does not hold.**
