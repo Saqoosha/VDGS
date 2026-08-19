@@ -24,70 +24,106 @@ compute 'SplatUtilities'                   supported=True
 
 ### 実測パフォーマンス（詳細は docs/performance.ja.md）
 
-**コストは splat 数と 1 splat あたりのバイト数で決まる。** RTX 3060 / D3D12、`RenderBench`
-でシーン内部・画角 120° から測った値（`bash tools/bench-win.sh`）：
+**フレームの 87% は splat ごとの固定コスト。** 射影・2D 共分散・SH 評価が splat 1 つに
+つき 1 スレッド走る。帯域は 7%、ソートは 6%、画素の仕事は 6%。**「バイト/splat を減らせば
+速くなる」は一度そう結論して外した** — 3 シーンの実機値に当てはめたのが誤りで、同一
+ジオメトリで SH だけ 5.1 倍減らす統制比較を取ったら 6.5% しか動かなかった。
+
+RTX 3060 / D3D12、`RenderBench` でシーン内部・画角 120°（`bash tools/bench-win.sh`）：
 
 ```
                          splats   B/splat   フレーム
-empty                         0        -     3.4 ms
-playroom                  1.92M       84     6.8 ms
-drjohnson  (Float32 SH)   3.18M      236    13.3 ms
-drjohnson-shc + カリング   3.18M       47     9.0 ms
+empty                         0        -     4.2 ms
+playroom                  1.92M       84     8.2 ms
+drjohnson  (Float32 SH)   3.18M      236    13.9 ms
+drjohnson-shc + カリング   3.18M       47     9.2 ms
 ```
 
-効いた手は 2 つだけで、どちらも品質は落とさない：
+効いた手は 2 つ。どちらも品質を落とさない：
 
-- **`High` で焼く**（`reprocess.sh` の既定）— Norm16/Float16x4/Norm11、84 B/splat。
-  Float32（236 B）比で 14.01 → 8.80 ms、しかも**最も忠実**（平均差 0.09/255）。
-  Cluster16k（47 B）より**速い** — パレットの間接参照が連続読みより高いため。
-  **Medium 以下は使わない**（drjohnson が 2.6 倍暗くなる）
-- **視錐台カリング**（`m_FrustumCulling`、既定 on）— 内部視点で 10.7% 減、ピクセル完全一致
+- **視錐台カリング**（`m_FrustumCulling`、既定 on）— 内部視点で 10.7% 減、ピクセル完全一致。
+  余白は splat ごとに 256 単位の半径表から取る（散り読みを避けるため）
+- **Float32 を避ける**。実機で `26.83 ms / 37.3 fps` → `17.30 ms / 57.8 fps`
 
-**ゲーム内の実測が最終的な数字。** 同じトラック・同じセッションでシーンだけ入れ替えた：
+**`Medium` 以下は使わない。** drjohnson が 2.6 倍暗くなる（平均差 58.83/255、形は
+IoU 0.9958 で正しい）。原因は未解明。`PlyExporter` の既定は `High`、Medium 以下は警告を出す。
+
+#### High と Cluster16k は区別がつかない。サイズで選んでいい
+
+**速度も見た目も差が無い。** ベンチの 0.20 ms 差は実機のノイズ床の下：
 
 ```
-drjohnson      (Float32 SH)   26.83 ms   37.3 fps
-drjohnson-shc  (Cluster16k)   17.30 ms   57.8 fps    ← 36% 減
+実機（1 セッション、名前付きログ）
+  drjohnson-high   n=9  中央値 13.99 ms  平均 12.74  レンジ 8.52-14.91
+  drjohnson-shc    n=8  中央値 13.62 ms  平均 13.37  レンジ 11.78-14.86
+  → 中央値と平均で符号が逆。t = -0.75
 ```
 
-`vdgs-perf.log` は 5 秒ごとに `time / fps / avg_ms / worst_ms / splats / scenes` を追記
-する。`worst_ms` は直近 5 秒の最悪フレーム。**飛んで、あとで読むだけ。**
+**1 シーン内のばらつきが 6.4 ms**（カメラの向き次第）で、ティア間の差の 30 倍。標準偏差
+2 ms から 0.2 ms を検出するには**片側 1600 サンプル ≒ 2.2 時間の飛行が 2 回**要る。
+**飛んでも決着しない。**
 
-**起動をまたいでも残る**（`=== session <日付>` の区切りが入る）。以前は起動のたびに
-`File.WriteAllText` で全消ししていて、**比較対象そのものを毎回壊していた** — utlida の
-巨大 splat 除去を測るには「元を飛ぶ → 終了 → 除去版を飛ぶ」が要るのに、その終了が
-基準値を消す。数字を先に手で読み出していたから助かった。
+見た目も同じ。同一カメラ 3 視点で描いて引き算：
 
-**表示中のシーン名が変わると `--- shown: <名前>` が入る。splat 数はシーンを特定しない** —
-`drjohnson-high` と `drjohnson-shc` は同じキャプチャの品質違いなので**どちらも 3,177,554**。
-その 2 本を比べる走行（フォーマット選択の根拠そのもの）で、あとからログを見て
-**どちらがどちらか分からない**という穴を実際に踏んだ。6 列の書式は変えていないので、
-既存のパーサはそのまま動く。
+```
+視点       平均|差|   p99   最大   >8/255
+fwdZ        1.333    2.33     5     0.0%
+fwdX        1.034    2.00     3     0.2% → 0.0%
+fwdNegZ     0.786    2.33     4     0.0%
+```
 
-### 60fps は上限ではなかった（実測 119 fps）
+**1024×1024 の最悪の 1 画素で 5/255。** 8/255 を超える画素はゼロ。Float32 との差
+（High 0.09、shc 1.44）は**人間には同じもの**で、0.09 が意味を持つのは Float32 と
+比べるときだけ。
 
-2026-08-20 の走行で `119.0 fps / 8.40 ms` を観測。**それ以前の「16.67 ms ちょうど・
-60.0 fps ちょうど」は GPU の限界ではなく測定経路** — Parsec 越しに見ていた。ディスプレイは
-120Hz。**上限に張り付いた値は「速い」ではなく「測れていない」。**
+だから残る判断軸はサイズ：
 
-同一セッションでの実測（上限に隠れていない最初のデータ）：
+| | High | shc |
+|---|---|---|
+| フォーマット | Norm16 / Norm16 / Float16x4 / Norm11 | **Float32 / Float32 / Float32x4** / Cluster16k |
+| B/splat | 84 | 47 |
+| drjohnson の実サイズ | 260 MB | 146 MB |
+| VRAM (3.18M) | 267 MB | 149 MB |
+| 変換 | 1 パス | **k-means 約 10 分** |
+| `.ply` 直読みで作れる | ○ | **×** |
+
+**shc は幾何を圧縮していない。** 位置・スケール・色は Float32 のまま、SH だけパレット化
+している。つまり 1.44/255 はまるごと SH 由来。
+
+`reprocess.sh` の既定は `High`（k-means 不要で摩擦が少ない）。**配布や VRAM が効く場面では
+`-vdgsShFormat Cluster16k` を意識して選ぶ。**
+
+#### ログの読み方
+
+`<game>/vdgs-perf.log` に 5 秒ごとに
+`time / fps / avg_ms / worst_ms / splats / scenes` が**追記**される。`worst_ms` は直近
+5 秒の最悪フレーム。**飛んで、あとで読むだけ。**
+
+- **起動をまたいで残る**（`=== session <日付>`）。以前は起動のたびに `File.WriteAllText`
+  で全消ししていて、**比較対象そのものを毎回壊していた** — A/B は「元を飛ぶ → 終了 →
+  変更版を飛ぶ」なのに、その終了が基準値を消す
+- **表示シーンが変わると `--- shown: <名前>`。splat 数はシーンを特定しない** —
+  `drjohnson-high` と `drjohnson-shc` は**どちらも 3,177,554**。まさにその 2 本を比べた
+  走行で、あとから区別できないという穴を踏んだ。6 列の書式は変えていない
+- **fps の頭打ちを見たら、まず測定経路を疑う。** 「16.67 ms ちょうど・60.0 fps ちょうど」
+  を長らく VSync 上限として記録していたが、**Parsec 越しに見ていたため**だった。
+  実測は **119 fps / 8.40 ms**。ディスプレイは 120Hz。**上限に張り付いた値は「速い」では
+  なく「測れていない」**
+
+上限に隠れていない最初のデータ（同一セッション）：
 
 ```
 utlida-full-s5   4,001,829 splats   12.04 ms   p90 13.99
 utlida-lod1-s5   2,000,640 splats    9.13 ms   p90 13.39
-drjohnson (どちらか不明) 3,177,554   13.59 ms   p90 15.06
 ```
 
+**splat 2 倍で 2.91 ms。** 両方が上限に張り付いていた間は、この差が見えなかった。
+
 **測定は必ず実機で。** 同じ比較が M1 Max で 6.5%、RTX 3060 で 48%。ユニファイドメモリが
-帯域を隠す。ベンチ（`tools/bench-win.sh`）は切り分け用で、判断は実機の値で下す。
+帯域を隠す。ベンチは切り分け用で、判断は実機の値で下す。
 
-スポーン直後の 1 フレームだけ数百 ms 〜 数秒かかる（`GraphicsBuffer.SetData` で数十 MB を
-アップロードするため）。飛行中に GS を切り替えると必ずスタッターになるので、本番では
-飛ぶ前に表示させておくこと。
-
-フレームタイムは `<game>/vdgs-perf.log` に 5 秒ごとに追記される。**fps の頭打ちを見たら
-まず測定経路を疑う** — 一度 60fps を「VSync 上限」と記録したが、実際は Parsec 越しに
-見ていたためだった（ディスプレイは 120Hz）。
+スポーン直後の 1 フレームだけ止まる（`GraphicsBuffer.SetData` で数十 MB をアップロード
+するため）。飛行中に切り替えると必ずスタッターになるので、**飛ぶ前に表示させておく**。
 
 ## ターゲット環境
 
@@ -412,75 +448,53 @@ Y オフセットで持ち上げても直らない（位置の問題ではない
 **飛行用には室内を移動しながら撮ったキャプチャ（playroom / drjohnson 系）を使う。**
 新規に撮るなら、被写体だけでなく**床にレンズを向けたパスを必ず入れる**こと。
 
-### 向きとスケールは元データ依存（詳細は docs/alignment.ja.md）
+### 投入前の .ply を整える（全文は docs/alignment.ja.md）
 
-**COLMAP 由来のデータは向きもスケールも任意。** `PlyExporter` は向きを一切変えないので、
-直すべきは変換ではなく投入前の `.ply`。向き合わせは
+**COLMAP 由来のデータは向きもスケールも任意。** `PlyExporter` は向きを変えないので、
+直すのは変換ではなく投入前の `.ply`。向き合わせは
 [superspl.at/editor](https://superspl.at/editor) の正射影ビューで目視。
 
-**床の自動検出は諦めた。** RANSAC を 3 通り試して 3 回とも壁を床と誤検出し、しかも
-もっともらしい数字を返すので気づけない。「点が最も多い平面」と「人間が床と認識する平面」は
-別物で、後者は幾何だけからは決まらない。
+踏むと高くつく 4 つだけここに置く。理由と検算は alignment ドキュメント：
 
-`align_ply.py` の使いどころは `--mirror`（後述）、`--rotate`（**クォータニオンにも適用
-される**）、`--sample`、`--ceiling`、`--bounds`。`--up` は動かない（経緯は
-docs/alignment.ja.md）。
+- **3DGS は Unity で必ず鏡像になる。** 右手系 Y-down と左手系 Y-up の差で、
+  UnityGaussianSplatting は軸変換をしない。`--mirror y`（鏡映、行列式 -1）が上下反転と
+  鏡像を同時に直す。**`--rotate 180,0,0` では原理的に直らない**（行列式 +1）。
+  被写体だけ見ていると気づかないので、**文字や左右非対称なもので判定する**
+- **床の自動検出（`--up`）は動かない。** RANSAC を 3 通り試して 3 回とも壁を床と誤検出。
+  しかも `tilt 1.4°` のようなもっともらしい数字を返す
+- **crop はしない。** 内側から撮った部屋では壁が外周そのもの。playroom で 28%
+  （54 万 splats）が消えた。`tools/crop_ply.py` はツールごと削除済み。破片が邪魔なら
+  `--bounds` で箱を明示する
+- **巨大 splat はサイズで切る**（`--max-sigma 5`）。位置でも連結性でもない —
+  extent 1.8 個分の幅がある splat は定義上すべてに接続している。utlida では 178 個
+  （0.004%）が描画面積の 60% を占めていた
 
-#### crop はしない（ツールごと削除済み）
+**同じ結論に別のツールから到達した記録：** PlayCanvas の `splat-transform` は ply 読み込み
+時に「Z 軸 180 度回転」を適用するとドキュメントに書いているが、**v3.3.0 では嘘**。軸ごとに
+独立検証すると実際は **Y の反転だけ**（鏡映、`--mirror y` と同じ）。副産物として、そこから
+出るメッシュは既に Unity の座標系にある。（コリジョン設計セッションの実測）
 
-パーセンタイルで外周を切ると、**部屋を内側から撮ったキャプチャでは壁が外周そのもの**
-なので部屋を削ることになる。playroom に `--percentile 5` をかけたら 28%（54 万 splats）が
-消えて密度が目に見えて落ちた。
+### 検証は目視でなく数値で（全文は docs/verification.ja.md）
 
-品質を落とす選択肢は持たないと決めたので `tools/crop_ply.py` と cropped な ply は
-削除した。破片が目障りなら `align_ply.py --bounds` で箱を明示する。
-
-#### 3DGS は Unity で必ず鏡像になる（詳細は docs/alignment.ja.md）
-
-3DGS（COLMAP 由来）は**右手系・Y-down**、Unity は**左手系・Y-up**。UnityGaussianSplatting
-は軸を一切変換しないので、ply をそのまま読むと必ず鏡像になる。被写体だけ見ていると
-気づかない — **文字や左右非対称なもので判定する**こと。
-
-```bash
-python3 tools/align_ply.py in.ply out.ply --mirror y
-```
-
-**同じ結論に別のツールから到達した記録：** PlayCanvas の `splat-transform` は、ply の
-読み込み時に「Z 軸 180 度回転」を適用するとドキュメントに書いている。**v3.3.0 では嘘。**
-軸ごとに独立して検証すると（元データの x を [3.0, 3.834] だけ残してどこに落ちるか見る、
-y と z も同様）、実際の操作は **Y の反転だけ** — 回転ではなく鏡映、行列式 -1、
-`--mirror y` と同じ。副産物として、そこから出るメッシュは既に Unity の座標系にある。
-（コリジョン設計セッションの実測）
-
-Y の反転（鏡映、行列式 -1）が**上下の反転と鏡像の解消を同時に行う**。`--rotate 180,0,0`
-は回転（行列式 +1）なので鏡像は原理的に直らない。
-
-**鏡映時にクォータニオンの `w` を反転してはいけない**（位置は完璧なまま楕円体だけが
-別方向を向き、針状に飛び散る）。**SuperSplat の書き出しは Y が反転している。**
-どちらも `align_ply.py` が処理済みで、経緯と検算方法は docs/alignment.ja.md にある。
-
-#### 検証は目視でなく数値で（詳細は docs/verification.ja.md）
-
-このプロジェクトで目視レビューは一度も欠陥を捕まえていない。鏡像も、残骸 chunk.bin も、
-正射影カメラも、全部「それらしい絵」を出した。道具は 3 つある：
+**このプロジェクトで目視レビューは一度も欠陥を捕まえていない。** 鏡像も、残骸 chunk.bin も、
+正射影カメラも、全部「それらしい絵」を出した。
 
 | 道具 | 何を測るか |
 |---|---|
-| `tools/verify_orientation.py` | 各ガウシアンの楕円体フレームを ply と `other.bin` から再構成して角度差を出す。全シーン約 0.10°（10bit 量子化の下限） |
+| `tools/verify_orientation.py` | 楕円体フレームを ply と `other.bin` から再構成して角度差。全シーン約 0.10°（10bit 量子化の下限） |
 | `tools/compare_with_webref.sh` | 独立実装（antimatter15/splat）に同じカメラで描かせて引き算。IoU 0.94 |
-| `tools/compare_renders.py` | 2 枚の差分。8 通りの向きを試して一致するものを報告する |
+| `tools/compare_renders.py` | 2 枚の差分。8 通りの向きを試して一致するものを報告 |
 
 **差分画像は面が黒く輪郭だけ光るのが正常。** 面が光ったら系統的な誤り。
 
-3 つの罠が「もっともらしい誤答」を返す — コンバータは splat を空間順に並べ替える／
-デコードした float4 は `(x,y,z,w)`／**実データのクォータニオンは正規化されていない**
-（合成テストデータは単位長なので素通りする）。
+**ただし「違うデータ」を比べるときは IoU の読み方が変わる。** 同一実装・同一データなら
+差＝バグだが、除去前後の比較では IoU が下がるのは意図した結果。**方向を分けて測る** —
+消えた画素・増えた画素・それぞれの元の明るさとコントラスト。霞なら暗く平ら、シーン本体なら
+残った画素と同じ統計になる。
 
 **正射影カメラで 3DGS を描いてはいけない。** シェーダーは透視投影のヤコビアンで共分散を
-射影するので、正射影ではすべての splat が誤ったサイズと剪断になる。エラーは出ず、
-ただぼやける。`RenderViews` / `RenderCompare` は画角 4° の透視投影を遠くから当てている。
-
-
+射影するので、正射影では全 splat が誤ったサイズと剪断になる。エラーは出ず、ただぼやける。
+`RenderViews` / `RenderCompare` は画角 4° の透視投影を遠くから当てている。
 
 ## splat データのオンディスク形式（VDGS 独自）
 
@@ -683,74 +697,66 @@ F5・F6・F7・F8 は**使っていない**。操作は Web UI から。
 
 `<game>/vdgs/autospawn`（空ファイル）が無い場合は自動表示そのものが無効。
 
-## 既知の壁
+## 制約と、いまも踏める罠
 
-1. **D3D11 では 3DGS が動かない**（解決済み）。aras-p の UnityGaussianSplatting は
-   DX11 サポートを削除済みで、Windows では D3D12 か Vulkan が要る。**`-force-d3d12`
-   で起動すれば通る**ので `globalgamemanagers` へのパッチは不要だった。副作用は 6. 参照
-2. **シェーダーは Unity 2021.3.45f2 でビルドする必要がある**（導入済み）。C# はバージョン
-   非依存に書けるが、シェーダーと compute shader はゲームと同じ Unity バージョンの
-   AssetBundle で供給しないと動かない。
+構成の理由（Unity を 2 本使う、ScriptableObject を捨てた、AssetBundle だけでは足りない）
+は docs/ARCHITECTURE.ja.md。ここは踏むと高くつくものだけ。
 
-   さらに 2つの罠：
+**`-force-d3d12` 必須。** ソートの compute が SM6 の wave intrinsics を 41 箇所使う。
+`-force-vulkan` は**ゲーム自身**が描けない（VelociDrone が Vulkan 向けにビルドされていない）。
 
-   **(a) プロジェクトのグラフィックス API を先に設定する。** splat シェーダーは
-   `#pragma use_dxc` と `#pragma require wavebasic/waveballot` を宣言している。
-   新規プロジェクトのデフォルト（D3D11）でビルドすると、**エラーを出さずに**
-   unsupported なシェーダーが焼かれる。バンドルは正常にロードでき、
-   `shader.isSupported` が false になるだけなので気づきにくい。
-   `PlayerSettings.SetGraphicsAPIs` をビルド前に呼ぶこと。
+**シェーダーは Windows の Unity 2021.3.45f2 でしか焼けない。** 罠が 2 つ：
 
-   **(b) macOS の Editor では D3D 向けの DXC コンパイルができない。**
-   ```
-   DXC: can only use DXC to target D3D from the Windows Editor.
-   ```
-   → D3D12 向けのシェーダーバンドルは Mac では作れない。**Vulkan をターゲットにして
-   ゲームを `-force-vulkan` で起動する**か、Windows 機に Unity を入れてビルドする。
+- **プロジェクトのグラフィックス API を先に D3D12 にする。** splat シェーダーは
+  `#pragma require wavebasic/waveballot` を宣言していて、既定（D3D11）で焼くと
+  **エラーを出さずに** unsupported として焼かれる。バンドルは正常にロードでき、
+  `shader.isSupported` が false になるだけ。`PlayerSettings.SetGraphicsAPIs` を
+  ビルド前に呼ぶ。**焼けたバンドルが 1MB 未満なら失敗**（正常は約 150 万バイト）
+- **macOS の Editor は D3D 向けに DXC を回せない** —
+  `DXC: can only use DXC to target D3D from the Windows Editor.`
 
-3. **UnityGaussianSplatting の C# は Unity 2022.3 前提**（`com.unity.collections` 2.1.4 が
-   2021.3 に入らない）。だからバージョンを分ける：
-   - シェーダー AssetBundle → **2021.3.45f2**（ゲームと一致が必須）
-   - PLY → バイナリ変換 → **2022.3.42f1**（出力はプレーンなバイナリなのでバージョン非依存）
-   - ランタイム C# → BepInEx プラグインに自前実装（collections/burst に依存しない）
-4. **`GaussianSplatAsset` は ScriptableObject。** AssetBundle 経由でロードすると型解決で詰まる。
-   splat データは生バイナリとして読み、実行時に GraphicsBuffer へ流す自前ローダを書く
-5. **3DGS にコリジョンは無い。** 飛べる壁になる。同じ撮影データからメッシュを抽出して
-   invisible collider として置く必要がある
+**`-force-d3d12` の副作用でログが埋まる。** ゲームは D3D11 向けビルドなので
+PostProcessing v2 の compute が見つからない：
 
-6. **`-force-d3d12` はゲーム本体に副作用がある。** ゲームは D3D11 向けにビルドされて
-   いるため、PostProcessing v2 の compute shader が D3D12 では見つからない：
+```
+Kernel 'KEyeHistogramClear' not found
+UnityEngine.Rendering.PostProcessing.LogHistogram.Generate
+```
 
-   ```
-   Kernel 'KEyeHistogramClear' not found
-   UnityEngine.Rendering.PostProcessing.LogHistogram.Generate
-   ```
+Auto Exposure が毎フレーム例外を投げる。**描画への実害は無い、汚れるのはログだけ。**
+**`AutoExposure.active = false` では止まらない**（`src/VDGS/PostProcessFix.cs` で試して失敗。
+`PostProcessLayer.RenderBuiltins` が有効・無効に関わらず `LogHistogram.Generate` を呼ぶ）。
+対処は `BepInEx.cfg` の `UnityLogListening = false`。ただし副作用で**例外は `Player.log`
+にしか出なくなり、そこがこのスパムで数十 MB に膨らむ**（1 セッションで 64MB 観測）。
+読むときは必ず除外する：
 
-   Auto Exposure が毎フレーム例外を投げる。**描画への実害は無い**、汚れるのはログだけ。
+```powershell
+Get-Content $log | Where-Object { $_ -notmatch "KEyeHistogramClear|PostProcessing|^\s*at " }
+```
 
-   **`AutoExposure.active = false` では止まらない**（`src/VDGS/PostProcessFix.cs` で
-   試して失敗）。`PostProcessLayer.RenderBuiltins` は有効・無効に関わらず
-   `LogHistogram.Generate` を呼ぶため。同じ手を再発明しないこと。
-
-   対処は `BepInEx.cfg` の `UnityLogListening = false`。ただし副作用として
-   **Unity 側の例外は `Player.log` にしか出なくなり、そこはこのスパムで数十 MB に
-   膨らむ**（1 セッションで 64MB を観測）。ログを読むときは必ず除外する：
-
-   ```powershell
-   Get-Content $log | Where-Object { $_ -notmatch "KEyeHistogramClear|PostProcessing|^\s*at " }
-   ```
+**3DGS にコリジョンは無い。** 飛べる壁になる。別セッションが同じ撮影データから
+voxel → MeshCollider を生成する経路を作っている（ブランチ `worktree-splat-collision`）。
+そちらの実測：物理は 400 Hz、150 km/h で 1 ステップ 0.104 m 進むので**厚さ 10 cm 未満の
+壁はすり抜ける** — 表面スキンではなく外部フラッドフィルで閉じた殻を作る必要がある。
 
 ## 残タスク
 
-- **`.ply` 直置きを飛んで確かめていない。** `<game>/vdgs/nelson.ply`（217 万 splats）は
-  設置済みで、mod は認識している。飛行中のロード時間と体感が未確認
-- **完全な High パッキングは未実装。** いまのローダーは 132 B/splat で、焼いた最速版
-  （84 B/splat）との差は 0.64 ms（7%）。Norm16 + chunk + Morton を入れれば埋まるが、
-  符号化が 5 種類増える。**差に見合うかは疑問**
+- **`Medium` 以下が 2.6 倍暗くなる原因は未解明。** 形は正しい（IoU 0.9958）ので色か
+  不透明度。upstream のティアか移植側かも不明。**使わないと決めて封印してある**ので
+  実害は無い。追うなら Norm8x4 の色デコードから
+- **`reprocess.sh` の既定を `High` のままにするか未決。** 速度も見た目も Cluster16k と
+  区別がつかず、Cluster16k は 44% 小さい。既定は摩擦の少ない High（k-means 不要）に
+  してあり、**配布や VRAM が効く場面で意識して切り替える**という整理にしている
+- **完全な High パッキングは未実装。** ランタイムローダーは 132 B/splat で、焼いた版
+  （84 B）との差は 7%。Norm16 + chunk + Morton で埋まるが符号化が 5 種類増える。
+  **差に見合うかは疑問**
 - **異方性から板と針を見分けるには中間軸が要る。** `max/min` だけでは両方 100 になり、
   「針だらけ」という誤診を招く（実際に一度出した）。log 空間で
   `t = (log(mid)-log(min))/(log(max)-log(min))` を取ると `t≈0` が針、`t≈1` が板。
   **3DGS の壁と床は板で、正常**。上から見るとエッジオンで線に見えるだけ
+- **コリジョンは別ブランチ**（`worktree-splat-collision`、14 コミット）。master には
+  入っていない。**現在 `w` にデプロイされている DLL は master 版なのでコリジョンは動かない**
+  — シーン側の `collision.bin` は残っているので、ブランチを焼き直せば戻る
 
 ## 参考
 

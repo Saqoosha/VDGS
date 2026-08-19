@@ -159,28 +159,66 @@ Every tier on drjohnson. RTX 3060, inside at 120°, culling on, reference is Flo
 | **High (Norm16 / Float16x4 / Norm11)** | **84** | **8.80 ms** | **0.09/255** | **no** |
 | Medium (Norm11 / Norm8x4 / Norm6) | 48 | — | **58.83/255** | no |
 
-**High wins on all three counts.** It carries 1.8× the bytes of clustered SH and is still
-faster, and it is the most faithful of the lot.
+**High is the most faithful and needs no k-means.** It carries 1.8× the bytes of clustered
+SH and still benches faster — but that last part does not survive contact with the game.
 
-**That ordering is from the bench, and the bench is not the game.** Only two of these
-tiers have ever been flown, Float32 at 26.83 ms and Cluster16k at 17.30 ms; High never
-has. The gap between High and Cluster16k is 0.20 ms here, and the bench renders from a
-fixed camera while the game does not — culling swings between 41% and 97% of a capture
-depending on where you look, which is a far bigger lever than 0.20 ms.
+### Between High and Cluster16k, pick on size — nothing else separates them
 
-**Fidelity is settled**: 0.09/255 against Float32, measured on pixels.
-**The speed ordering between High and Cluster16k is not.** If a flight reverses it, the
-flight is right.
+**Speed: unmeasurable in flight.** Both tiers flown back to back, one session, one build,
+labelled in the log:
 
-The reason is **indirection**. Clustered SH reads a two-byte index per splat and then
-scatters into a 3.1 MB palette, and that costs more than reading Norm11 SH in sequence.
-**"Fewer bytes is faster" does not hold.**
+```
+drjohnson-high   n=9   median 13.99 ms   mean 12.74   range 8.52-14.91
+drjohnson-shc    n=8   median 13.62 ms   mean 13.37   range 11.78-14.86
+```
 
-playroom-shc being slower than playroom (8.64 vs 8.01 ms) was the same effect; the earlier
-explanation, blaming Float32 geometry, was wrong.
+**The median and the mean disagree on which is faster** (t = -0.75). The spread *within*
+one scene is 6.4 ms, driven by where the camera points; the tier gap the bench reports is
+0.20 ms. Detecting a 0.2 ms effect against a 2 ms standard deviation needs roughly 1600
+samples a side — **2.2 hours of flying per tier**. This will not be settled by flying, and
+a doc that implies otherwise costs somebody an evening.
 
-And playroom **had always been High**. The evidence was there from the start; the
-Cluster16k implementation was a detour. `-vdgsShFormat` remains but is not used by default.
+**Appearance: also indistinguishable.** Same camera, three views, subtracted:
+
+```
+view       mean |delta|   p99   max   pixels >8/255
+fwdZ           1.333     2.33     5       0.0%
+fwdX           1.034     2.00     3       0.0%
+fwdNegZ        0.786     2.33     4       0.0%
+```
+
+**The single worst pixel in a 1024×1024 frame differs by 5 levels out of 255**, and no
+pixel anywhere exceeds 8. The fidelity figures against Float32 — High 0.09/255, Cluster16k
+1.44/255 — are both below what an eye resolves; 0.09 only means something when Float32 is
+the thing on the other side of the comparison.
+
+So the decision is about size, and one workflow constraint:
+
+| | High | Cluster16k |
+|---|---|---|
+| formats | Norm16 / Norm16 / Float16x4 / Norm11 | **Float32 / Float32 / Float32x4** / Cluster16k |
+| bytes/splat | 84 | 47 |
+| drjohnson on disk | 260 MB | 146 MB |
+| VRAM at 3.18M | 267 MB | 149 MB |
+| conversion | one pass | **~10 min of k-means** |
+| runtime .ply can emit it | yes | **no** |
+
+**Cluster16k does not compress geometry at all** — positions, scales and colour stay
+Float32 and only the harmonics are palettised, so its whole 1.44/255 is SH error.
+
+`reprocess.sh` defaults to High because it is the low-friction path. **Reach for
+`-vdgsShFormat Cluster16k` deliberately when disk or VRAM is the constraint** — 44% less
+of both, for a difference nobody can see and nobody can measure in flight.
+
+The bench's ordering has a plausible mechanism — clustered SH reads a two-byte index per
+splat and scatters into a 3.1 MB palette, which costs more than reading Norm11 SH in
+sequence, and playroom-shc benched slower than playroom (8.64 vs 8.01 ms) the same way.
+**Take that as an explanation of a bench result, not of anything you will feel.** The
+effect it explains is 0.20 ms, and the game cannot resolve it.
+
+What does survive is the negative: **"fewer bytes is faster" does not hold.** Cluster16k
+is 44% smaller and is not faster. Frame time is dominated by per-splat work, not by how
+much each splat weighs — which is the same lesson as §1, arrived at from the other side.
 
 #### Do not use Medium or below
 
