@@ -338,7 +338,7 @@ draws the shell (solid or wire). Bake is OpenVDB; see [SCENES.md](SCENES.md).
 | `WebUi.cs` | fallback HTML when `vdgs/ui/` has not been deployed |
 | `VdgsPaths.cs` | reserved `ui` name and path resolution that cannot leave that root |
 | `SplatMetaFile.cs` | meta.json / .ply header without opening GPU buffers |
-| `web/` | Vite + React control UI (Control / Library) |
+| `web/` | Vite + React control UI (survey-sheet look; Control / Library) |
 | `Probe.cs` | runtime environment dump (F9) |
 | `PerfLog.cs` | frame-time logging |
 | `PostProcessFix.cs` | an attempt at the `-force-d3d12` side effect (**it does not work**; kept as a record) |

@@ -15,7 +15,7 @@
 |---|---|---|
 | 対象 | `:8777` のコントロール UI だけ | 共有アプリは別。ただしカタログを後から差せる形 |
 | スタック | bun + Vite + React + TypeScript + Tailwind + shadcn/ui | 共有アプリとコンポーネントを分けやすい |
-| 見た目 | ライト、カード、今より余白多め | 現行 UI の延長。ダーク／HUD にはしない |
+| 見た目 | 測量野帳。紙色、セリフ、朱のトンボ。カードは使わない | 現行の zinc カードが退屈だった。ダーク／HUD にはしない |
 | 言語 | 英語 | 現行 UI と同じ |
 | 置き場所 | `<game>/vdgs/ui/` | DLL 再ビルドなしで差し替えられる |
 | 配信 | プラグインの `HttpListener` が静的ファイルを出す | 同一オリジンのまま。CORS を開けない |
@@ -54,16 +54,17 @@ src/VDGS/WebUi.cs        ui/ が無いときだけの短い HTML。アプリ本�
 
 ## 画面
 
-共通ヘッダ。左にライブドットと「VDGS」、右に **Control / Library**。ライトなカード、余白は今より広め。
-コンポーネントは shadcn/ui の既定（ライト、zinc）。フォントはシステムフォント。CDN は使わない。
+1 枚の紙。四隅にトンボ、左に朱のマージン、番号付きセクション。カードは使わない。
+フォントはバンドル（Fraunces + IBM Plex Sans/Mono）。CDN は使わない。
+ヘッダは「VDGS」と **01 control / 02 library**。接続状態は `● link` / `○ off`。
 
 ### Control（`/`）
 
-飛行中の操作盤。カードは 3 つ。
+飛行中の操作盤。セクションは 3 つ。
 
-1. **Current track** — トラック名、紐付いている splat、`Bind shown` / `Unbind` / `Hide all`
-2. **Shown splat** — 表示中のときだけ。名前、splat 数、backdrop / solid / mesh view、スケールと高さ
-3. **Bindings** — トラック名 → splat の表と remove。トラックの話なので Library には置かない
+1. **01 current track** — トラック名、紐付いている splat、`Bind shown` / `Unbind` / `Hide all`
+2. **02 on screen** — 表示中のときだけ。名前、splat 数、backdrop / solid / mesh view、スケールと高さ
+3. **03 bindings** — トラック名 → splat の表と remove。トラックの話なので Library には置かない
 
 スライダーは現行と同じ写像。スケールは対数、高さは符号付き対数。ドラッグ中はポーリングで上書きしない。
 
@@ -79,9 +80,9 @@ fromYSlider(t)  = sign(t) * expm1(|t| * log1p(kYReach))
 
 ### Library（`/library`）
 
-ローカル一覧。検索（名前の部分一致、大小無視）と、シーンごとのカード。
+ローカル一覧。検索（名前の部分一致、大小無視）と、罫線の目録。
 
-カードに出すもの: 名前、splat 数、`kind`、フォーマット 4 つ、おおよそのサイズ、コリジョン有無、表示中バッジ。
+各行: 通し番号、名前、splat 数、`kind`、フォーマット 4 つ、おおよそのサイズ、コリジョン有無、表示中なら `shown`。
 Show でそのシーンだけ表示する。スライダーは置かない。
 
 Catalog タブは出さない。

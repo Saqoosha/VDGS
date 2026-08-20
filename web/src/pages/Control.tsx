@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import * as api from '../api'
 import { runExclusive } from '../busy'
+import { Section } from '../chrome'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import {
   Select,
   SelectContent,
@@ -13,12 +12,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableRow,
-} from '@/components/ui/table'
 import { fromSlider, fromYSlider, toSlider, toYSlider } from '../sliders'
 import { useStatusContext } from '../status-context'
 import type { CollisionView, Scene } from '../types'
@@ -53,100 +46,103 @@ export default function Control() {
   const bound = track ? bindings[track] : undefined
   const shownName = loaded[0]
   const shown = available.find((s) => s.name === shownName)
+  const keys = Object.keys(bindings)
 
   return (
-    <div className="flex flex-col gap-5">
-      <Card className="py-6">
-        <CardHeader>
-          <p className="text-[11px] font-medium tracking-[0.08em] text-muted-foreground uppercase">
-            Current track
+    <div>
+      <Section n="01" label="current track">
+        <h2
+          className={
+            'font-serif text-[2.6rem] leading-[0.95] font-light tracking-tight md:text-5xl ' +
+            (track ? '' : 'text-muted-foreground italic')
+          }
+        >
+          {track ?? 'no track loaded'}
+        </h2>
+        {track ? (
+          <p className="mt-3 font-mono text-[11px] tracking-[0.14em] text-muted-foreground uppercase">
+            {bound && bound.length ? (
+              <>
+                bound → <span className="text-foreground">{bound.join(', ')}</span>
+              </>
+            ) : (
+              'not bound to any splat'
+            )}
           </p>
-          <CardTitle className={track ? 'text-lg' : 'text-lg font-normal text-muted-foreground'}>
-            {track ?? 'no track loaded'}
-          </CardTitle>
-          {track ? (
-            <p className="text-sm text-muted-foreground">
-              {bound && bound.length ? (
-                <>
-                  bound to <span className="font-medium text-foreground">{bound.join(', ')}</span>
-                </>
-              ) : (
-                'not bound to any splat'
-              )}
-            </p>
-          ) : null}
-        </CardHeader>
-        <CardContent className="flex flex-wrap gap-2">
-          <Button
-            disabled={!track}
-            onClick={() => void act(() => api.bind(loaded), 'saved')}
-          >
-            Bind shown splat to this track
+        ) : null}
+        <div className="mt-6 flex flex-wrap items-center gap-2">
+          <Button disabled={!track} onClick={() => void act(() => api.bind(loaded), 'saved')}>
+            Bind shown
           </Button>
           <Button
             variant="outline"
             disabled={!track || !bound}
             onClick={() => void act(() => api.unbind(), 'unbound')}
           >
-            Unbind this track
+            Unbind
           </Button>
           <Button variant="outline" onClick={() => void act(() => api.unload())}>
             Hide all
           </Button>
           {flash ? (
-            <p className="self-center text-sm text-emerald-700" role="status">
+            <p className="font-mono text-[11px] tracking-[0.14em] text-live uppercase" role="status">
               {flash}
             </p>
           ) : null}
-        </CardContent>
-      </Card>
+        </div>
+      </Section>
 
       {shown ? (
-        <ShownCard
+        <ShownBlock
           scene={shown}
           dragging={dragging}
           onRefresh={refresh}
           onFlash={showFlash}
         />
-      ) : null}
-
-      <Card className="py-6">
-        <CardHeader>
-          <p className="text-[11px] font-medium tracking-[0.08em] text-muted-foreground uppercase">
-            Bindings
+      ) : (
+        <Section n="02" label="on screen">
+          <p className="font-serif text-2xl font-light text-muted-foreground italic">
+            nothing shown
           </p>
-        </CardHeader>
-        <CardContent>
-          {Object.keys(bindings).length === 0 ? (
-            <p className="text-muted-foreground">none</p>
-          ) : (
-            <Table>
-              <TableBody>
-                {Object.keys(bindings).map((k) => (
-                  <TableRow key={k}>
-                    <TableCell className="font-medium">{k}</TableCell>
-                    <TableCell>{bindings[k].join(', ')}</TableCell>
-                    <TableCell className="w-[1%] text-right">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => void act(() => api.unbind(k), 'removed')}
-                      >
-                        remove
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+        </Section>
+      )}
+
+      <Section n="03" label="bindings">
+        {keys.length === 0 ? (
+          <p className="font-mono text-[11px] tracking-[0.14em] text-muted-foreground uppercase">
+            none
+          </p>
+        ) : (
+          <ul>
+            {keys.map((k) => (
+              <li
+                key={k}
+                className="flex items-baseline justify-between gap-4 border-b border-rule/70 py-3 last:border-b-0"
+              >
+                <div className="min-w-0">
+                  <p className="font-serif text-xl leading-tight">{k}</p>
+                  <p className="mt-1 font-mono text-[11px] tracking-[0.08em] text-muted-foreground">
+                    {bindings[k].join(', ')}
+                  </p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-muted-foreground"
+                  onClick={() => void act(() => api.unbind(k), 'removed')}
+                >
+                  remove
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Section>
     </div>
   )
 }
 
-function ShownCard({
+function ShownBlock({
   scene,
   dragging,
   onRefresh,
@@ -169,56 +165,47 @@ function ShownCard({
   }
 
   return (
-    <Card className="py-6">
-      <CardHeader>
-        <p className="text-[11px] font-medium tracking-[0.08em] text-muted-foreground uppercase">
-          Shown splat
-        </p>
-        <CardTitle className="text-lg">{scene.name}</CardTitle>
-        <p className="text-sm text-muted-foreground">
-          {scene.splats ? scene.splats.toLocaleString() + ' splats' : ''}
-        </p>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        <div className="flex flex-wrap items-center gap-4 text-sm">
-          <label className="flex items-center gap-2">
-            <Checkbox
-              checked={scene.backdrop}
-              onCheckedChange={(v) => {
-                const on = v === true
-                void (async () => {
-                  try {
-                    await api.setBackdrop(scene.name, on)
-                    await onRefresh()
-                  } catch (e) {
-                    onFlash(e instanceof Error ? e.message : 'failed')
-                    await onRefresh()
-                  }
-                })()
-              }}
-            />
-            box
-          </label>
+    <Section n="02" label="on screen">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h2 className="font-serif text-3xl leading-[1.05] font-light">{scene.name}</h2>
+          <p className="mt-2 font-mono text-sm tabular-nums text-muted-foreground">
+            {scene.splats ? scene.splats.toLocaleString() : '—'} splats
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-5 text-sm">
+          <StampCheck
+            label="box"
+            checked={scene.backdrop}
+            onChange={(on) => {
+              void (async () => {
+                try {
+                  await api.setBackdrop(scene.name, on)
+                  await onRefresh()
+                } catch (e) {
+                  onFlash(e instanceof Error ? e.message : 'failed')
+                  await onRefresh()
+                }
+              })()
+            }}
+          />
           {scene.hasCollision ? (
             <>
-              <label className="flex items-center gap-2">
-                <Checkbox
-                  checked={scene.collision}
-                  onCheckedChange={(v) => {
-                    const on = v === true
-                    void (async () => {
-                      try {
-                        await api.setCollision(scene.name, on)
-                        await onRefresh()
-                      } catch (e) {
-                        onFlash(e instanceof Error ? e.message : 'failed')
-                        await onRefresh()
-                      }
-                    })()
-                  }}
-                />
-                solid
-              </label>
+              <StampCheck
+                label="solid"
+                checked={scene.collision}
+                onChange={(on) => {
+                  void (async () => {
+                    try {
+                      await api.setCollision(scene.name, on)
+                      await onRefresh()
+                    } catch (e) {
+                      onFlash(e instanceof Error ? e.message : 'failed')
+                      await onRefresh()
+                    }
+                  })()
+                }}
+              />
               <Select
                 value={scene.collisionView || 'off'}
                 onValueChange={(mode) => {
@@ -233,7 +220,7 @@ function ShownCard({
                   })()
                 }}
               >
-                <SelectTrigger className="w-[140px]" size="sm">
+                <SelectTrigger className="w-[148px] font-mono text-[11px] tracking-[0.12em] uppercase" size="sm">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -245,93 +232,149 @@ function ShownCard({
             </>
           ) : null}
         </div>
+      </div>
 
-        <div className="flex flex-col gap-3 rounded-lg bg-muted/50 p-4 ring-1 ring-foreground/10">
-          <div className="flex flex-wrap items-center gap-3">
-            <Label className="w-16 text-[11px] tracking-[0.08em] text-muted-foreground uppercase">
-              Scale
-            </Label>
-            <input
-              type="range"
-              min={-2}
-              max={2}
-              step={0.002}
-              className="min-w-[130px] flex-1"
-              value={toSlider(scale)}
-              onPointerDown={() => {
-                dragging.current = true
-              }}
-              onPointerUp={() => {
-                dragging.current = false
-              }}
-              onChange={(e) => {
-                const v = fromSlider(parseFloat(e.target.value))
-                setScale(v)
-                void push(v, undefined)
-              }}
-            />
-            <span className="w-14 text-right font-medium tabular-nums">
-              {scale.toFixed(2)}×
-            </span>
-            <Input
-              type="number"
-              className="w-[88px]"
-              step={0.01}
-              min={0.01}
-              max={100}
-              value={scale.toFixed(3)}
-              onChange={(e) => {
-                const v = parseFloat(e.target.value)
-                if (!Number.isFinite(v)) return
-                setScale(v)
-                void push(v, undefined)
-              }}
-            />
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <Label className="w-16 text-[11px] tracking-[0.08em] text-muted-foreground uppercase">
-              Height
-            </Label>
-            <input
-              type="range"
-              min={-1}
-              max={1}
-              step={0.001}
-              className="min-w-[130px] flex-1"
-              value={toYSlider(y)}
-              onPointerDown={() => {
-                dragging.current = true
-              }}
-              onPointerUp={() => {
-                dragging.current = false
-              }}
-              onChange={(e) => {
-                const v = fromYSlider(parseFloat(e.target.value))
-                setY(v)
-                void push(undefined, v)
-              }}
-            />
-            <span className="w-14 text-right font-medium tabular-nums">
-              {y.toFixed(2)}m
-            </span>
-            <Input
-              type="number"
-              className="w-[88px]"
-              step={0.05}
-              min={-1000}
-              max={1000}
-              value={y.toFixed(2)}
-              onChange={(e) => {
-                const v = parseFloat(e.target.value)
-                if (!Number.isFinite(v)) return
-                setY(v)
-                void push(undefined, v)
-              }}
-            />
-          </div>
-        </div>
-      </CardContent>
-    </Card>
+      <div className="mt-8 flex flex-col gap-6">
+        <Dial
+          label="Scale"
+          valueLabel={scale.toFixed(2) + '×'}
+          min={-2}
+          max={2}
+          step={0.002}
+          slider={toSlider(scale)}
+          numberValue={scale.toFixed(3)}
+          numberStep={0.01}
+          numberMin={0.01}
+          numberMax={100}
+          onPointer={() => {
+            dragging.current = true
+          }}
+          onPointerUp={() => {
+            dragging.current = false
+          }}
+          onSlide={(t) => {
+            const v = fromSlider(t)
+            setScale(v)
+            void push(v, undefined)
+          }}
+          onNumber={(v) => {
+            setScale(v)
+            void push(v, undefined)
+          }}
+        />
+        <Dial
+          label="Height"
+          valueLabel={y.toFixed(2) + 'm'}
+          min={-1}
+          max={1}
+          step={0.001}
+          slider={toYSlider(y)}
+          numberValue={y.toFixed(2)}
+          numberStep={0.05}
+          numberMin={-1000}
+          numberMax={1000}
+          onPointer={() => {
+            dragging.current = true
+          }}
+          onPointerUp={() => {
+            dragging.current = false
+          }}
+          onSlide={(t) => {
+            const v = fromYSlider(t)
+            setY(v)
+            void push(undefined, v)
+          }}
+          onNumber={(v) => {
+            setY(v)
+            void push(undefined, v)
+          }}
+        />
+      </div>
+    </Section>
+  )
+}
+
+function StampCheck({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string
+  checked: boolean
+  onChange: (on: boolean) => void
+}) {
+  return (
+    <label className="flex items-center gap-2 font-mono text-[11px] tracking-[0.16em] uppercase">
+      <Checkbox checked={checked} onCheckedChange={(v) => onChange(v === true)} />
+      {label}
+    </label>
+  )
+}
+
+function Dial({
+  label,
+  valueLabel,
+  min,
+  max,
+  step,
+  slider,
+  numberValue,
+  numberStep,
+  numberMin,
+  numberMax,
+  onPointer,
+  onPointerUp,
+  onSlide,
+  onNumber,
+}: {
+  label: string
+  valueLabel: string
+  min: number
+  max: number
+  step: number
+  slider: number
+  numberValue: string
+  numberStep: number
+  numberMin: number
+  numberMax: number
+  onPointer: () => void
+  onPointerUp: () => void
+  onSlide: (t: number) => void
+  onNumber: (v: number) => void
+}) {
+  return (
+    <div className="flex flex-wrap items-end gap-4">
+      <div className="w-16 font-mono text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
+        {label}
+      </div>
+      <input
+        type="range"
+        className="dial min-w-[160px] flex-1"
+        min={min}
+        max={max}
+        step={step}
+        value={slider}
+        onPointerDown={onPointer}
+        onPointerUp={onPointerUp}
+        onChange={(e) => onSlide(parseFloat(e.target.value))}
+      />
+      <span className="w-[4.5rem] text-right font-mono text-lg tabular-nums">
+        {valueLabel}
+      </span>
+      <Input
+        type="number"
+        className="h-8 w-[92px] bg-transparent font-mono"
+        step={numberStep}
+        min={numberMin}
+        max={numberMax}
+        value={numberValue}
+        onChange={(e) => {
+          const v = parseFloat(e.target.value)
+          if (!Number.isFinite(v)) return
+          onNumber(v)
+        }}
+      />
+    </div>
   )
 }
 

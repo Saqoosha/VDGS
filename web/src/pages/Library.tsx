@@ -1,9 +1,7 @@
 import { useState } from 'react'
 import * as api from '../api'
 import { runExclusive } from '../busy'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { filterScenes } from '../search'
 import { useStatusContext } from '../status-context'
@@ -29,58 +27,88 @@ export default function Library() {
   }
 
   return (
-    <div className="flex flex-col gap-5">
-      <Input
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        placeholder="Search scenes"
-        aria-label="Search scenes"
-      />
+    <div>
+      <label className="flex items-end gap-4 border-b-2 border-foreground/80 pb-1.5">
+        <span className="font-mono text-[10px] tracking-[0.22em] text-muted-foreground uppercase">
+          find
+        </span>
+        <Input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="name…"
+          aria-label="Search scenes"
+          className="h-8 border-0 bg-transparent px-0 font-serif text-xl shadow-none focus-visible:ring-0"
+        />
+      </label>
       {flash ? (
-        <p className="text-sm text-emerald-700" role="status">
+        <p className="mt-3 font-mono text-[11px] tracking-[0.14em] text-live uppercase" role="status">
           {flash}
         </p>
       ) : null}
       {!available.length ? (
-        <p className="text-muted-foreground">nothing in &lt;game&gt;/vdgs/</p>
+        <p className="mt-10 font-mono text-[11px] tracking-[0.14em] text-muted-foreground uppercase">
+          nothing in &lt;game&gt;/vdgs/
+        </p>
       ) : shown.length === 0 ? (
-        <p className="text-muted-foreground">no matches</p>
+        <p className="mt-10 font-mono text-[11px] tracking-[0.14em] text-muted-foreground uppercase">
+          no matches
+        </p>
       ) : (
-        shown.map((s) => (
-          <SceneCard key={s.name} scene={s} onShow={() => void show(s.name)} />
-        ))
+        <ol className="mt-1">
+          {shown.map((s, i) => (
+            <SceneRow
+              key={s.name}
+              index={String(i + 1).padStart(2, '0')}
+              scene={s}
+              onShow={() => void show(s.name)}
+            />
+          ))}
+        </ol>
       )}
     </div>
   )
 }
 
-function SceneCard({ scene, onShow }: { scene: Scene; onShow: () => void }) {
+function SceneRow({
+  index,
+  scene,
+  onShow,
+}: {
+  index: string
+  scene: Scene
+  onShow: () => void
+}) {
   const formats = [scene.posFormat, scene.scaleFormat, scene.colorFormat, scene.shFormat]
     .filter(Boolean)
-    .join(' / ')
-  const parts = [
-    scene.splats ? scene.splats.toLocaleString() + ' splats' : null,
-    scene.kind,
-    formats || null,
-    formatBytes(scene.bytes),
-    scene.hasCollision ? 'collision' : null,
-  ].filter(Boolean)
+    .join(' · ')
 
   return (
-    <Card className="py-5">
-      <CardContent className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="font-semibold">{scene.name}</p>
-            {scene.shown ? <Badge>shown</Badge> : null}
-          </div>
-          <p className="mt-1 text-[13px] text-muted-foreground">{parts.join(' · ')}</p>
+    <li className="grid grid-cols-[2.25rem_minmax(0,1fr)_auto] items-start gap-3 border-b border-rule/80 py-4">
+      <span className="pt-1 font-mono text-[11px] text-muted-foreground">{index}</span>
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-baseline gap-3">
+          <p className="font-serif text-[1.65rem] leading-tight font-light">{scene.name}</p>
+          {scene.shown ? (
+            <span className="font-mono text-[10px] tracking-[0.2em] text-signal uppercase">
+              shown
+            </span>
+          ) : null}
         </div>
-        <Button disabled={scene.shown} onClick={onShow}>
-          {scene.shown ? 'Shown' : 'Show'}
-        </Button>
-      </CardContent>
-    </Card>
+        <p className="mt-1.5 font-mono text-[11px] tracking-[0.04em] text-muted-foreground">
+          {scene.splats ? scene.splats.toLocaleString() : '—'} splats
+          <span className="mx-2 text-rule">/</span>
+          {scene.kind}
+          <span className="mx-2 text-rule">/</span>
+          {formats || '—'}
+          <span className="mx-2 text-rule">/</span>
+          {formatBytes(scene.bytes) ?? '—'}
+          {scene.hasCollision ? ' · collision' : ''}
+        </p>
+      </div>
+      <Button variant={scene.shown ? 'ghost' : 'default'} disabled={scene.shown} onClick={onShow}>
+        {scene.shown ? 'Shown' : 'Show'}
+      </Button>
+    </li>
   )
 }
 

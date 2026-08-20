@@ -291,24 +291,23 @@ browser on another is the intended setup. After a UI-only change, `bash tools/de
 copies `web/dist/` to `<game>/vdgs/ui/` without rebuilding the plugin.
 
 ```
-┌─ VDGS ──────── Control / Library ───────────────┐
-│  Current track                                  │
+┌ VDGS · local · 01 control / 02 library ─────────┐
+│  01 current track                               │
 │  Empty Scene Day                                │
-│  bound to myscene                               │
-│  [Bind shown splat to this track]               │
-│  [Unbind this track]  [Hide all]                │
-├─────────────────────────────────────────────────┤
-│  Shown splat  myscene   1,916,379 splats        │
+│  bound → myscene                                │
+│  [Bind shown]  [Unbind]  [Hide all]             │
+│  02 on screen                                   │
+│  myscene   1,916,379 splats                     │
 │  [x] box  [x] solid  [hide mesh]                │
-│  Scale  ────●────  1.00×                        │
-│  Height ────●────  0.00m                        │
-├─────────────────────────────────────────────────┤
-│  Bindings                                       │
+│  Scale  ────│────  1.00×                        │
+│  Height ────│────  0.00m                        │
+│  03 bindings                                    │
 │  <track name>  →  myscene       [remove]        │
 └─────────────────────────────────────────────────┘
 
-Library lists every capture on the machine (search, splat count, format, size,
-collision). Show loads it. Transform sliders stay on Control.
+Library is a numbered index of every capture on the machine (search, splat
+count, format, size, collision). Show loads it. Transform sliders stay on
+Control.
 ```
 
 **No game key is taken.** The track editor's arrow keys and F7 keep working. The UI

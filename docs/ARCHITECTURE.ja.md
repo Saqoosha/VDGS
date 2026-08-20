@@ -337,7 +337,7 @@ HttpListener (:8777)
 | `WebUi.cs` | `vdgs/ui/` が無いときのフォールバック HTML |
 | `VdgsPaths.cs` | 予約名 `ui` と、その外に出ないパス解決 |
 | `SplatMetaFile.cs` | GPU バッファを開かない meta.json / .ply ヘッダ読み |
-| `web/` | Vite + React のコントロール UI（Control / Library） |
+| `web/` | Vite + React のコントロール UI（測量野帳。Control / Library） |
 | `Probe.cs` | ランタイム環境の実測ダンプ（F9） |
 | `PerfLog.cs` | フレームタイム記録 |
 | `PostProcessFix.cs` | D3D12 強制の副作用対応（**効かない**。経緯の記録として残置） |

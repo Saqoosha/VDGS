@@ -636,7 +636,9 @@ upstream から**削った**もの：編集機能・selection・cutouts・URP/HD
 
 ## 操作は Web UI（ゲーム内キーではない）
 
-`http://<host>:8777/` でプラグインが HTTP サーバーを立てる（`WebControl` + `WebUi`）。
+`http://<host>:8777/` でプラグインが HTTP サーバーを立てる（`WebControl` + `web/`）。
+見た目は測量野帳（紙色、セリフ、朱のトンボ）。カードは使わない。静的ファイルは
+`<game>/vdgs/ui/`。無いときは `WebUi.cs` が短い案内だけ出す。
 
 **ゲーム内キーでの操作は全部やめた。** 理由：
 
