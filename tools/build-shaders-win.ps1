@@ -1,15 +1,16 @@
 $ErrorActionPreference = 'Stop'
-$tgz     = '%USERPROFILE%\vdgs-bundler.tgz'
-$root    = '%USERPROFILE%'
-$project = '%USERPROFILE%\VDGSBundler'
-$outDir  = '%USERPROFILE%\vdgs-bundles'
-$game    = '%USERPROFILE%\Downloads\Velocidrone Windows Launcher\app'
+$home    = $env:USERPROFILE
+$tgz     = Join-Path $home 'vdgs-bundler.tgz'
+$root    = $home
+$project = Join-Path $home 'VDGSBundler'
+$outDir  = Join-Path $home 'vdgs-bundles'
+$game    = if ($env:VDGS_GAME) { $env:VDGS_GAME } else { Join-Path $home 'Downloads\Velocidrone Windows Launcher\app' }
 
-$editor = '%USERPROFILE%\UnityEditors\2021.3.45f2\Editor\Unity.exe'
+$editor = Join-Path $home 'UnityEditors\2021.3.45f2\Editor\Unity.exe'
 if (-not (Test-Path $editor)) {
-    $found = Get-ChildItem '%USERPROFILE%\UnityEditors' -Recurse -Filter 'Unity.exe' -ErrorAction SilentlyContinue |
+    $found = Get-ChildItem (Join-Path $home 'UnityEditors') -Recurse -Filter 'Unity.exe' -ErrorAction SilentlyContinue |
              Select-Object -First 1
-    if (-not $found) { throw "Unity.exe not found under %USERPROFILE%\UnityEditors" }
+    if (-not $found) { throw "Unity.exe not found under $(Join-Path $home 'UnityEditors')" }
     $editor = $found.FullName
 }
 Write-Output "editor: $editor"
@@ -40,12 +41,12 @@ function Invoke-Unity([string]$method, [string]$log, [string[]]$extra) {
 }
 
 Write-Output "`n== step 1: graphics APIs -> D3D12 =="
-$log1 = '%USERPROFILE%\vdgs-shaderbuild-1.log'
+$log1 = Join-Path $home 'vdgs-shaderbuild-1.log'
 Invoke-Unity 'BuildBundles.SetGraphicsApis' $log1 @()
 Get-Content $log1 -EA SilentlyContinue | Select-String -Pattern '\[VDGS\]|error CS|Aborting' | Select-Object -First 8
 
 Write-Output "`n== step 2: build shader bundle =="
-$log2 = '%USERPROFILE%\vdgs-shaderbuild-2.log'
+$log2 = Join-Path $home 'vdgs-shaderbuild-2.log'
 Invoke-Unity 'BuildBundles.BuildWindows' $log2 @('-vdgsOut', $outDir)
 Get-Content $log2 -EA SilentlyContinue |
     Select-String -Pattern '\[VDGS\]|Shader error|error CS|Aborting' | Select-Object -First 20

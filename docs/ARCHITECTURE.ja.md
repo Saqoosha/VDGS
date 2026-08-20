@@ -26,7 +26,7 @@
 │ VDGSBundler          │          │            │ HTTP               │
 │ (Unity 2021.3.45f2)  │          └────────────┼────────────────────┘
 │   │ ※Windows で焼く │                       │
-│   ▼                  │                  ブラウザ（Mac から Tailscale 経由）
+│   ▼                  │                  ブラウザ（LAN 上の任意のマシン）
 │ vdgs-shaders ────────┼──────────────────────┘
 └──────────────────────┘
 ```
@@ -259,7 +259,7 @@ Assembly-CSharp は難読化されていて、フィールド名は `glnoaiifnln
 見えないので、ログを読むまで成功したか分からない。
 
 プロセスの外に出すと、これが全部消える。加えて別マシンから操作できる
-（Parsec でゲーム画面を見ながら、手元の Mac のブラウザで操作する）。
+（Parsec でゲーム画面を見ながら、LAN 上のブラウザで操作する）。
 
 ```
 HttpListener (:8777)
@@ -268,7 +268,11 @@ HttpListener (:8777)
   ├ POST /api/load    指定の GS だけ表示
   ├ POST /api/unload  全部隠す
   ├ POST /api/bind    現在のトラックに紐付け
-  └ POST /api/unbind  紐付けを解除
+  ├ POST /api/unbind  紐付けを解除
+  ├ POST /api/backdrop     キャプチャ周りの黒い箱
+  ├ POST /api/collision    MeshCollider の on/off
+  ├ POST /api/collisionview  hide / solid / wire
+  └ POST /api/transform    スケールと Y。placement.json に書く
 ```
 
 ### スレッド境界
@@ -298,21 +302,16 @@ HttpListener (:8777)
 
 ---
 
-## 位置合わせを実装しない理由
+## 配置とコリジョン
 
-一度は実装した（キーで移動・回転・拡縮、`placement.json` に保存）。**削除した。**
+回転はファイルが来る前に SuperSplat で合わせる。**スケールと高さは Web UI** にあって
+`placement.json` に書く。ゲーム内キーでの位置合わせ（移動・回転・拡縮）は削除した。
+数値を出す場所がなく、キャプチャを差し替えるたびにやり直しになるのが筋違いだった。
 
-splat の座標をシムの中で合わせるのは、道具として筋が悪い：
-
-- ゲーム内には数値を表示する場所がなく、目分量になる
-- 撮影・学習側（Postshot など）は、そもそも正しい座標系で出力できる
-- mod 側に持つと、GS を差し替えるたびに合わせ直しになる
-
-`placement.json` は残してあるが、**手で書く最終手段**であって、ゲーム内から変更する
-手段は無い。
-
-同じ理由で**コリジョンも実装していない**。飛べるコースにしたければ、
-VelociDrone 純正のゲートやバリアを置けばよく、それらは最初からコリジョンを持つ。
+メッシュの無いキャプチャはすり抜けになる。`SplatCollision` が `collision.bin`
+（`.ply` なら隣の `<name>.collision.bin`）を `MeshCollider` に載せる。
+`SplatCollisionView` が殻を描く（solid / wire）。焼き方は OpenVDB。
+[SCENES.ja.md](SCENES.ja.md)。
 
 ---
 
@@ -327,6 +326,8 @@ VelociDrone 純正のゲートやバリアを置けばよく、それらは最�
 | `GpuSorting.cs` | 8bit radix sort（upstream ほぼ無改変） |
 | `ShaderBundle.cs` | AssetBundle からシェーダーを取得 |
 | `SplatScene.cs` | splat 1 つ分の生成・破棄・配置読み込み |
+| `SplatCollision.cs` | `collision.bin` → MeshCollider（`.ply` は Y 鏡映） |
+| `SplatCollisionView.cs` | コリジョン殻の描画（solid / wire） |
 | `SplatBackdrop.cs` | 内向きの黒い箱 |
 | `TrackName.cs` | ロード中のトラック名を多段フォールバックで取得 |
 | `TrackBindings.cs` | `bindings.json` の読み書き |

@@ -26,7 +26,7 @@ environment-specific measurements and the traps behind them in [AGENTS.md](../AG
 │ VDGSBundler          │          │            │ HTTP               │
 │ (Unity 2021.3.45f2)  │          └────────────┼────────────────────┘
 │   │ bake on Windows  │                       │
-│   ▼                  │                a browser (from the Mac, over Tailscale)
+│   ▼                  │                a browser (any machine on the LAN)
 │ vdgs-shaders ────────┼──────────────────────┘
 └──────────────────────┘
 ```
@@ -259,7 +259,7 @@ Worse, **there is nowhere in the game to draw a HUD**, so pressing a key gave no
 at all until you read a log.
 
 Moving out of the process removes all of it, and adds control from another machine
-(watching through Parsec, driving from the Mac's browser).
+(watching through Parsec, driving from a browser on the LAN).
 
 ```
 HttpListener (:8777)
@@ -268,7 +268,11 @@ HttpListener (:8777)
   ├ POST /api/load    show one capture
   ├ POST /api/unload  hide everything
   ├ POST /api/bind    bind to the current track
-  └ POST /api/unbind  remove a binding
+  ├ POST /api/unbind  remove a binding
+  ├ POST /api/backdrop     black box around the capture
+  ├ POST /api/collision    MeshCollider on/off
+  ├ POST /api/collisionview  hide / solid / wire
+  └ POST /api/transform    scale and Y; writes placement.json
 ```
 
 ### The thread boundary
@@ -299,22 +303,16 @@ Three defences:
 
 ---
 
-## Why there is no alignment UI
+## Placement and collision
 
-There was one — move, rotate and scale on keys, saved to `placement.json`. **It was
-deleted.**
+Rotation belongs in SuperSplat before the file arrives. **Scale and height are on the
+Web UI** and write `placement.json`. The in-game key alignment (move / rotate / scale)
+was deleted: there is nowhere in the game to display a number, and redoing it every
+time a capture is replaced was the wrong tool.
 
-Aligning splat coordinates inside the simulator is the wrong tool for the job:
-
-- there is nowhere in the game to display a number, so it is all done by eye
-- the capture and training side (Postshot and friends) can emit correct coordinates in the
-  first place
-- keeping it in the mod means redoing the alignment every time a capture is replaced
-
-`placement.json` remains as a **hand-edited last resort**; nothing in-game writes it.
-
-**Collision is absent for the same reason.** If a course needs something to fly through,
-VelociDrone's own gates and barriers already have colliders.
+A capture with no mesh is a fly-through. `SplatCollision` loads `collision.bin` (or
+`<name>.collision.bin` next to a `.ply`) onto a `MeshCollider`. `SplatCollisionView`
+draws the shell (solid or wire). Bake is OpenVDB; see [SCENES.md](SCENES.md).
 
 ---
 
@@ -329,6 +327,8 @@ VelociDrone's own gates and barriers already have colliders.
 | `GpuSorting.cs` | 8-bit radix sort (near-unmodified upstream) |
 | `ShaderBundle.cs` | fetches shaders from the AssetBundle |
 | `SplatScene.cs` | one capture's lifetime, discovery and placement |
+| `SplatCollision.cs` | `collision.bin` → MeshCollider (Y-mirror on `.ply`) |
+| `SplatCollisionView.cs` | the collision shell (solid / wire) |
 | `SplatBackdrop.cs` | the inward-facing black box |
 | `TrackName.cs` | the loading track's name, through several fallbacks |
 | `TrackBindings.cs` | reads and writes `bindings.json` |

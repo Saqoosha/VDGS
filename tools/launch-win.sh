@@ -11,9 +11,15 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-HOST="${VDGS_HOST:-user@windows-box}"
+# shellcheck disable=SC1091
+. "$ROOT/tools/_remote.sh"
 quiet() { grep -vE "WARNING: |store now, decrypt later|may need to be upgraded|openssh.com/pq" || true; }
 
-scp -o BatchMode=yes -q "$ROOT/tools/launch-win.ps1" "$HOST:%USERPROFILE%/launch-win.ps1" 2>&1 | quiet
+REMOTE_GAME=""
+if [ -n "${VDGS_GAME:-}" ]; then
+  REMOTE_GAME="\$env:VDGS_GAME = '$(printf '%s' "$VDGS_GAME" | sed "s/'/''/g")'; "
+fi
+
+scp -o BatchMode=yes -q "$ROOT/tools/launch-win.ps1" "$HOST:launch-win.ps1" 2>&1 | quiet
 ssh -o BatchMode=yes "$HOST" \
-  "powershell -ExecutionPolicy Bypass -File %USERPROFILE%\\launch-win.ps1 $*" 2>&1 | quiet
+  "${REMOTE_GAME}powershell -ExecutionPolicy Bypass -File (Join-Path \$env:USERPROFILE 'launch-win.ps1') $*" 2>&1 | quiet

@@ -5,7 +5,8 @@
 VelociDrone に 3D Gaussian Splatting シーンを表示する mod の導入・運用手順。
 
 内部構造・設計判断は [ARCHITECTURE.ja.md](ARCHITECTURE.ja.md)、環境固有の実測値と
-踏んだ罠は [AGENTS.md](../AGENTS.md)。ここは操作手順だけ。
+踏んだ罠は [AGENTS.md](../AGENTS.md)。キャプチャの追加（`.ply` とコリジョン）は
+[SCENES.ja.md](SCENES.ja.md)。ここは導入と操作。
 
 ---
 
@@ -140,7 +141,8 @@ bash tools/launch-win.sh          # スクリプトを送って実行する
 <VelociDrone>\app\vdgs\myscene.ply
 ```
 
-これだけ。mod はヘッダだけ読んで splat 数を UI に出し、表示したときに本体を読んで
+これだけが絵の手順。壁と床にはコリジョンが要る。焼き方は
+[SCENES.ja.md](SCENES.ja.md)。mod はヘッダだけ読んで splat 数を UI に出し、表示したときに本体を読んで
 GPU に上げる。
 
 実測ロード時間（RTX 3060）：41.5 万 splats で 0.32 秒、217 万で 1.6 秒、318 万で 2.3 秒。
@@ -231,11 +233,19 @@ python3 tools/align_ply.py in.ply out.ply --rotate -12,0,3 --ceiling 2.6
 }
 ```
 
-**位置合わせ機能は mod にはない。** GS 側が正しい座標・スケールで作られている前提で、
-`placement.json` は手書きの最終手段として残してあるだけ。座標を合わせるのは
-撮影・学習側の仕事。
+**スケールと高さは Web UI** にあって、このファイルに書く。回転はファイルが来る前に
+SuperSplat で合わせる。`placement.json` はスライダーが届かないものの最終手段。
 
-### 4-5. トラックとの紐付け
+### 4-5. コリジョン
+
+メッシュの無いキャプチャはすり抜けになる。`myscene.ply` の隣に
+`myscene.collision.bin`（変換済みディレクトリなら中の `collision.bin`）を置く。
+焼き方は [SCENES.ja.md](SCENES.ja.md)。
+
+UI では `solid` がドローンを止める。`show wire` / `show solid` が殻を描く。
+ファイルを差し替えたらチェックボックスではなく、unload → load。
+
+### 4-6. トラックとの紐付け
 
 **どの GS をどのトラックで出すかは、トラック名で決まる。**
 
@@ -243,8 +253,8 @@ python3 tools/align_ply.py in.ply out.ply --rotate -12,0,3 --ceiling 2.6
 
 ```json
 {
-  "2026 Fusion Flight Festival - Presented by Neos": ["shibuya"],
-  "Split-S": ["luigi", "bonsai"]
+  "Empty Scene Day": ["myscene"],
+  "Split-S": ["myscene", "other"]
 }
 ```
 
@@ -262,24 +272,24 @@ python3 tools/align_ply.py in.ply out.ply --rotate -12,0,3 --ceiling 2.6
 ## 5. 操作（ブラウザ）
 
 ゲームが起動すると、mod が **`http://<ホスト>:8777/`** で操作用の Web UI を出す。
-別マシンからでも開ける（Tailscale 越しなど）。Parsec でゲーム画面を見ながら、
-手元のブラウザで操作するのが想定運用。
+LAN 上の任意のマシンから開ける。Parsec でゲーム画面を見ながら、手元のブラウザで
+操作するのが想定運用。
 
 ```
 ┌─ VDGS Control ──────────────────────────────────┐
 │  Current track                                  │
-│  2026 Fusion Flight Festival - Presented by Neos │
-│  bound to shibuya                               │
+│  Empty Scene Day                                │
+│  bound to myscene                               │
 ├─────────────────────────────────────────────────┤
 │  Splat scenes on this machine                   │
-│  [shown]  shibuya   934,442 splats              │
-│  [show ]  luigi      14,526 splats              │
+│  [shown]  myscene   1,916,379 splats            │
+│  [show ]  other        14,526 splats            │
 │                                                 │
 │  [Bind shown splat to this track]               │
 │  [Unbind this track]  [Hide all]                │
 ├─────────────────────────────────────────────────┤
 │  Bindings                                       │
-│  <track名>  →  shibuya          [remove]        │
+│  <track名>  →  myscene          [remove]        │
 └─────────────────────────────────────────────────┘
 ```
 
@@ -316,6 +326,10 @@ UI が使っているものと同じ。スクリプトから叩ける。
 | `POST /api/unload` | `{}` — 全部隠す |
 | `POST /api/bind` | `{"splats":["name"]}` — 現在のトラックに紐付け |
 | `POST /api/unbind` | `{}` で現在のトラック、`{"track":"name"}` で任意のトラック |
+| `POST /api/backdrop` | `{"splat":"name","on":true}` — 黒い箱 |
+| `POST /api/collision` | `{"splat":"name","on":true}` — MeshCollider |
+| `POST /api/collisionview` | `{"splat":"name","mode":"wire"}` — hide / solid / wire |
+| `POST /api/transform` | `{"splat":"name","scale":1.0,"y":0}` — スケールと Y。`placement.json` に書く |
 
 **POST には必ずボディを付けること。** `HttpListener` は `Content-Length` の無い POST を
 mod のハンドラに渡す前に `411 Length Required` で弾く。`curl -X POST .../api/unload` は

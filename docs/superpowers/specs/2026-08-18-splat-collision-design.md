@@ -436,20 +436,19 @@ textilni  0.14     384K        8          0.787 m       8.1%
 **この指標も合否には使えない** — 実機で正しい drjohnson が 42.9% で最悪の部類。部屋は
 壁も家具も薄いので当然。**大きさの違うものを同じ物差しで並べない。**
 
-voxel 0.14 の再焼きは 7 秒、間引き不要（384K < 500K 予算）。屋外の site には
-こちらのほうが素直な立体になる。`w` の `vdgs-stage/collision/textilni-v014.collision.bin`
-に置いてある。
+voxel 0.14 の再焼きは 7 秒、間引き不要（384K < 500K 予算）。ステージングに
+`textilni-v014.collision.bin` として置いてある。**飛んだ結果は不採用** —
+柱の当たりが太い（壁厚 `4 x voxel` ≒ 56 cm。0.06 なら 24 cm）。屋外サイト向けの予備。
 
-#### 「目視で良好」だが物理を通らない textilni
+#### textilni は 0.06。穴は許容、0.14 は柱が太い
 
-「textilni は良好」は**ブラウザプレビューの目視**と隙間・面積の指標で出した判定。
 落下テストは通らない。voxel 0.060 / 500K 間引きの結果、狙った面から 2〜4 m 沈む
 （交差回数の偶奇で確認、**6/6 が solid の内側で静止**）。あの柱には面が 12 枚、
 0.17 m 間隔で積み重なっていて、0.25 m の球が入る隙間ではない。**薄いシートが
-相互貫入している。**
+相互貫入している。** ブラウザ目視はこれを見逃した。
 
-**このプロジェクトで目視レビューがまた欠陥を見逃した。** 直し方（voxel を粗くするか、
-間引きを緩めるか）は未決。判断は実機で飛んでから。
+実機で 0.06 と 0.14 を同じトラックで飛ばした。0.14 は柱が太すぎる。0.06 は穴があるが
+許容、柱の細さのほうが効く。**live は 0.06。** 落下テストが FAIL でも、飛ぶ側は通った。
 
 #### 落下テスト設計での 3 度の失敗
 
@@ -604,19 +603,22 @@ identity   ( x,  y, z)   残差 3.67  (30.5 voxel)
 - **Poisson 再構成。** 開口部に膜が張り、壁に穴が開く
 - **凸分解 / 動的コリジョン / ナビメッシュ。** ドローンが止まればいい
 
-## 実機で確定すること
+## 実機で確定したこと
+
+3. **床のコリジョンはドローンを止める。** playroom / drjohnson / textilni、いずれも確認。
+4. **隙間の体感。** textilni は voxel 0.06（穴あり・許容）。0.14 は柱が太く不採用。
+   playroom / drjohnson は 0.06 より細かい焼きで、飛んで問題なし。
+
+まだ測っていないもの：
 
 1. **`Physics.BakeMesh` の実測時間。** drjohnson 277,736 三角形
 2. **`QuadColliders` がドローンであること。** 名前と衝突マトリクスからの強い推論。外れていても
    `Default` はほぼ全レイヤーと衝突するので実害は小さい
-3. **床のコリジョンが実際にドローンを止めるか。** 現状はゲームの地面まで落ちる。これが直ることが
-   最初の合格条件
-4. **隙間の体感。** 機体幅の 0.5〜0.7 倍。数字では出せない。飛んで許容できるかを決める
 
 ## WSL でのメッシュ化
 
-`vdb_tool` は `w` の Ubuntu 24.04 にある（`apt install python3-openvdb libopenvdb-tools`、
-10.6.1）。**Mac では動かない。**
+`vdb_tool` は Windows 箱の WSL（Ubuntu 24.04）にある（`apt install python3-openvdb libopenvdb-tools`）。
+**Mac では動かない。**
 
 Homebrew の `openvdb` formula（13.0.0）は `-DOPENVDB_BUILD_VDB_TOOL=ON` を渡しておらず、
 OpenVDB の CMake 既定は OFF。formula の test も `vdb_print` しか叩いていない。Mac で使うには
@@ -629,7 +631,7 @@ Mac   前処理（align_ply / splat-transform / ply_points）と後処理（座�
 WSL   vdb_tool のメッシュ化だけ
 ```
 
-WSL に渡すのは位置だけの ply で、drjohnson で 38 MB、playroom で 23 MB。Tailscale 越しに
+WSL に渡すのは位置だけの ply で、drjohnson で 38 MB、playroom で 23 MB。LAN 越しに
 数秒。メッシュ化そのものが 10 秒なので、往復を含めても splat-transform 経路より速い。
 
 **PowerShell を経由するとクォートが壊れる。** Mac bash → ssh → PowerShell → `wsl.exe` → bash の
@@ -644,7 +646,7 @@ python3 tools/align_ply.py in.ply clean0.ply --max-sigma 5
 npx @playcanvas/splat-transform@3.3.0 -w clean0.ply --filter-floaters --filter-cluster clean.ply
 python3 tools/ply_points.py clean.ply points.ply
 
-# メッシュ化 + 簡略化（WSL on w、100〜400 MB の中間メッシュを転送しないため）
+# メッシュ化 + 簡略化（WSL、100〜400 MB の中間メッシュを転送しないため）
 vdb_tool -read points.ply \
   -points2ls voxel=0.02 radius=2.0 width=4 \
   -median iter=1 -open radius=1 \

@@ -6,8 +6,9 @@ How to install and operate the mod that renders 3D Gaussian Splatting captures i
 VelociDrone.
 
 For internals, design decisions and the traps behind them, see
-[ARCHITECTURE.md](ARCHITECTURE.md) and [AGENTS.md](../AGENTS.md). This file is procedure
-only.
+[ARCHITECTURE.md](ARCHITECTURE.md) and [AGENTS.md](../AGENTS.md). Adding a capture —
+`.ply` and a collision mesh — is [SCENES.md](SCENES.md). This file is install and
+operation.
 
 ---
 
@@ -145,8 +146,10 @@ Windows-side scripts in this repo:
 <VelociDrone>\app\vdgs\myscene.ply
 ```
 
-That is the whole procedure. The mod parses the header for the splat count and shows the
-file in the UI like any other scene; it is read and uploaded when you display it.
+That is the whole procedure for the picture. Walls and floors need a collision mesh next
+to it; that bake is [SCENES.md](SCENES.md). The mod parses the header for the splat count
+and shows the file in the UI like any other scene; it is read and uploaded when you
+display it.
 
 Measured load times (RTX 3060): 0.32 s for 415k splats, 1.6 s for 2.17M, 2.3 s for 3.18M.
 Rendering lands about 7% behind the best offline format. See
@@ -243,11 +246,20 @@ Things to know:
 }
 ```
 
-**The mod has no alignment UI.** The capture is expected to arrive in correct coordinates
-at a correct scale; `placement.json` exists as a hand-edited last resort. Getting the
-coordinates right is the capture's job, not the mod's.
+**Scale and height are on the Web UI** and write this file. Rotation is not — that belongs
+in SuperSplat before the file arrives. `placement.json` is a last resort for anything the
+sliders do not cover.
 
-### 4-5. Binding to tracks
+### 4-5. Collision
+
+A capture with no mesh is a fly-through. Put `myscene.collision.bin` next to
+`myscene.ply` (or `collision.bin` inside a converted directory). How to bake it:
+[SCENES.md](SCENES.md).
+
+In the UI: `solid` stops the drone; `show wire` / `show solid` draws the shell. Replacing
+the file needs a reload, not a checkbox toggle.
+
+### 4-6. Binding to tracks
 
 **Which capture appears is decided by track name.**
 
@@ -255,8 +267,8 @@ coordinates right is the capture's job, not the mod's.
 
 ```json
 {
-  "2026 Fusion Flight Festival - Presented by Neos": ["shibuya"],
-  "Split-S": ["luigi", "bonsai"]
+  "Empty Scene Day": ["myscene"],
+  "Split-S": ["myscene", "other"]
 }
 ```
 
@@ -274,24 +286,24 @@ entirely.
 ## 5. Operating it from a browser
 
 Once the game is running the mod serves a control UI at **`http://<host>:8777/`**. Open it
-from any machine, including over Tailscale — the intended setup is watching the game
-through Parsec while driving it from a browser on another computer.
+from any machine on the LAN. Watching the game on one screen and driving the mod from a
+browser on another is the intended setup.
 
 ```
 ┌─ VDGS Control ──────────────────────────────────┐
 │  Current track                                  │
-│  2026 Fusion Flight Festival - Presented by Neos │
-│  bound to shibuya                               │
+│  Empty Scene Day                                │
+│  bound to myscene                               │
 ├─────────────────────────────────────────────────┤
 │  Splat scenes on this machine                   │
-│  [shown]  shibuya   934,442 splats              │
-│  [show ]  luigi      14,526 splats              │
+│  [shown]  myscene   1,916,379 splats            │
+│  [show ]  other        14,526 splats            │
 │                                                 │
 │  [Bind shown splat to this track]               │
 │  [Unbind this track]  [Hide all]                │
 ├─────────────────────────────────────────────────┤
 │  Bindings                                       │
-│  <track name>  →  shibuya       [remove]        │
+│  <track name>  →  myscene       [remove]        │
 └─────────────────────────────────────────────────┘
 ```
 
@@ -327,6 +339,10 @@ The same one the UI uses.
 | `POST /api/unload` | `{}` — hide everything |
 | `POST /api/bind` | `{"splats":["name"]}` — bind to the current track |
 | `POST /api/unbind` | `{}` for the current track, `{"track":"name"}` for any |
+| `POST /api/backdrop` | `{"splat":"name","on":true}` — black box around the capture |
+| `POST /api/collision` | `{"splat":"name","on":true}` — MeshCollider |
+| `POST /api/collisionview` | `{"splat":"name","mode":"wire"}` — hide / solid / wire |
+| `POST /api/transform` | `{"splat":"name","scale":1.0,"y":0}` — scale and Y; writes `placement.json` |
 
 **Always send a body with a POST.** `HttpListener` rejects a POST with no `Content-Length`
 as `411 Length Required` before the mod's handler ever sees it, so

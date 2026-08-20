@@ -1,5 +1,8 @@
 # build/testdata の中身
 
+**このファイルは手元の在庫の記録であって、リポジトリに同梱されるものではない。**
+キャプチャは再配布できない（AGENTS.md / docs/SCENES.md）。`build/` は gitignore。
+
 30 本の ply、9.6 GB。名前に `-aligned` `-final` `-nocrop` `-full` `-crop` `-mirrorY`
 `-up-manual` が付いているが、**どれがどの変換の結果かの記録が無い**。名前は証拠にならない。
 

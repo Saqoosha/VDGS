@@ -1,11 +1,12 @@
 param([int]$WaitSeconds = 90, [string]$GameArgs = '-force-d3d12')
 
 $ErrorActionPreference = 'Stop'
-$app    = '%USERPROFILE%\Downloads\Velocidrone Windows Launcher\app'
+$home   = $env:USERPROFILE
+$app    = if ($env:VDGS_GAME) { $env:VDGS_GAME } else { Join-Path $home 'Downloads\Velocidrone Windows Launcher\app' }
 $exe    = Join-Path $app 'velocidrone.exe'
 $probe  = Join-Path $app 'vdgs-probe.log'
 $bepLog = Join-Path $app 'BepInEx\LogOutput.log'
-$shot   = '%USERPROFILE%\vdgs-shot.png'
+$shot   = Join-Path $home 'vdgs-shot.png'
 $task   = 'VDGS-Capture'
 
 foreach ($f in @($probe, $bepLog, $shot)) { if (Test-Path $f) { Remove-Item $f -Force } }

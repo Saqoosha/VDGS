@@ -12,9 +12,15 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-HOST="${VDGS_HOST:-user@windows-box}"
+# shellcheck disable=SC1091
+. "$ROOT/tools/_remote.sh"
 
 quiet() { grep -vE "WARNING: |store now, decrypt later|may need to be upgraded|openssh.com/pq" || true; }
+
+REMOTE_GAME=""
+if [ -n "${VDGS_GAME:-}" ]; then
+  REMOTE_GAME="\$env:VDGS_GAME = '$(printf '%s' "$VDGS_GAME" | sed "s/'/''/g")'; "
+fi
 
 echo "== stopping the game (it holds the bundle file) =="
 ssh -o BatchMode=yes "$HOST" \
@@ -31,22 +37,24 @@ tar -czf "$TAR" -C "$ROOT/unity" \
     VDGSBundler/Assets VDGSBundler/Packages VDGSBundler/ProjectSettings
 echo "   $(du -h "$TAR" | cut -f1)"
 
-scp -o BatchMode=yes -q "$TAR" "$HOST:%USERPROFILE%/vdgs-bundler.tgz" 2>&1 | quiet
-scp -o BatchMode=yes -q "$ROOT/tools/build-shaders-win.ps1" "$HOST:%USERPROFILE%/build-shaders-win.ps1" 2>&1 | quiet
+scp -o BatchMode=yes -q "$TAR" "$HOST:vdgs-bundler.tgz" 2>&1 | quiet
+scp -o BatchMode=yes -q "$ROOT/tools/build-shaders-win.ps1" "$HOST:build-shaders-win.ps1" 2>&1 | quiet
 rm -f "$TAR"
 
 echo "== baking =="
-ssh -o BatchMode=yes "$HOST" "powershell -ExecutionPolicy Bypass -File %USERPROFILE%\\build-shaders-win.ps1" \
+ssh -o BatchMode=yes "$HOST" \
+  "${REMOTE_GAME}powershell -ExecutionPolicy Bypass -File (Join-Path \$env:USERPROFILE 'build-shaders-win.ps1')" \
   2>&1 | quiet | grep -E "\[VDGS\] (built|building)|Shader error|error CS|installed ->|BUNDLE NOT PRODUCED"
 
 # A bundle under a megabyte means the shaders were baked unsupported: they declare
 # #pragma require wavebasic/waveballot and get silently dropped unless the project's
 # graphics API is D3D12. The bundle still loads; only shader.isSupported goes false.
 echo "== size check =="
-ssh -o BatchMode=yes "$HOST" '
-  $b = "%USERPROFILE%\Downloads\Velocidrone Windows Launcher\app\vdgs\vdgs-shaders"
-  if (-not (Test-Path $b)) { "MISSING"; exit 1 }
-  $n = (Get-Item $b).Length
-  if ($n -lt 1000000) { "SUSPICIOUS: $n bytes - shaders were probably baked unsupported" }
-  else { "ok: $n bytes" }
-' 2>&1 | quiet
+ssh -o BatchMode=yes "$HOST" "
+  ${REMOTE_GAME}\$game = if (\$env:VDGS_GAME) { \$env:VDGS_GAME } else { Join-Path \$env:USERPROFILE 'Downloads\\Velocidrone Windows Launcher\\app' }
+  \$b = Join-Path \$game 'vdgs\\vdgs-shaders'
+  if (-not (Test-Path \$b)) { 'MISSING'; exit 1 }
+  \$n = (Get-Item \$b).Length
+  if (\$n -lt 1000000) { \"SUSPICIOUS: \$n bytes - shaders were probably baked unsupported\" }
+  else { \"ok: \$n bytes\" }
+" 2>&1 | quiet

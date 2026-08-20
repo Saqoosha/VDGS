@@ -1,6 +1,6 @@
 # Run RenderBench on the Windows box, against the GPU that actually flies the sim.
 #
-# The Mac numbers only give ratios; drjohnson has to be judged on the RTX 3060 under
+# The Mac numbers only give ratios; a capture has to be judged on the machine under
 # D3D12, because that is where the fan noise is.
 #
 # Two things make this awkward and both are load-bearing:
@@ -22,15 +22,16 @@ param(
     [int]$Inside = 0,
     [int]$Cull = 1,
     [double]$CullMargin = 4,
-    [string]$Tgz = '%USERPROFILE%\vdgs-bench.tgz',
-    [string]$Project = '%USERPROFILE%\VDGSBench'
+    [string]$Tgz = $(Join-Path $env:USERPROFILE 'vdgs-bench.tgz'),
+    [string]$Project = $(Join-Path $env:USERPROFILE 'VDGSBench')
 )
 
 $ErrorActionPreference = 'Stop'
-$game = '%USERPROFILE%\Downloads\Velocidrone Windows Launcher\app'
+$home = $env:USERPROFILE
+$game = if ($env:VDGS_GAME) { $env:VDGS_GAME } else { Join-Path $home 'Downloads\Velocidrone Windows Launcher\app' }
 $task = 'VDGS-Bench'
 
-$editor = '%USERPROFILE%\UnityEditors\2021.3.45f2\Editor\Unity.exe'
+$editor = Join-Path $home 'UnityEditors\2021.3.45f2\Editor\Unity.exe'
 if (-not (Test-Path $editor)) { throw "Unity 2021.3.45f2 not found at $editor" }
 
 if (Test-Path $Tgz) {

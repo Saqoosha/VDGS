@@ -16,7 +16,7 @@ namespace VDGS
     /// the arrow keys drive the track editor, and the numpad does not exist on a laptop.
     /// On top of that the game has no place to draw a HUD, so an in-game workflow gives
     /// no feedback at all. Moving control out of the process solves all of it at once,
-    /// and works from another machine over Tailscale while Parsec shows the game.
+    /// and works from another machine on the LAN while Parsec shows the game.
     ///
     /// Splat data is NOT uploaded through here - captures run to hundreds of megabytes
     /// and belong next to the game already (tools/deploy.sh). This only lists what is
@@ -52,7 +52,7 @@ namespace VDGS
             try
             {
                 // '+' would need an URL ACL / admin rights; localhost does not, and the
-                // machine is reached over Tailscale via port forwarding or a direct bind.
+                // machine is reached over the LAN via port forwarding or a direct bind.
                 Url = "http://*:" + port + "/";
                 m_Listener.Prefixes.Add(Url);
                 m_Listener.Start();

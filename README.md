@@ -5,7 +5,7 @@
 A mod that renders 3D Gaussian Splatting captures inside VelociDrone — so you can fly a
 real, scanned place in an FPV drone simulator.
 
-![bonsai rendered inside VelociDrone](docs/bonsai-real-data.png)
+![synthetic test cube rendered inside VelociDrone](docs/testcube-first-light.png)
 
 ## What it does
 
@@ -41,13 +41,14 @@ an injected plugin.
 
 | | |
 |---|---|
-| [docs/USAGE.md](docs/USAGE.md) | Install, launch, add captures, control it |
+| [docs/USAGE.md](docs/USAGE.md) | Install, launch, control it |
+| [docs/SCENES.md](docs/SCENES.md) | Bring a `.ply`, orient it, bake a collision mesh |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Internals, and why the design is what it is |
 | [docs/ply-loading.md](docs/ply-loading.md) | Reading .ply at load time, and its traps |
 | [docs/performance.md](docs/performance.md) | Where the frame time goes, and what moves it |
 | [docs/verification.md](docs/verification.md) | Checking the render with numbers, not eyes |
 | [docs/alignment.md](docs/alignment.md) | Orienting a capture, and the mirror everyone hits |
-| [AGENTS.md](AGENTS.md) | Measured facts about this environment and every trap hit (Japanese) |
+| [AGENTS.md](AGENTS.md) | Measured traps (Japanese). No machine-specific paths |
 
 ## Requirements
 
@@ -74,11 +75,13 @@ state no licence at all (which means all rights reserved, not "free"), the INRIA
 licence is research-only and carries that restriction to derivative works, and the rest
 are third-party captures published on SuperSplat.
 
-Bring your own `.ply` and drop it in `<game>/vdgs/`. See [docs/USAGE.md](docs/USAGE.md).
+Bring your own `.ply` and drop it in `<game>/vdgs/`. Collision meshes are optional and
+baked locally — [docs/SCENES.md](docs/SCENES.md).
 
 ## Licence
 
-`src/VDGS/GpuSorting.cs` and `unity/VDGSBundler/Assets/VDGS/Shaders/` derive from
+The project is [MIT](LICENSE). `src/VDGS/GpuSorting.cs` and
+`unity/VDGSBundler/Assets/VDGS/Shaders/` additionally derive from
 [aras-p/UnityGaussianSplatting](https://github.com/aras-p/UnityGaussianSplatting) (MIT).
 The GPU sort in turn derives from [b0nes164/GPUSorting](https://github.com/b0nes164/GPUSorting)
 (MIT, Thomas Smith).

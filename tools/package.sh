@@ -7,8 +7,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-HOST="${VDGS_HOST:-user@windows-box}"
-GAME='%USERPROFILE%/Downloads/Velocidrone\ Windows\ Launcher/app'
+# shellcheck disable=SC1091
+. "$ROOT/tools/_remote.sh"
 
 VERSION="$(grep -oE '<Version>[^<]+' "$ROOT/src/VDGS/VDGS.csproj" | head -1 | cut -d'>' -f2)"
 OUT="$ROOT/build/dist/VDGS-$VERSION"
@@ -22,7 +22,14 @@ BUNDLE="$ROOT/dist/payload/vdgs/vdgs-shaders"
 if [ ! -f "$BUNDLE" ]; then
   echo "   not staged locally, pulling from $HOST"
   mkdir -p "$(dirname "$BUNDLE")"
-  scp -o BatchMode=yes -q "$HOST:$GAME/vdgs/vdgs-shaders" "$BUNDLE" 2>/dev/null
+  # Home-relative: OpenSSH on Windows maps this under %USERPROFILE%.
+  scp -o BatchMode=yes -q "$HOST:vdgs-shaders" "$BUNDLE" 2>/dev/null || \
+    scp -o BatchMode=yes -q "$HOST:vdgs-bundles/vdgs-shaders" "$BUNDLE" 2>/dev/null || true
+  if [ ! -f "$BUNDLE" ]; then
+    echo "ERROR: could not pull vdgs-shaders from $HOST (tried ~/vdgs-shaders and ~/vdgs-bundles/vdgs-shaders)." >&2
+    echo "       Bake it first (bash tools/bake-shaders.sh) or copy it into dist/payload/vdgs/." >&2
+    exit 1
+  fi
 fi
 
 # A bundle built on macOS, or without the graphics API set, loads fine at runtime

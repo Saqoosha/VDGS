@@ -42,13 +42,25 @@ You do NOT need Unity. The shaders in this package are prebuilt.
 USING IT
 --------
 
-Captures go in:
+A .ply dropped in is enough for the picture:
+
+    <game>\vdgs\myscene.ply
+
+Converted directories work too:
 
     <game>\vdgs\<name>\
         meta.json
         chunk.bin  pos.bin  other.bin  color.bin  sh.bin
 
 They appear in the control panel automatically.
+
+Walls and floors need a collision mesh next to the capture:
+
+    <game>\vdgs\myscene.collision.bin     (beside a .ply)
+    <game>\vdgs\<name>\collision.bin      (inside a converted directory)
+
+How to bake that mesh, and why indoor rooms must not be cropped, is in the
+project repo: docs/SCENES.md.
 
 While the game is running, open:
 
@@ -60,6 +72,9 @@ While the game is running, open:
 
 From then on, loading that track shows that capture automatically.
 Tracks with no binding show nothing.
+
+Scale and height are on the control panel and write placement.json.
+Rotation belongs in the capture before it arrives.
 
 The control panel also works from another machine on your network:
 
@@ -75,17 +90,16 @@ F7 (save scene) keep working normally.
 MAKING CAPTURES
 ---------------
 
-This package does not convert .ply files - that needs Unity. See the project
-repository for the converter and the crop tool.
+Drop a .ply into <game>\vdgs\ and it loads at runtime. Converting to the
+smaller on-disk format is optional and needs Unity; see the project repo.
 
 Two things worth knowing:
 
-  - Every 3DGS reconstruction leaves a halo of junk gaussians ("floaters")
-    around the subject. In a flight sim they read as debris hanging in the air.
-    Crop them before converting.
-  - COLMAP-derived captures have arbitrary scale. Get the scale and origin
-    right in the tool that produced the capture; the mod does not move,
-    rotate or scale anything.
+  - Do not crop indoor rooms. The walls are the outer shell, and percentile
+    cropping deletes them. Cut giant unconstrained gaussians by size
+    (--max-sigma), not by position. See docs/SCENES.md and docs/alignment.md.
+  - COLMAP-derived captures have arbitrary scale. Get rotation right in
+    SuperSplat; set scale and height on the Web UI.
 
 
 IF NOTHING SHOWS UP
@@ -93,8 +107,10 @@ IF NOTHING SHOWS UP
 
   Nothing at all           You forgot -force-d3d12. Use the shortcut.
   "shaders NOT READY"      Reinstall; vdgs-shaders is missing or truncated.
-  Debris everywhere        Floaters in the source data. Crop them.
-  Wrong size               Fix the scale where the capture was produced.
+  Debris everywhere        Giant unconstrained gaussians, or a leftover
+                           chunk.bin. See docs/SCENES.md.
+  Wrong size               Scale on the Web UI, or fix it where the capture
+                           was produced.
   Freeze when showing      Tens of MB uploading to the GPU. Show it before
                            you start flying, not mid-flight.
 

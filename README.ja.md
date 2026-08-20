@@ -6,7 +6,7 @@ VelociDrone の中に 3D Gaussian Splatting シーンを表示する mod。
 
 実際にスキャンした場所を FPV ドローンシムの中に持ち込んで飛ぶための道具。
 
-![bonsai を VelociDrone 内に表示](docs/bonsai-real-data.png)
+![合成テストキューブを VelociDrone 内に表示](docs/testcube-first-light.png)
 
 ## 動作実績
 
@@ -40,13 +40,14 @@ SH のパッキングと視錐台カリングで、どちらも**画質を落と
 
 | | |
 |---|---|
-| [docs/USAGE.ja.md](docs/USAGE.ja.md) | 導入・起動・データ投入・操作 |
+| [docs/USAGE.ja.md](docs/USAGE.ja.md) | 導入・起動・操作 |
+| [docs/SCENES.ja.md](docs/SCENES.ja.md) | `.ply` の用意、向き合わせ、コリジョンの焼き方 |
 | [docs/ARCHITECTURE.ja.md](docs/ARCHITECTURE.ja.md) | 内部構造と設計判断の理由 |
 | [docs/ply-loading.ja.md](docs/ply-loading.ja.md) | .ply を実行時に読む仕組みと罠 |
 | [docs/performance.ja.md](docs/performance.ja.md) | 描画コストの内訳と、削るための手 |
 | [docs/verification.ja.md](docs/verification.ja.md) | 描画結果を数値で検証する道具 |
 | [docs/alignment.ja.md](docs/alignment.ja.md) | キャプチャの向き合わせと鏡像の扱い |
-| [AGENTS.md](AGENTS.md) | 環境の実測値、踏んだ罠の全記録 |
+| [AGENTS.md](AGENTS.md) | 踏んだ罠の実測（日本語）。マシン固有のパスは書いていない |
 
 ## 必要なもの
 
@@ -73,10 +74,12 @@ mod をビルドするには、シェーダーバンドル用に **Windows 上�
 （それは「自由」ではなく全権利留保）、INRIA 3DGS のライセンスは研究目的限定でその制限が
 派生物にも及び、残りは SuperSplat に公開された第三者のキャプチャ。
 
-`.ply` は自分で用意して `<game>/vdgs/` に置く。詳細は [docs/USAGE.ja.md](docs/USAGE.ja.md)。
+`.ply` は自分で用意して `<game>/vdgs/` に置く。コリジョンは任意で、手元で焼く —
+[docs/SCENES.ja.md](docs/SCENES.ja.md)。
 
 ## ライセンス
 
-`src/VDGS/GpuSorting.cs` と `unity/VDGSBundler/Assets/VDGS/Shaders/` は
+このプロジェクトは [MIT](LICENSE)。`src/VDGS/GpuSorting.cs` と
+`unity/VDGSBundler/Assets/VDGS/Shaders/` はさらに
 [aras-p/UnityGaussianSplatting](https://github.com/aras-p/UnityGaussianSplatting)（MIT）に由来する。
 GPU ソートはさらに [b0nes164/GPUSorting](https://github.com/b0nes164/GPUSorting)（MIT, Thomas Smith）由来。

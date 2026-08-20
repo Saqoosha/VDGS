@@ -129,30 +129,26 @@ utlida-lod1-s5   2,000,640 splats    9.13 ms   p90 13.39
 
 ### Windows 機（開発・実行のメイン）
 
-Tailscale 経由の SSH。`ssh user@windows-box`（ユーザー名 `a`、ホスト `w`、デフォルトシェルは **PowerShell**）。
+ゲームを走らせる Windows ボックスへ SSH する。リモートのデフォルトシェルは **PowerShell**。
+ホスト名は `tools/local.env` の `VDGS_HOST`（gitignore 済み）。リポジトリには書かない。
 
 | 項目 | 値 |
 |---|---|
-| ゲームパス | `%USERPROFILE%\Downloads\Velocidrone Windows Launcher\app` |
+| ゲームパス | ランチャー既定は `%USERPROFILE%\Downloads\Velocidrone Windows Launcher\app`。上書きは `VDGS_GAME` |
 | ユーザーデータ | `%USERPROFILE%\AppData\LocalLow\velocidrone\velocidrone` |
-| Velocidrone | 1.16.0 |
+| Velocidrone | 1.16.0 で確認 |
 | Unity | 2021.3.45f2 (88f88f591b2e) |
 | スクリプティング | **Mono**（IL2CPP ではない） |
 | レンダーパイプライン | **Built-in RP**（URP/HDRP の DLL 無し。PostProcessing v2 + AmplifyColor + Bakery） |
-| GPU | RTX 3060 12GB |
+| GPU | RTX 3060 12GB で測定 |
 | 描画 API | **Direct3D 11** ← 3DGS には不足。D3D12/Vulkan が必要 |
 | exe | x64 |
 
+### Mac（解析用）
 
-
-### Mac（M1 Max, ローカル）
-
-Velocidrone 1.17 がインストール済み：
-`~/Library/Application Support/PatchKit/Apps/<app-id>/Data/velocidrone.app`
-
-- arm64 thin、adhoc 署名、同じ Unity 2021.3.45f2
-- BepInEx は macOS universal ビルドがあるが arm64 での動作は**未検証**
-- Mac 版でも `settings.db` / AssetBundle 構造は Windows と同じ → 解析には使える
+PatchKit 経由の macOS 版（1.17、arm64 thin、adhoc 署名、同じ Unity 2021.3.45f2）でも
+`settings.db` / AssetBundle の構造は Windows と同じなので解析には使える。BepInEx の
+macOS universal ビルドは arm64 では**未検証**。
 
 ## ゲーム内部構造（実測）
 
@@ -273,11 +269,11 @@ python3 tools/make_test_ply.py build/testdata/testcube.ply   # 合成テスト�
   -vdgsInput <abs path>.ply -vdgsOutput <abs path>/build/splats/<name> \
   -vdgsQuality High -logFile -
 
-# 2. プラグイン + splat データを w へ（Mac）
+# 2. プラグイン + splat データを Windows 機へ（Mac）
 bash tools/deploy.sh
 bash tools/deploy.sh --plugin    # DLL だけ（splat 2.2GB を送り直さない）
 
-# 3. シェーダーバンドルを焼く（w 上で実行。macOS では不可能）
+# 3. シェーダーバンドルを焼く（Windows 上で実行。macOS では不可能）
 bash tools/bake-shaders.sh
 
 # 4. ゲームを起動（セッション1、D3D12 強制）
@@ -326,8 +322,8 @@ VDGS_BENCH_INSIDE=1 VDGS_BENCH_CULL=0 bash tools/bench-win.sh   # カリング�
 
 #### 起動スクリプトは既定でゲームを残す。`-Diagnose` を付けると殺す
 
-`bash tools/launch-win.sh` が `tools/launch-win.ps1` を `w` に送って走らせる。**毎回送る
-のが要点** — 以前は `w` に手で置いた版とリポジトリの版が別々に育ち、片方にしかない処理が
+`bash tools/launch-win.sh` が `tools/launch-win.ps1` を Windows 機に送って走らせる。**毎回送る
+のが要点** — 以前は向こうに手で置いた版とリポジトリの版が別々に育ち、片方にしかない処理が
 あった。
 
 `-Diagnose` を付けたときだけ、ログを整形して出したうえでゲームを止める。**この末尾は元々
@@ -344,15 +340,15 @@ API と無関係（45 秒連続ポーリングで無傷）。ゲームが理由�
 
 ### Windows 側の Unity
 
-`unity` CLI（1.0.0-beta.5）を `%USERPROFILE%\AppData\Local\Unity\bin\unity.exe` に導入済み。
-インストーラは PowerShell 版を使う（bash 版は Windows を検出して拒否する）：
+`unity` CLI（1.0.0-beta.5）は PowerShell 版のインストーラで入れる（bash 版は Windows を
+検出して拒否する）：
 
 ```powershell
 $env:UNITY_CLI_CHANNEL = 'beta'
 irm https://public-cdn.cloud.unity3d.com/hub/prod/cli/install.ps1 | iex
 ```
 
-Editor は `%USERPROFILE%\UnityEditors\2021.3.45f2`。2つ罠がある：
+Editor はユーザー領域（`%USERPROFILE%\UnityEditors\2021.3.45f2`）に置いている。2つ罠がある：
 
 - **`Start-Process` で起動したインストーラは SSH 切断で死ぬ**（7GB のダウンロードが 41% で消えた）。
   タスクスケジューラ経由で起動すること
@@ -367,7 +363,7 @@ Editor は `%USERPROFILE%\UnityEditors\2021.3.45f2`。2つ罠がある：
 **PowerShell はバックスラッシュをエスケープとして扱わない**ので、`scp` に
 `Velocidrone\ Windows\ Launcher` を渡すとファイルが黙って消える（エラーも出ない）。
 
-→ スペースを含まない `%USERPROFILE%/vdgs-stage/` に scp し、`Copy-Item` で設置する。
+→ リモートホームの `vdgs-stage/`（スペース無し）に scp し、`Copy-Item` で設置する。
 `tools/deploy.sh` がこれをやっている。
 
 ### SSH からゲームを起動できない（セッション 0 の壁）
@@ -400,24 +396,19 @@ and security IDs was done` で失敗する（SSH セッションでは `USERDOMA
 
 ### 参照アセンブリ
 
-`lib/`（gitignore）に Windows 機から回収済み：
+`lib/`（gitignore）にゲーム機から回収する：
 - `lib/bepinex/` — BepInEx.dll, 0Harmony.dll ほか
 - `lib/unity/` — UnityEngine*.dll 71個 + Assembly-CSharp.dll
 
-再取得するなら `scp` のダウンロード方向は `user@windows-box:%USERPROFILE%/Downloads/Velocidrone\ Windows\ Launcher/app/...`
-で通る（アップロード方向だけが壊れる）。
+`scp` の**ダウンロード**方向はスペース付きパスでも通る（アップロード方向だけが壊れる）。
 
 ## バックアップ
 
-`%USERPROFILE%\vdgs-backup\<timestamp>\`（2.8GB）に取得済み：
+ゲームの `Managed/`、`globalgamemanagers` など Data 直下の小さいファイル、`settings.db`、
+AssetBundle のマニフェスト、および `%LOCALAPPDATA%Low\velocidrone\`（**ラップタイム記録。
+再取得不能。最優先**）は手元に取っておく。
 
-- `Managed/` — DLL 注入対象
-- `Data-loose/` — `globalgamemanagers` など Data 直下の 50MB 未満のファイル
-- `settings.db` — trackprefabs / sceneries テーブル
-- `assetbundle-manifests/`
-- `LocalLow-velocidrone/` — **ラップタイム記録。再取得不能。最優先**
-
-ゲーム本体 39GB（`level*` / `sharedassets*`）は PatchKit ランチャーで再取得できるため
+ゲーム本体（`level*` / `sharedassets*`、数十 GB）は PatchKit ランチャーで再取得できるため
 意図的にバックアップしていない。
 
 ## テストデータ
@@ -426,12 +417,9 @@ and security IDs was done` で失敗する（SSH セッションでは `USERDOMA
 検証するためのもので、軸のねじれ・色の誤り・スケール違いが一目で分かるように作ってある
 （+X 赤 / +Y 緑 / +Z 青 / 灰の床グリッド / 黄の原点マーカー）。
 
-実データの入手先（すべて `.ply`、Hugging Face から直接 curl できる）：
-
-| シーン | splat 数 | サイズ | URL |
-|---|---|---|---|
-| luigi | 14,526 | 1.0 MB | `datasets/dylanebert/3dgs/resolve/main/luigi/luigi.ply` |
-| bonsai | 1,157,141 | 287 MB | `datasets/dylanebert/3dgs/resolve/main/bonsai/point_cloud/iteration_7000/point_cloud.ply` |
+実データの入手先は学術データセットや SuperSplat の公開シーンだが、**再配布はできない**
+（次節）。手元で飛ぶなら `.ply` を自分で取って `<game>/vdgs/` に置く。手順は
+[docs/SCENES.ja.md](docs/SCENES.ja.md)。
 
 `dylanebert/3dgs` には bicycle / garden / kitchen / room / stump / counter / playroom もある。
 ただし多くは `.splat` 形式で、UnityGaussianSplatting は **`.ply` と `.spz` しか読まない**。
@@ -769,8 +757,7 @@ Get-Content $log | Where-Object { $_ -notmatch "KEyeHistogramClear|PostProcessin
 ```
 
 **コリジョンは付くようになった**（`SplatCollision.cs`、実装済み・実機で確認済み）。
-ただし**メッシュを持つのは playroom / drjohnson / textilni だけ**で、他のキャプチャは
-いまも飛べる壁のまま。生成手順と実測は
+焼き方は [docs/SCENES.ja.md](docs/SCENES.ja.md)。設計の数字と捨てた手法は
 docs/superpowers/specs/2026-08-18-splat-collision-design.md。
 
 **壁の厚みは速度で決まる。** 物理は 400 Hz、150 km/h で 1 ステップ 0.104 m 進むので
@@ -791,9 +778,8 @@ docs/superpowers/specs/2026-08-18-splat-collision-design.md。
   「針だらけ」という誤診を招く（実際に一度出した）。log 空間で
   `t = (log(mid)-log(min))/(log(max)-log(min))` を取ると `t≈0` が針、`t≈1` が板。
   **3DGS の壁と床は板で、正常**。上から見るとエッジオンで線に見えるだけ
-- **コリジョンは別ブランチ**（`worktree-splat-collision`、14 コミット）。master には
-  入っていない。**現在 `w` にデプロイされている DLL は master 版なのでコリジョンは動かない**
-  — シーン側の `collision.bin` は残っているので、ブランチを焼き直せば戻る
+- **キャプチャごとのコリジョン焼き。** 手順は docs/SCENES.ja.md。voxel はシーンで決める
+  （細かいほど穴、粗いほど柱が太い）。textilni は 0.06 で穴あり許容、0.14 は柱が太く不採用
 
 ## 参考
 

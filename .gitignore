@@ -10,6 +10,9 @@ dist/payload/
 # reference assemblies pulled off the game install
 lib/
 
+# machine-specific SSH target for deploy / bake / launch
+tools/local.env
+
 # upstream checkout
 vendor/
 
