@@ -780,6 +780,10 @@ docs/superpowers/specs/2026-08-18-splat-collision-design.md。
   **3DGS の壁と床は板で、正常**。上から見るとエッジオンで線に見えるだけ
 - **キャプチャごとのコリジョン焼き。** 手順は docs/SCENES.ja.md。voxel はシーンで決める
   （細かいほど穴、粗いほど柱が太い）。textilni は 0.06 で穴あり許容、0.14 は柱が太く不採用
+- **nelson は voxel 0.06、`--filter-cluster` は使わない。** 原点が空なのでクラスタが
+  孤立ブロック 1 個（1 splat）だけ残す。floater だけ落として 8.73M → 45 万三角形。
+  `nelson-full.collision.bin`（lod2 も同一座標なので同じファイルをコピー済み）。
+  `--reverse` は未確認。Web UI の show solid で中から壁が見えるか見てから決める
 
 ## 参考
 

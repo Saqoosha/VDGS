@@ -6,9 +6,9 @@ VelociDrone の中に 3D Gaussian Splatting シーンを表示する mod。
 
 実際にスキャンした場所を FPV ドローンシムの中に持ち込んで飛ぶための道具。
 
-[![スキャンした場所を VelociDrone の中で飛行](docs/vdgs.jpg)](https://youtu.be/ZPW1zui5lBU)
+[![スキャンした場所を VelociDrone の中で飛行](docs/vdgs.jpg)](https://www.youtube.com/watch?v=MuDq_7X-4Mo)
 
-[飛行映像](https://youtu.be/ZPW1zui5lBU)
+[飛行映像](https://www.youtube.com/watch?v=MuDq_7X-4Mo)
 
 ## 動作実績
 
