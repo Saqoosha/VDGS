@@ -92,15 +92,15 @@ namespace VDGS
     <div id=""xform"" style=""display:none"">
       <div class=""xform"">
         <label>Scale</label>
-        <input type=""range"" id=""scaleRange"" min=""-1"" max=""1"" step=""0.005"" value=""0"">
+        <input type=""range"" id=""scaleRange"" min=""-2"" max=""2"" step=""0.002"" value=""0"">
         <span class=""val"" id=""scaleVal"">1.00</span>
         <input type=""number"" id=""scaleNum"" step=""0.01"" min=""0.01"" max=""100"">
       </div>
       <div class=""xform"">
         <label>Height</label>
-        <input type=""range"" id=""yRange"" min=""-5"" max=""5"" step=""0.01"" value=""0"">
+        <input type=""range"" id=""yRange"" min=""-1"" max=""1"" step=""0.001"" value=""0"">
         <span class=""val"" id=""yVal"">0.00</span>
-        <input type=""number"" id=""yNum"" step=""0.05"">
+        <input type=""number"" id=""yNum"" step=""0.05"" min=""-1000"" max=""1000"">
       </div>
     </div>
 
@@ -131,13 +131,27 @@ let dragging = false;
 const toSlider = v => Math.log10(Math.max(0.01, v));
 const fromSlider = v => Math.pow(10, v);
 
+// Height has the same problem in both directions. It was linear over -5..+5, which is
+// right for a room and useless for a site: textilni's ground floor sits 5.11 m below its
+// origin, so lining it up with the game's ground plane needed a value the slider could
+// not reach at all. Widening it linearly would then make the room case unusable - a
+// pixel of travel would be tens of centimetres.
+//
+// So the same trick, signed: fine near zero, far reach at the ends. A third of the travel
+// each way covers +/-4.9 m, and the ends reach +/-200 m. Resolution per slider step is
+// 5 mm at 0, 3 cm at 5 m, 27 cm at 50 m. The number box beside it takes an exact value and
+// goes to +/-1000 - which utlida needs, its floor being 206 m below its own origin.
+const kYReach = 200;
+const toYSlider = v => Math.sign(v) * Math.log1p(Math.abs(v)) / Math.log1p(kYReach);
+const fromYSlider = t => Math.sign(t) * Math.expm1(Math.abs(t) * Math.log1p(kYReach));
+
 function setScaleUi(v) {
   document.getElementById('scaleRange').value = toSlider(v);
   document.getElementById('scaleNum').value = Number(v).toFixed(3);
   document.getElementById('scaleVal').textContent = Number(v).toFixed(2) + 'x';
 }
 function setYUi(v) {
-  document.getElementById('yRange').value = Math.max(-5, Math.min(5, v));
+  document.getElementById('yRange').value = toYSlider(Math.max(-kYReach, Math.min(kYReach, v)));
   document.getElementById('yNum').value = Number(v).toFixed(2);
   document.getElementById('yVal').textContent = Number(v).toFixed(2) + 'm';
 }
@@ -235,6 +249,55 @@ function render() {
       boxLabel.append(box, document.createTextNode(' box'));
 
       li.append(btn, name, meta, boxLabel);
+
+      // Only for captures that have a collision mesh. A disabled checkbox on the rest
+      // would read as solid-but-switched-off, when the truth is that no mesh exists.
+      if (s.hasCollision) {
+        const solidLabel = document.createElement('label');
+        solidLabel.className = 'meta';
+        solidLabel.title = 'walls and floor stop the drone';
+        const solid = document.createElement('input');
+        solid.type = 'checkbox';
+        solid.checked = !!s.collision;
+        solid.addEventListener('change', async () => {
+          solid.disabled = true;
+          await fetch('/api/collision', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ splat: s.name, on: solid.checked }),
+          });
+          solid.disabled = false;
+          refresh();
+        });
+        solidLabel.append(solid, document.createTextNode(' solid'));
+        li.appendChild(solidLabel);
+
+        // Draws the collision shell in-game. Solid culls back faces, which is the
+        // orientation test: inside a correctly wound room the walls are visible, inside an
+        // inside-out one nothing is.
+        const view = document.createElement('select');
+        view.className = 'meta';
+        view.title = 'draw the collision mesh';
+        for (const m of ['off', 'solid', 'wire']) {
+          const opt = document.createElement('option');
+          opt.value = m;
+          opt.textContent = m === 'off' ? 'hide mesh' : 'show ' + m;
+          view.appendChild(opt);
+        }
+        view.value = s.collisionView || 'off';
+        view.addEventListener('change', async () => {
+          view.disabled = true;
+          await fetch('/api/collisionview', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ splat: s.name, mode: view.value }),
+          });
+          view.disabled = false;
+          refresh();
+        });
+        li.appendChild(view);
+      }
+
       list.appendChild(li);
     }
   }
@@ -325,7 +388,8 @@ for (const [range, num, isScale] of [['scaleRange','scaleNum',true], ['yRange','
   r.addEventListener('pointerdown', () => { dragging = true; });
   r.addEventListener('pointerup',   () => { dragging = false; });
   r.addEventListener('input', () => {
-    const v = isScale ? fromSlider(parseFloat(r.value)) : parseFloat(r.value);
+    const t = parseFloat(r.value);
+    const v = isScale ? fromSlider(t) : fromYSlider(t);
     if (isScale) setScaleUi(v); else setYUi(v);
     pushTransform(isScale ? v : null, isScale ? null : v);
   });

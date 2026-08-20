@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 # Re-derive every splat scene from its aligned source.
 #
-# One Y reflection is the whole transform. 3DGS ply is right-handed Y-down and
-# Unity is left-handed Y-up, and UnityGaussianSplatting converts neither, so a
-# capture read straight in comes out mirrored *and* upside down. Reflecting Y
-# fixes both at once - it is a reflection (determinant -1), which a rotation can
-# never be, which is why the earlier --rotate 180,0,0 left everything mirrored.
+# One Y reflection is the whole transform, FOR THE CAPTURES THAT NEED IT. 3DGS ply is
+# right-handed Y-down and Unity is left-handed Y-up, and UnityGaussianSplatting converts
+# neither, so a capture read straight in comes out mirrored *and* upside down. Reflecting
+# Y fixes both at once - it is a reflection (determinant -1), which a rotation can never
+# be, which is why the earlier --rotate 180,0,0 left everything mirrored.
+#
+# But it is not every capture. playroom-nocrop has already been corrected by hand, and
+# mirroring it again stands the room on its ceiling. This script used to do that to every
+# scene; see the case statement below and `python3 tools/updir.py <ply>`.
 #
 # No cropping. Percentile cropping trims the outer shell, and a room shot from
 # the inside has its walls there, so it visibly thins the scene.
@@ -49,7 +53,7 @@ want="${1:-}"
 
 for entry in "${SCENES[@]}"; do
   name="${entry%%:*}"
-  src="$ROOT/build/testdata/${entry#*:}"
+  src="$ROOT/build/testdata/scenes/${entry#*:}"
 
   [ -n "$want" ] && [ "$want" != "$name" ] && continue
   if [ ! -f "$src" ]; then
@@ -61,9 +65,37 @@ for entry in "${SCENES[@]}"; do
   echo "== $name  <-  $(basename "$src")"
   echo "=============================================================="
 
-  mirrored="$ROOT/build/testdata/.$name-mirrored.ply"
-  python3 "$ROOT/tools/align_ply.py" "$src" "$mirrored" --mirror y --rotate 0,0,0 \
-    | grep -E "^input|mirrored|density check|WARNING|bounds" || true
+  # Mirror only the captures that need it. This used to mirror every scene, and it was
+  # wrong for playroom-nocrop, which has already been corrected by hand - align_ply's own
+  # density check said so on every run ("the densest surface is near the TOP") and nothing
+  # was reading it. The assets on disk happen to be correct only because playroom's
+  # predates that step; re-running the old script would have broken it.
+  #
+  # `python3 tools/updir.py <ply>` reports the verdict. Measured 2026-08-19:
+  #   playroom-nocrop  as-is 2.5% / mirrored 97.5%  -> no
+  #   bonsai2-aligned, drjohnson-aligned            -> yes (97.5% / 2.5%)
+  #   luigi                                          -> too close to call, mirrored to
+  #                                                     match the asset already shipped
+  case "$name" in
+    bonsai|drjohnson|luigi) mirror=yes ;;
+    *)                      mirror=no ;;
+  esac
+
+  # In its own directory, named after the scene. Two constraints meet here: Unity's
+  # AssetDatabase treats dot-prefixed files as hidden and will not create an asset for one
+  # (`.playroom-mirrored.ply` failed with "Creating asset at path
+  # Assets/GaussianAssets/.playroom-mirrored.asset failed" - naming the asset, not the ply,
+  # and never mentioning the dot), and PlyExporter names the asset after the ply, so a
+  # temp-ish filename becomes the asset's name in the project.
+  mkdir -p "$ROOT/build/testdata/tmp"
+  mirrored="$ROOT/build/testdata/tmp/$name.ply"
+  if [ "$mirror" = yes ]; then
+    python3 "$ROOT/tools/align_ply.py" "$src" "$mirrored" --mirror y --rotate 0,0,0 \
+      | grep -E "^input|mirrored|density check|WARNING|bounds" || true
+  else
+    echo "  not mirrored (tools/updir.py: this capture is already floor-down)"
+    cp "$src" "$mirrored"
+  fi
 
   # No `|| true` here, and no swallowing the exit status through a pipe. Unity refuses to
   # open a project a previous instance still holds, and a compile error in the exporter

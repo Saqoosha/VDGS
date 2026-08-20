@@ -32,6 +32,16 @@ namespace VDGS
             // A capture has no sky and no floor beyond what was photographed, so the
             // game's terrain and horizon show through every hole. See SplatBackdrop.
             public bool backdrop = false;
+
+            // On by default: a capture that has a collision mesh generated for it is meant
+            // to be flown as a solid room, and files written before this field existed
+            // keep the initialiser (JsonUtility only overwrites keys the file contains).
+            // Scenes with no collision.bin ignore it.
+            public bool collision = true;
+
+            // What the collider LOOKS like: off / solid / wire. See SplatCollisionView.
+            // Off by default - it is a diagnostic, not part of flying.
+            public string collisionView = "off";
         }
 
         private readonly int m_MetaSplatCount;
@@ -151,6 +161,26 @@ namespace VDGS
                 SplatBackdrop.Attach(m_Go.transform, data.BoundsMin, data.BoundsMax,
                                      kBackdropMargin, kBackdropGroundY, report);
 
+            // Off means nothing is built. Attaching regardless and disabling afterwards
+            // would still cook the mesh - 277,736 triangles for drjohnson - inside the
+            // spawn stall, so a perf run with collision switched off would silently
+            // measure the collision work anyway. Turning it on later pays the cook once
+            // and every toggle after that is free.
+            if (placement.collision)
+            {
+                // Not drawn here: the cook runs on a worker thread and sharedMesh is null for
+                // the first frames, so a view applied now would silently do nothing. Gated on
+                // the attach succeeding - a pending view with no collider to draw on retries
+                // once a second forever and writes a line to the track log each time.
+                if (SplatCollision.Attach(m_Go.transform, m_Dir, report)
+                    && placement.collisionView != SplatCollisionView.kOff)
+                    m_PendingView = placement.collisionView;
+            }
+            else if (SplatCollision.Exists(m_Dir))
+            {
+                report.AppendLine("  collision off - mesh not loaded");
+            }
+
             report.AppendLine(Name + ": spawned at " + m_Go.transform.position
                               + " rot " + m_Go.transform.eulerAngles
                               + " scale " + placement.scale);
@@ -164,6 +194,7 @@ namespace VDGS
             UnityEngine.Object.Destroy(m_Go);
             m_Go = null;
             m_Renderer = null;
+            m_PendingView = null;
         }
 
         internal Transform Transform => m_Go != null ? m_Go.transform : null;
@@ -226,6 +257,138 @@ namespace VDGS
                                  kBackdropMargin, kBackdropGroundY, log);
         }
 
+        /// <summary>Requested view, applied once the collider's mesh finishes cooking.</summary>
+        private string m_PendingView;
+
+        /// <summary>
+        /// Applies a view that was asked for before the mesh finished cooking.
+        ///
+        /// The plugin already polls once a second for track changes; this rides along rather
+        /// than adding a coroutine, so a view survives the gap between spawn and bake. Only
+        /// armed for that one transient case - see SetCollisionView.
+        /// </summary>
+        internal void PumpPendingView(StringBuilder log)
+        {
+            if (m_PendingView == null || m_Go == null) return;
+            if (SplatCollisionView.SetMode(m_Go.transform, m_PendingView, log))
+                m_PendingView = null;
+        }
+
+        internal string CollisionView => m_Go != null
+            ? SplatCollisionView.ModeOn(m_Go.transform)
+            : LoadPlacement().collisionView;
+
+        /// <summary>Draws the collision mesh, or stops drawing it, and remembers the choice.</summary>
+        internal void SetCollisionView(string mode, StringBuilder log)
+        {
+            if (!SplatCollisionView.IsMode(mode))
+            {
+                log?.AppendLine(Name + ": unknown collision view '" + mode + "'");
+                return;
+            }
+
+            var off = mode == SplatCollisionView.kOff;
+
+            if (m_Go == null)
+            {
+                // Same rule as below, for a capture that is not spawned: do not record a
+                // view for something with no mesh to draw.
+                if (off || HasCollision)
+                {
+                    Remember(mode, log);
+                    log?.AppendLine(Name + ": collision view " + mode + " (applies when spawned)");
+                }
+                else
+                {
+                    log?.AppendLine(Name + ": no collision mesh for this capture");
+                }
+                return;
+            }
+
+            // Drawing a shell for a capture whose collision is switched off would be worse
+            // than drawing nothing: it looks like the walls are there when they stop nothing.
+            // Not remembered either - the file would claim a view nobody can see.
+            // IsEnabled, not IsAttached: a collider that exists but is switched off is
+            // exactly the "collision is off" case this guard is about, and IsAttached is
+            // true for it.
+            var live = SplatCollision.IsEnabled(m_Go.transform);
+            if (!live && !off)
+            {
+                log?.AppendLine(Name + ": collision is off - switch it on to see the mesh");
+                return;
+            }
+
+            Remember(mode, log);
+            m_PendingView = null;          // whatever was queued, this supersedes it
+
+            if (SplatCollisionView.SetMode(m_Go.transform, mode, log)) return;
+
+            // Retry ONLY while the mesh is still cooking, and ask that question directly
+            // rather than inferring it from "a collider exists". SetMode also fails for a
+            // missing shader and for a wire buffer that would not build, and neither gets
+            // better by waiting - armed for those, PumpPendingView runs every second for
+            // the rest of the session and writes a line to the track log each time.
+            // Turning the view OFF never needs a retry: nothing is drawn either way.
+            if (!off && SplatCollision.IsBaking(m_Go.transform)) m_PendingView = mode;
+        }
+
+        /// <summary>True when a collision mesh was generated for this capture.</summary>
+        internal bool HasCollision => SplatCollision.Exists(m_Dir);
+
+        internal bool CollisionOn => m_Go != null
+            ? SplatCollision.IsEnabled(m_Go.transform)
+            : LoadPlacement().collision;
+
+        /// <summary>
+        /// Make the capture solid or fly-through, and remember the choice.
+        ///
+        /// Meant to be used mid-flight: the same wall with and without a collider, one
+        /// keypress apart, is the only honest way to judge whether the shell sits where the
+        /// wall looks like it is.
+        /// </summary>
+        internal void SetCollision(bool on, StringBuilder log)
+        {
+            var p = LoadPlacement();
+            p.collision = on;
+            SavePlacementData(p, log);
+
+            if (m_Go == null)
+            {
+                log?.AppendLine(Name + ": collision " + (on ? "on" : "off") + " (applies when spawned)");
+                return;
+            }
+
+            // Build it on first enable. Spawn skips the load when collision is off, so
+            // there may be no collider yet; after this the toggle only flips `enabled`,
+            // which is what makes flipping it mid-flight free.
+            if (on) SplatCollision.Attach(m_Go.transform, m_Dir, log);
+
+            if (!SplatCollision.SetEnabled(m_Go.transform, on))
+            {
+                log?.AppendLine(Name + ": no collision mesh - nothing to switch");
+                return;
+            }
+
+            // Switching the collider off takes the drawing with it. Leaving the shell up
+            // over walls that no longer stop anything is the exact picture SetCollisionView
+            // refuses to create - visible walls, and the drone flies through them. The
+            // queued view goes too, or it would be applied to the disabled collider a
+            // second later by PumpPendingView.
+            if (!on)
+            {
+                m_PendingView = null;
+                SplatCollisionView.SetMode(m_Go.transform, SplatCollisionView.kOff, log);
+            }
+            log?.AppendLine(Name + ": collision " + (on ? "on" : "off"));
+        }
+
+        private void Remember(string mode, StringBuilder log)
+        {
+            var p = LoadPlacement();
+            p.collisionView = mode;
+            SavePlacementData(p, log);
+        }
+
         internal void SetTransform(float? scale, float? yOffset, StringBuilder log)
         {
             var p = LoadPlacement();
@@ -284,13 +447,26 @@ namespace VDGS
             if (m_Go == null)
                 return;
             var tr = m_Go.transform;
-            SavePlacementData(new Placement
+
+            // Patch the file rather than build a fresh Placement, so a field the live
+            // objects cannot report keeps its stored value. `collision` is exactly that:
+            // IsEnabled is false both for "switched off" and for "no mesh generated", and
+            // writing the second case would silently pin collision off for a capture that
+            // later gets a mesh.
+            var p = LoadPlacement();
+            p.position = new[] { tr.position.x, tr.position.y, tr.position.z };
+            p.rotation = new[] { tr.eulerAngles.x, tr.eulerAngles.y, tr.eulerAngles.z };
+            p.scale = tr.localScale.x;
+            p.backdrop = SplatBackdrop.IsAttached(tr);
+            // IsAttached, not Exists: a collision.bin that is present but failed to load
+            // leaves Exists true and IsEnabled false, which would overwrite a user's "on"
+            // with off and pin it there. Only a live collider can report its own state.
+            if (SplatCollision.IsAttached(tr))
             {
-                position = new[] { tr.position.x, tr.position.y, tr.position.z },
-                rotation = new[] { tr.eulerAngles.x, tr.eulerAngles.y, tr.eulerAngles.z },
-                scale = tr.localScale.x,
-                backdrop = SplatBackdrop.IsAttached(tr),
-            }, null);
+                p.collision = SplatCollision.IsEnabled(tr);
+                p.collisionView = SplatCollisionView.ModeOn(tr);
+            }
+            SavePlacementData(p, null);
         }
 
         private void SavePlacementData(Placement p, StringBuilder log)
@@ -316,6 +492,7 @@ namespace VDGS
                 if (p.position == null || p.position.Length < 3) p.position = new float[] { 0, 0, 0 };
                 if (p.rotation == null || p.rotation.Length < 3) p.rotation = new float[] { 0, 0, 0 };
                 if (p.scale <= 0f) p.scale = 1f;
+                if (!SplatCollisionView.IsMode(p.collisionView)) p.collisionView = SplatCollisionView.kOff;
                 return p;
             }
             catch

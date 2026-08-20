@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>VDGS preview</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#111;color:#eee;
+            font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}
+  canvas{width:100%;height:100%;display:block}
+  #hud{position:fixed;top:10px;left:10px;background:rgba(20,20,20,.86);
+       padding:10px 12px;border-radius:6px;white-space:pre;pointer-events:none;
+       border:1px solid #333}
+  #hud b{color:#7ec8ff;font-weight:600}
+  .bad{color:#ff6b6b}
+  .good{color:#7ee787}
+  #keys{position:fixed;bottom:10px;left:10px;background:rgba(20,20,20,.86);
+        padding:8px 12px;border-radius:6px;white-space:pre;border:1px solid #333;color:#aaa}
+</style>
+</head>
+<body>
+<canvas id="app"></canvas>
+<div id="hud">loading…</div>
+<div id="keys">1 off   2 wireframe   3 x-ray   4 solid      V splat   I inside   O outside
+drag orbit   right-drag pan   wheel zoom</div>
+
+<script type="importmap">
+{ "imports": { "playcanvas": "./_engine/playcanvas.mjs" } }
+</script>
+<script type="module">
+import * as pc from 'playcanvas';
+import { CameraControls } from './_engine/camera-controls.mjs';
+
+const meta = await (await fetch('./preview.json')).json();
+
+const canvas = document.getElementById('app');
+const app = new pc.Application(canvas, {
+    graphicsDeviceOptions: { antialias: false },
+    mouse: new pc.Mouse(canvas),
+    touch: new pc.TouchDevice(canvas),
+    keyboard: new pc.Keyboard(window)
+});
+app.setCanvasFillMode(pc.FILLMODE_FILL_WINDOW);
+app.setCanvasResolution(pc.RESOLUTION_AUTO);
+window.addEventListener('resize', () => app.resizeCanvas());
+
+// ---- camera -------------------------------------------------------------
+// Framed on the COLLISION box, not the splat box. A capture's bounding box is set by its
+// furthest floater - drjohnson spans 19 x 19 x 26 while its room is 10 x 8 x 16 - so
+// framing on it puts the camera outside the room, looking at empty space. The collision
+// mesh has already had the floaters removed, so its box is the room.
+const cmin = meta.collision.min, cmax = meta.collision.max;
+const c = [0, 1, 2].map((i) => (cmin[i] + cmax[i]) / 2);
+const ext = [0, 1, 2].map((i) => cmax[i] - cmin[i]);
+const span = Math.max(ext[0], ext[1], ext[2]);
+
+const camera = new pc.Entity('camera');
+camera.addComponent('camera', { clearColor: new pc.Color(0.06, 0.06, 0.07), farClip: span * 20 });
+const target = new pc.Vec3(c[0], c[1], c[2]);
+
+// Two viewpoints. Outside answers "does the shell enclose the room"; inside answers
+// "would this be any good to fly", which is the question that actually matters.
+const back = span * 2.2;
+const outside = new pc.Vec3(c[0] + back * 0.62, c[1] + back * 0.48, c[2] + back * 0.62);
+const inside = new pc.Vec3(c[0], c[1] - ext[1] * 0.15, c[2]);
+// From inside, aim at a wall rather than at the middle of the room, which is empty air.
+const wall = new pc.Vec3(c[0] + ext[0], inside.y, c[2]);
+
+app.root.addChild(camera);
+camera.addComponent('script');
+const controls = camera.script.create(CameraControls);
+
+// Both the entity and the controls have to be told, and the controls have to exist
+// first. Setting the camera up before creating them looks like it works - the first
+// frame is aimed correctly - and then the controls snap back to their own focus point
+// on the frame after, which reads as a camera that starts somewhere arbitrary.
+const view = (from, at) => {
+    camera.setPosition(from);
+    camera.lookAt(at);
+    controls.focusPoint = at;
+    controls.focus(at, from, false);
+};
+
+// Outside by default. It only became usable once trim_collision.py started removing the
+// grid's own bounding box; before that the whole scene sat behind an opaque slab.
+view(outside, target);
+
+// ---- splat --------------------------------------------------------------
+// Fed the already-mirrored ply, so it shares the collision mesh's frame and
+// needs no transform here. Flipping it with a negative scale instead would
+// mirror every gaussian's quaternion, which is the failure this avoids.
+const splatAsset = new pc.Asset('splat', 'gsplat', { url: meta.files.splat });
+const meshAsset  = new pc.Asset('collision', 'container', { url: meta.files.collision });
+
+let splatEntity = null, collisionEntity = null, meshInstances = [];
+
+app.assets.add(splatAsset);
+app.assets.add(meshAsset);
+
+const ready = (a) => new Promise((res, rej) => { a.ready(() => res(a)); a.once('error', rej); app.assets.load(a); });
+
+const [sp, ms] = await Promise.all([ready(splatAsset), ready(meshAsset)]);
+
+splatEntity = new pc.Entity('splat');
+splatEntity.addComponent('gsplat', { asset: sp });
+app.root.addChild(splatEntity);
+
+collisionEntity = ms.resource.instantiateRenderEntity();
+app.root.addChild(collisionEntity);
+
+// The collision glb carries positions only - no normals - so a lit material would
+// render it black. Every mode here is unlit for that reason.
+//
+// None of them is alpha blended. A collision shell is a closed surface whose faces
+// overlap from any angle, and alpha blending sorts per mesh instance rather than per
+// triangle, so a translucent shell can only ever be drawn in the wrong order. Additive
+// blending sidesteps it: addition commutes, so the result does not depend on draw
+// order at all. The other two modes are opaque and need no sorting.
+const unlit = (setup) => {
+    const m = new pc.StandardMaterial();
+    m.useLighting = false;
+    m.diffuse = new pc.Color(0, 0, 0);
+    setup(m);
+    m.update();
+    return m;
+};
+
+const matWire = unlit((m) => {
+    m.emissive = new pc.Color(0.25, 0.95, 1.0);
+    m.cull = pc.CULLFACE_NONE;
+});
+
+const matXray = unlit((m) => {
+    // Dim, because front and back faces both contribute; depth of shell reads as
+    // brightness, which is useful rather than a defect.
+    // Dim enough not to saturate: a shell is many layers deep along most sight lines,
+    // and additive blending at any useful per-layer brightness clips to white.
+    m.emissive = new pc.Color(0.02, 0.09, 0.12);
+    m.blendType = pc.BLEND_ADDITIVE;
+    m.depthWrite = false;
+    m.cull = pc.CULLFACE_NONE;
+});
+
+const matSolid = unlit((m) => {
+    m.emissive = new pc.Color(0.10, 0.42, 0.55);
+    m.cull = pc.CULLFACE_NONE;
+});
+
+collisionEntity.findComponents('render').forEach((r) => {
+    r.meshInstances.forEach((mi) => meshInstances.push(mi));
+});
+
+// ---- modes --------------------------------------------------------------
+const MODES = {
+    1: null,
+    2: { material: matWire,  style: pc.RENDERSTYLE_WIREFRAME },
+    3: { material: matXray,  style: pc.RENDERSTYLE_SOLID },
+    4: { material: matSolid, style: pc.RENDERSTYLE_SOLID }
+};
+
+const setMode = (key) => {
+    const mode = MODES[key];
+    collisionEntity.enabled = mode !== null;
+    if (!mode) return;
+    meshInstances.forEach((mi) => {
+        mi.material = mode.material;
+        mi.renderStyle = mode.style;
+    });
+};
+setMode(3);
+
+window.addEventListener('keydown', (e) => {
+    if (MODES[e.key] !== undefined) setMode(e.key);
+    const k = e.key.toLowerCase();
+    // Not S. CameraControls flies on WASD, so S was also "move backwards" and the two
+    // fired together.
+    if (k === 'v') splatEntity.enabled = !splatEntity.enabled;
+    if (k === 'i') view(inside, wall);
+    if (k === 'o') view(outside, target);
+});
+
+// ---- numbers ------------------------------------------------------------
+// The picture is for judging whether the room is flyable. Alignment is not a
+// judgement, so it is printed rather than eyeballed: every wrong-orientation
+// bug this project has had still looked like a plausible capture.
+const f3 = (v) => '[' + v.map((x) => x.toFixed(2).padStart(7)).join(' ') + ' ]';
+const worst = Math.min(...meta.ratio);
+const enclosed = meta.enclosed * 100;
+document.getElementById('hud').innerHTML =
+`<b>${meta.name}</b>   ${meta.splats.toLocaleString()} splats   ${meta.triangles.toLocaleString()} tris   voxel ${meta.voxel}
+
+splat      min ${f3(meta.splat.min)}  max ${f3(meta.splat.max)}
+collision  min ${f3(meta.collision.min)}  max ${f3(meta.collision.max)}
+coverage   ${f3(meta.ratio)}   <span class="${worst < 0.9 ? 'bad' : 'good'}">${
+    worst < 0.9 ? 'FAIL  shell does not enclose the capture' : 'ok'}</span>
+enclosed   <span class="${enclosed < 99 ? 'bad' : 'good'}">${enclosed.toFixed(2)}%</span> of splats inside the shell box`;
+
+// Exposed so the page can be interrogated from the console, or by a headless
+// smoke test, without guessing at what did or did not load.
+window.__vdgs = { pc, app, camera, controls, splatEntity, collisionEntity, meta };
+
+app.start();
+</script>
+</body>
+</html>

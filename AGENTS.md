@@ -287,6 +287,11 @@ bash tools/launch-win.sh
 **手順 1 は省ける。** `<game>/vdgs/foo.ply` を置けばプラグインが実行時に読む
 （217 万 splats のパースが **0.97 秒**）。変換済みディレクトリと同名なら**ディレクトリが勝つ**。
 
+**直置き経路は Y を必ず鏡映する。** `PlyLoader` は既定 `mirrorY = true`、`SplatCollision` は
+`.ply` なら必ず鏡映するので、**splat とコリジョンは常に一致する**（食い違いは起きない）。
+ただし裏を返すと、**すでに床が下向きに整えてあるキャプチャは直置きでは必ず上下逆になる**
+（`playroom-nocrop.ply` がそれ）。そういうものは `reprocess.sh` で変換して置く。
+
 **ただし 0.97 秒は体感する数字ではない。** `PlyBench` は `GraphicsBuffer.SetData` の前で
 止まる。ゲーム内の実測は 217 万で **2.95 秒**、400 万＋SH で **13〜14 秒**。レートは
 バイトではなく splat ごとで、**SH 無し 1.34 µs/splat、3 次 3.39 µs/splat**（詳細は
@@ -468,16 +473,19 @@ Y オフセットで持ち上げても直らない（位置の問題ではない
 - **巨大 splat はサイズで切る**（`--max-sigma 5`）。位置でも連結性でもない —
   extent 1.8 個分の幅がある splat は定義上すべてに接続している。utlida では 178 個
   （0.004%）が描画面積の 60% を占めていた
-
-**同じ結論に別のツールから到達した記録：** PlayCanvas の `splat-transform` は ply 読み込み
-時に「Z 軸 180 度回転」を適用するとドキュメントに書いているが、**v3.3.0 では嘘**。軸ごとに
-独立検証すると実際は **Y の反転だけ**（鏡映、`--mirror y` と同じ）。副産物として、そこから
-出るメッシュは既に Unity の座標系にある。（コリジョン設計セッションの実測）
+- **`splat-transform` は読み込み時に Z 軸 180 度回転を掛ける** — ドキュメント通りで、
+  `(x, y, z)` が `(-x, -y, z)`。`--mirror y` の `(x, -y, z)` とは **X の符号だけ違う**。
+  そこから出たメッシュをそのまま Unity に置くとキャプチャの鏡像を包む。X を反転し、
+  巻き順も 3 個ずつ逆順にすること（行列式 -1 で全面が内向きになるため）。
+  **ここは一度「実際は Y 反転だけ」と逆に書かれていた** — `.voxel.json` のヘッダを
+  `.collision.glb` の頂点と同じ座標系だと思って測っていた。決着は AABB 残差の比較
+  （Z rot 180 が 0.12、Y flip が 1.06、8.9 倍差）。**同じデータの IoU は 0.203 対 0.193 で
+  決着しない**ので、向きの判定に IoU は使わない
 
 ### 検証は目視でなく数値で（全文は docs/verification.ja.md）
 
 **このプロジェクトで目視レビューは一度も欠陥を捕まえていない。** 鏡像も、残骸 chunk.bin も、
-正射影カメラも、全部「それらしい絵」を出した。
+正射影カメラも、全部「それらしい絵」を出した。道具は 3 つある：
 
 | 道具 | 何を測るか |
 |---|---|
@@ -583,6 +591,9 @@ src/VDGS/
   SplatRenderer.cs 描画本体（CommandBuffer + compute sort）
   GpuSorting.cs    8bit radix sort（upstream からほぼ無改変）
   SplatScene.cs    1つの splat シーンの生成・破棄と placement.json の読み込み
+  SplatCollision.cs      collision.bin -> MeshCollider（.ply は読み込み時に Y 鏡映）
+  SplatCollisionView.cs  コリジョン殻の描画（半透明＋背面カリング / ワイヤー）
+  SplatBackdrop.cs       キャプチャを黒い箱で囲う
   TrackName.cs     ロード中のトラック名をランタイムに問い合わせる
   TrackBindings.cs トラック名 -> GS の対応表（bindings.json）
   TrackProbe.cs    難読化されたゲームから文字列の在処を探す調査用
@@ -734,10 +745,13 @@ Auto Exposure が毎フレーム例外を投げる。**描画への実害は無�
 Get-Content $log | Where-Object { $_ -notmatch "KEyeHistogramClear|PostProcessing|^\s*at " }
 ```
 
-**3DGS にコリジョンは無い。** 飛べる壁になる。別セッションが同じ撮影データから
-voxel → MeshCollider を生成する経路を作っている（ブランチ `worktree-splat-collision`）。
-そちらの実測：物理は 400 Hz、150 km/h で 1 ステップ 0.104 m 進むので**厚さ 10 cm 未満の
-壁はすり抜ける** — 表面スキンではなく外部フラッドフィルで閉じた殻を作る必要がある。
+**コリジョンは付くようになった**（`SplatCollision.cs`、実装済み・実機で確認済み）。
+ただし**メッシュを持つのは playroom / drjohnson / textilni だけ**で、他のキャプチャは
+いまも飛べる壁のまま。生成手順と実測は
+docs/superpowers/specs/2026-08-18-splat-collision-design.md。
+
+**壁の厚みは速度で決まる。** 物理は 400 Hz、150 km/h で 1 ステップ 0.104 m 進むので
+**厚さ 10 cm 未満の壁はすり抜ける**。level set の帯を voxel の 4 倍で焼くのはこのため。
 
 ## 残タスク
 

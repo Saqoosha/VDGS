@@ -72,6 +72,8 @@ namespace VDGS
                     UnbindTrack = Unbind,
                     SetTransform = ApplyTransform,
                     SetBackdrop = ApplyBackdrop,
+                    SetCollision = ApplyCollision,
+                    SetCollisionView = ApplyCollisionView,
                 };
                 if (!m_Web.Start(WebControl.kDefaultPort, report))
                 {
@@ -108,6 +110,12 @@ namespace VDGS
                     { "scale", s.Scale },
                     { "y", s.YOffset },
                     { "backdrop", s.BackdropOn },
+                    // Two fields, not one: the UI must be able to tell "no collision mesh
+                    // generated" apart from "mesh generated and switched off", or a missing
+                    // file reads as a setting somebody turned off.
+                    { "hasCollision", s.HasCollision },
+                    { "collision", s.CollisionOn },
+                    { "collisionView", s.CollisionView },
                 });
                 if (s.Spawned) loaded.Add(s.Name);
             }
@@ -130,6 +138,38 @@ namespace VDGS
             {
                 if (!string.Equals(s.Name, name, StringComparison.OrdinalIgnoreCase)) continue;
                 s.SetBackdrop(on, log);
+            }
+            if (log.Length > 0)
+            {
+                try { File.AppendAllText(Probe.LogPath, log.ToString()); } catch { }
+            }
+        }
+
+        /// <summary>Makes one capture solid, or lets the drone fly through it.</summary>
+        private void ApplyCollision(string name, bool on)
+        {
+            EnsureDiscovered();
+            var log = new StringBuilder();
+            foreach (var s in m_Scenes)
+            {
+                if (!string.Equals(s.Name, name, StringComparison.OrdinalIgnoreCase)) continue;
+                s.SetCollision(on, log);
+            }
+            if (log.Length > 0)
+            {
+                try { File.AppendAllText(Probe.LogPath, log.ToString()); } catch { }
+            }
+        }
+
+        /// <summary>Draws the collision mesh for one capture: off, solid or wire.</summary>
+        private void ApplyCollisionView(string name, string mode)
+        {
+            EnsureDiscovered();
+            var log = new StringBuilder();
+            foreach (var s in m_Scenes)
+            {
+                if (!string.Equals(s.Name, name, StringComparison.OrdinalIgnoreCase)) continue;
+                s.SetCollisionView(mode, log);
             }
             if (log.Length > 0)
             {
@@ -383,6 +423,11 @@ namespace VDGS
                 m_CurrentTrack = name;
                 ApplyTrackBinding(name, log);
             }
+
+            // A view asked for at spawn time could not be applied then - the collider's mesh
+            // is cooked on a worker thread and is null for the first frames. Retried here so
+            // the drawing appears on its own rather than needing a second click.
+            foreach (var s in m_Scenes) s.PumpPendingView(log);
 
             if (log.Length > 0)
             {

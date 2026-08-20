@@ -42,6 +42,8 @@ namespace VDGS
         internal Action<string> UnbindTrack;    // null clears the live track's binding
         internal Action<string, float?, float?> SetTransform;  // splat, scale, yOffset
         internal Action<string, bool> SetBackdrop;             // splat, on
+        internal Action<string, bool> SetCollision;            // splat, on
+        internal Action<string, string> SetCollisionView;      // splat, off|solid|wire
 
         internal string Url { get; private set; }
 
@@ -166,6 +168,38 @@ namespace VDGS
                     }
                     var bName = splat; var bOn = on;
                     QueueOnMain(() => SetBackdrop?.Invoke(bName, bOn));
+                    Respond(ctx, 200, "{\"ok\":true}");
+                    return;
+                }
+
+                case "/api/collision":
+                {
+                    var body = ReadBody(ctx);
+                    var req = JsonConvert.DeserializeObject<Dictionary<string, object>>(body);
+                    string splat = null; bool on = false;
+                    if (req != null)
+                    {
+                        if (req.TryGetValue("splat", out var sv) && sv != null) splat = sv.ToString();
+                        if (req.TryGetValue("on", out var ov) && ov != null) on = Convert.ToBoolean(ov);
+                    }
+                    var cName = splat; var cOn = on;
+                    QueueOnMain(() => SetCollision?.Invoke(cName, cOn));
+                    Respond(ctx, 200, "{\"ok\":true}");
+                    return;
+                }
+
+                case "/api/collisionview":
+                {
+                    var body = ReadBody(ctx);
+                    var req = JsonConvert.DeserializeObject<Dictionary<string, object>>(body);
+                    string splat = null, mode = null;
+                    if (req != null)
+                    {
+                        if (req.TryGetValue("splat", out var sv) && sv != null) splat = sv.ToString();
+                        if (req.TryGetValue("mode", out var mv) && mv != null) mode = mv.ToString();
+                    }
+                    var vName = splat; var vMode = mode;
+                    QueueOnMain(() => SetCollisionView?.Invoke(vName, vMode));
                     Respond(ctx, 200, "{\"ok\":true}");
                     return;
                 }

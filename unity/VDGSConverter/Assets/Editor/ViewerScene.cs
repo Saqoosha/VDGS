@@ -65,6 +65,20 @@ public static class ViewerScene
             r.m_ShaderDebugBoxes = shaderBoxes;
             r.m_CSSplatUtilities = cs;
 
+            // Attach the runtime collision loader if a collision.bin exists for this
+            // capture. It is the plugin's own SplatCollision.cs, symlinked into this
+            // project rather than copied, so pressing Play exercises exactly the code the
+            // game will run - same format, same Mesh build, same off-thread bake, same
+            // MeshCollider settings. Testing a separate implementation would prove nothing
+            // about the one that ships.
+            var splatDir = Path.Combine(RepoRoot(), "build", "splats", asset.name);
+            if (File.Exists(Path.Combine(splatDir, "collision.bin")))
+            {
+                var probe = go.AddComponent<SplatCollisionProbe>();
+                probe.splatDir = splatDir;
+                Debug.Log($"[VDGS] {asset.name}: collision.bin found, probe attached");
+            }
+
             // One at a time: several million splats at once makes the editor crawl and
             // the captures overlap into noise.
             go.SetActive(first);
@@ -97,6 +111,15 @@ public static class ViewerScene
                   "only the largest enabled - toggle the others in the Hierarchy)");
 
         if (Application.isBatchMode) EditorApplication.Exit(0);
+    }
+
+    /// <summary>
+    /// The repository root, from the project path. Application.dataPath points at
+    /// unity/VDGSConverter/Assets, so the root is three levels up.
+    /// </summary>
+    private static string RepoRoot()
+    {
+        return Path.GetFullPath(Path.Combine(Application.dataPath, "..", "..", ".."));
     }
 
     private static Shader FindShader(string name)
