@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
-# Build the VDGS plugin and push it to the Windows box over SSH.
+# Build the VDGS plugin / control UI and push them to the Windows box over SSH.
 #
-#   bash tools/deploy.sh              # plugin + every scene under build/splats/
-#   bash tools/deploy.sh --plugin     # plugin only
+#   bash tools/deploy.sh              # plugin + UI + every scene under build/splats/
+#   bash tools/deploy.sh --plugin     # plugin + UI (skip the 2.2 GB splat copy)
+#   bash tools/deploy.sh --ui         # UI only; no dotnet build
 #
 # --plugin exists because the scenes are 2.2 GB and the DLL is 100 KB, so a one-line
 # C# change was paying minutes of transfer to re-send splat data that had not
 # changed. Resist the urge to write a second script for that - the launch path was
 # once split in two and the copies drifted until each had a step the other lacked.
+# --ui is the same idea for the frontend: it is small, and rebuilding the plugin
+# just to restyle a card is a waste.
 #
 # The game path contains spaces and the remote default shell is PowerShell, which
 # does not treat backslash as an escape. Quoting a spaced path through scp is a
@@ -19,7 +22,13 @@ set -euo pipefail
 # test's, and whether bash then kills the script is subtle enough that someone would
 # eventually "fix" it in the wrong direction.
 PLUGIN_ONLY=0
-if [ "${1:-}" = "--plugin" ]; then PLUGIN_ONLY=1; fi
+UI_ONLY=0
+case "${1:-}" in
+  --plugin) PLUGIN_ONLY=1 ;;
+  --ui) UI_ONLY=1 ;;
+  "") ;;
+  *) echo "usage: tools/deploy.sh [--plugin|--ui]" >&2; exit 2 ;;
+esac
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck disable=SC1091
@@ -34,19 +43,33 @@ if [ -n "${VDGS_GAME:-}" ]; then
 fi
 
 echo "== build =="
-dotnet build "$ROOT/src/VDGS/VDGS.csproj" -c Release | tail -3
+if [ "$UI_ONLY" = 0 ]; then
+  dotnet build "$ROOT/src/VDGS/VDGS.csproj" -c Release | tail -3
+fi
+if [ -f "$ROOT/web/package.json" ]; then
+  echo "== ui =="
+  ( cd "$ROOT/web" && bun run build )
+fi
 
 echo "== stage =="
 ssh -o BatchMode=yes "$HOST" \
   "${REMOTE_GAME}New-Item -ItemType Directory -Force -Path (Join-Path \$env:USERPROFILE 'vdgs-stage') | Out-Null; Write-Output ok" \
   2>&1 | quiet
-scp -o BatchMode=yes -q "$ROOT/src/VDGS/bin/Release/VDGS.dll" "$HOST:vdgs-stage/VDGS.dll" 2>&1 | quiet
+if [ "$UI_ONLY" = 0 ]; then
+  scp -o BatchMode=yes -q "$ROOT/src/VDGS/bin/Release/VDGS.dll" "$HOST:vdgs-stage/VDGS.dll" 2>&1 | quiet
+fi
+if [ -d "$ROOT/web/dist" ]; then
+  ssh -o BatchMode=yes "$HOST" \
+    "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue (Join-Path (Join-Path \$env:USERPROFILE 'vdgs-stage') 'ui'); New-Item -ItemType Directory -Force -Path (Join-Path (Join-Path \$env:USERPROFILE 'vdgs-stage') 'ui') | Out-Null" \
+    2>&1 | quiet
+  scp -o BatchMode=yes -q -r "$ROOT/web/dist/." "$HOST:vdgs-stage/ui/" 2>&1 | quiet
+fi
 
 # The shader bundle is built ON the Windows box (macOS cannot run DXC for D3D),
 # so it is never staged from here - see tools/build-shaders-win.ps1.
 
 # Splat scenes: build/splats/<name>/ -> <game>/vdgs/<name>/
-if [ "$PLUGIN_ONLY" = 0 ] && [ -d "$ROOT/build/splats" ]; then
+if [ "$PLUGIN_ONLY" = 0 ] && [ "$UI_ONLY" = 0 ] && [ -d "$ROOT/build/splats" ]; then
   for dir in "$ROOT/build/splats"/*/; do
     [ -d "$dir" ] || continue
     name="$(basename "$dir")"
@@ -61,12 +84,23 @@ fi
 echo "== install =="
 ssh -o BatchMode=yes "$HOST" "
   ${REMOTE_GAME}\$PLUGIN_ONLY = $PLUGIN_ONLY
+  ${REMOTE_GAME}\$UI_ONLY = $UI_ONLY
   \$home = \$env:USERPROFILE
   \$stage = Join-Path \$home 'vdgs-stage'
   \$game = if (\$env:VDGS_GAME) { \$env:VDGS_GAME } else { Join-Path \$home 'Downloads\\Velocidrone Windows Launcher\\app' }
   New-Item -ItemType Directory -Force -Path (Join-Path \$game 'BepInEx\\plugins') | Out-Null
-  Copy-Item (Join-Path \$stage 'VDGS.dll') (Join-Path \$game 'BepInEx\\plugins\\VDGS.dll') -Force
+  if (\$UI_ONLY -eq 0) {
+    Copy-Item (Join-Path \$stage 'VDGS.dll') (Join-Path \$game 'BepInEx\\plugins\\VDGS.dll') -Force
+  }
   New-Item -ItemType Directory -Force -Path (Join-Path \$game 'vdgs') | Out-Null
+  \$uiSrc = Join-Path \$stage 'ui'
+  if (Test-Path \$uiSrc) {
+    \$uiDst = Join-Path (Join-Path \$game 'vdgs') 'ui'
+    if (Test-Path \$uiDst) { Remove-Item \$uiDst -Recurse -Force }
+    New-Item -ItemType Directory -Force -Path \$uiDst | Out-Null
+    Copy-Item (Join-Path \$uiSrc '*') \$uiDst -Recurse -Force
+    Write-Output ('  installed ui -> ' + \$uiDst)
+  }
   if (\$PLUGIN_ONLY -eq 0 -and (Test-Path (Join-Path \$stage 'splats'))) {
     foreach (\$d in Get-ChildItem (Join-Path \$stage 'splats') -Directory) {
       \$dst = Join-Path (Join-Path \$game 'vdgs') \$d.Name
