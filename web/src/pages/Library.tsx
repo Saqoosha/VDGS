@@ -28,7 +28,7 @@ export default function Library() {
 
   return (
     <div>
-      <label className="flex items-end gap-4 border-b-2 border-foreground/80 pb-1.5">
+      <label className="flex items-end gap-4 border-b border-rule pb-1.5">
         <span className="font-mono text-[10px] tracking-[0.22em] text-muted-foreground uppercase">
           find
         </span>
