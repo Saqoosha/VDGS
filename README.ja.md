@@ -65,6 +65,16 @@ mod をビルドするには、シェーダーバンドル用に **Windows 上�
 `ACTk.Runtime.dll`（Anti-Cheat Toolkit）が同梱されている。改造クライアントで
 タイムを投稿するのは規約違反にあたる。ローカル飛行専用。
 
+## splat データは同梱していない
+
+**この mod にキャプチャは付いてこない。** リポジトリに入っている splat データは
+`tools/make_test_ply.py` が生成する合成シーンだけ（軸・色・スケールの検証用）。開発中に
+飛んだものは全部他人の著作物 — 学術データセットは**そもそもライセンスを表記していない**
+（それは「自由」ではなく全権利留保）、INRIA 3DGS のライセンスは研究目的限定でその制限が
+派生物にも及び、残りは SuperSplat に公開された第三者のキャプチャ。
+
+`.ply` は自分で用意して `<game>/vdgs/` に置く。詳細は [docs/USAGE.ja.md](docs/USAGE.ja.md)。
+
 ## ライセンス
 
 `src/VDGS/GpuSorting.cs` と `unity/VDGSBundler/Assets/VDGS/Shaders/` は

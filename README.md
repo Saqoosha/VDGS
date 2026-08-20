@@ -65,6 +65,17 @@ macOS cannot compile D3D shaders. Adding a capture needs nothing: drop the `.ply
 `ACTk.Runtime.dll` (Anti-Cheat Toolkit), and submitting times from a modified client is
 against its terms. Local flying only.
 
+## Scene data is not included
+
+**The mod ships no captures.** The only splat data in this repository is what
+`tools/make_test_ply.py` generates — a synthetic scene for checking axes, colour and
+scale. Everything flown during development belongs to someone else: the academic datasets
+state no licence at all (which means all rights reserved, not "free"), the INRIA 3DGS
+licence is research-only and carries that restriction to derivative works, and the rest
+are third-party captures published on SuperSplat.
+
+Bring your own `.ply` and drop it in `<game>/vdgs/`. See [docs/USAGE.md](docs/USAGE.md).
+
 ## Licence
 
 `src/VDGS/GpuSorting.cs` and `unity/VDGSBundler/Assets/VDGS/Shaders/` derive from
