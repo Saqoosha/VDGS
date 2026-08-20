@@ -12,7 +12,7 @@
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="..\VDGS\VdgsPaths.cs" Link="VdgsPaths.cs" Condition="Exists('..\VDGS\VdgsPaths.cs')" />
-    <Compile Include="..\VDGS\SplatMetaFile.cs" Link="SplatMetaFile.cs" Condition="Exists('..\VDGS\SplatMetaFile.cs')" />
+    <Compile Include="..\VDGS\VdgsPaths.cs" Link="VdgsPaths.cs" />
+    <Compile Include="..\VDGS\SplatMetaFile.cs" Link="SplatMetaFile.cs" />
   </ItemGroup>
 </Project>
