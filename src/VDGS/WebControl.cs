@@ -46,6 +46,7 @@ namespace VDGS
         internal Action<string, string> SetCollisionView;      // splat, off|solid|wire
 
         internal string Url { get; private set; }
+        internal string UiRoot { get; set; }
 
         internal bool Start(int port, StringBuilder log)
         {
@@ -119,11 +120,6 @@ namespace VDGS
 
             switch (path)
             {
-                case "/":
-                case "/index.html":
-                    Respond(ctx, 200, WebUi.Html, "text/html; charset=utf-8");
-                    return;
-
                 case "/api/status":
                     Respond(ctx, 200, JsonConvert.SerializeObject(RunOnMain(StatusProvider), Formatting.Indented));
                     return;
@@ -244,9 +240,38 @@ namespace VDGS
                 }
 
                 default:
-                    Respond(ctx, 404, "{\"error\":\"not found\"}");
+                    if (path.StartsWith("/api/", StringComparison.Ordinal))
+                    {
+                        Respond(ctx, 404, "{\"error\":\"not found\"}");
+                        return;
+                    }
+                    ServeUi(ctx, path);
                     return;
             }
+        }
+
+        private void ServeUi(HttpListenerContext ctx, string urlPath)
+        {
+            var result = VdgsPaths.ResolveUi(UiRoot, urlPath, out var filePath);
+            if (result == VdgsPaths.UiResult.MissingUi)
+            {
+                Respond(ctx, 200, WebUi.Html, "text/html; charset=utf-8");
+                return;
+            }
+            if (result == VdgsPaths.UiResult.Forbidden || result == VdgsPaths.UiResult.NotFound
+                || filePath == null)
+            {
+                Respond(ctx, 404, "{\"error\":\"not found\"}");
+                return;
+            }
+
+            var bytes = File.ReadAllBytes(filePath);
+            ctx.Response.StatusCode = 200;
+            ctx.Response.ContentType = VdgsPaths.MimeType(filePath);
+            ctx.Response.ContentLength64 = bytes.Length;
+            ctx.Response.Headers["Cache-Control"] = VdgsPaths.CacheControl(urlPath);
+            ctx.Response.OutputStream.Write(bytes, 0, bytes.Length);
+            ctx.Response.OutputStream.Close();
         }
 
         private static string ReadBody(HttpListenerContext ctx)
