@@ -5,7 +5,9 @@
 A mod that renders 3D Gaussian Splatting captures inside VelociDrone — so you can fly a
 real, scanned place in an FPV drone simulator.
 
-![synthetic test cube rendered inside VelociDrone](docs/testcube-first-light.png)
+[![flying a scanned place inside VelociDrone](docs/vdgs.jpg)](https://youtu.be/ZPW1zui5lBU)
+
+[Watch the flight](https://youtu.be/ZPW1zui5lBU)
 
 ## What it does
 
