@@ -2,6 +2,8 @@
 bin/
 obj/
 build/
+web/dist/
+web/node_modules/
 
 # prebuilt shader bundle staged for packaging; tools/package.sh fetches it
 # from the Windows box, and released zips live on GitHub Releases

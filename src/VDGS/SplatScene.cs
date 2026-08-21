@@ -44,7 +44,7 @@ namespace VDGS
             public string collisionView = "off";
         }
 
-        private readonly int m_MetaSplatCount;
+        private readonly SplatMetaInfo m_Meta;
 
         /// <summary>True when this scene is a .ply read at load time, not a converted directory.</summary>
         /// <summary>Placement sits inside a converted directory, or beside a .ply.</summary>
@@ -60,32 +60,7 @@ namespace VDGS
             Name = IsPly
                 ? Path.GetFileNameWithoutExtension(path)
                 : new DirectoryInfo(path).Name;
-            m_MetaSplatCount = IsPly ? PlySplatCount() : MetaSplatCount();
-        }
-
-        /// <summary>
-        /// Splat count from a .ply header, without reading the body.
-        ///
-        /// The UI wants to show how big a capture is before anything is spawned, and the
-        /// body is hundreds of megabytes.
-        /// </summary>
-        private int PlySplatCount()
-        {
-            try
-            {
-                using (var fs = File.OpenRead(m_Dir))
-                {
-                    var buf = new byte[8192];
-                    int n = fs.Read(buf, 0, buf.Length);
-                    var text = System.Text.Encoding.ASCII.GetString(buf, 0, n);
-                    var i = text.IndexOf("element vertex ", StringComparison.Ordinal);
-                    if (i < 0) return 0;
-                    i += "element vertex ".Length;
-                    var end = text.IndexOfAny(new[] { ' ', '\n', '\r' }, i);
-                    return int.TryParse(text.Substring(i, end - i), out var c) ? c : 0;
-                }
-            }
-            catch { return 0; }
+            m_Meta = SplatMetaFile.Read(path);
         }
 
         /// <summary>Finds every splat scene directory under &lt;game&gt;/vdgs/.</summary>
@@ -100,10 +75,16 @@ namespace VDGS
 
             foreach (var dir in Directory.GetDirectories(vdgsDir))
             {
+                var name = new DirectoryInfo(dir).Name;
+                if (VdgsPaths.IsReservedSceneName(name))
+                {
+                    report.AppendLine("skipping reserved dir: " + name);
+                    continue;
+                }
                 if (!File.Exists(Path.Combine(dir, "meta.json")))
                     continue;
                 found.Add(new SplatScene(dir));
-                report.AppendLine("found splat scene: " + new DirectoryInfo(dir).Name);
+                report.AppendLine("found splat scene: " + name);
             }
 
             // A .ply dropped straight in is converted at spawn time by PlyLoader. This is
@@ -198,7 +179,14 @@ namespace VDGS
         }
 
         internal Transform Transform => m_Go != null ? m_Go.transform : null;
-        internal int SplatCount => m_Renderer != null ? m_Renderer.SplatCount : m_MetaSplatCount;
+        internal int SplatCount => m_Renderer != null ? m_Renderer.SplatCount : m_Meta.Splats;
+        internal string Source => "local";
+        internal string Kind => m_Meta.Kind;
+        internal string PosFormat => m_Meta.PosFormat;
+        internal string ScaleFormat => m_Meta.ScaleFormat;
+        internal string ColorFormat => m_Meta.ColorFormat;
+        internal string ShFormat => m_Meta.ShFormat;
+        internal long Bytes => m_Meta.Bytes;
 
         /// <summary>Current uniform scale, from the live object or from placement.json.</summary>
         internal float Scale => m_Go != null ? m_Go.transform.localScale.x : LoadPlacement().scale;
@@ -416,30 +404,6 @@ namespace VDGS
             SavePlacementData(p, log);
             log?.AppendLine(Name + ": scale=" + p.scale.ToString("0.###")
                             + " y=" + p.position[1].ToString("0.###"));
-        }
-
-        /// <summary>
-        /// Splat count read from meta.json without loading the buffers, so the UI can
-        /// show the size of a capture that is not spawned.
-        /// </summary>
-        private int MetaSplatCount()
-        {
-            try
-            {
-                var meta = Path.Combine(m_Dir, "meta.json");
-                if (!File.Exists(meta)) return 0;
-                // Cheap parse: avoid pulling the whole loader in for one integer.
-                var text = File.ReadAllText(meta);
-                var key = "\"splatCount\"";
-                var i = text.IndexOf(key, StringComparison.Ordinal);
-                if (i < 0) return 0;
-                i = text.IndexOf(':', i + key.Length);
-                if (i < 0) return 0;
-                var end = text.IndexOfAny(new[] { ',', '\n', '\r', '}' }, i + 1);
-                if (end < 0) end = text.Length;
-                return int.TryParse(text.Substring(i + 1, end - i - 1).Trim(), out var n) ? n : 0;
-            }
-            catch { return 0; }
         }
 
         internal void SavePlacement()

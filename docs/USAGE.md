@@ -287,24 +287,27 @@ entirely.
 
 Once the game is running the mod serves a control UI at **`http://<host>:8777/`**. Open it
 from any machine on the LAN. Watching the game on one screen and driving the mod from a
-browser on another is the intended setup.
+browser on another is the intended setup. After a UI-only change, `bash tools/deploy.sh --ui`
+copies `web/dist/` to `<game>/vdgs/ui/` without rebuilding the plugin.
 
 ```
-┌─ VDGS Control ──────────────────────────────────┐
-│  Current track                                  │
+┌ VDGS · local · 01 control / 02 library ─────────┐
+│  01 current track                               │
 │  Empty Scene Day                                │
-│  bound to myscene                               │
-├─────────────────────────────────────────────────┤
-│  Splat scenes on this machine                   │
-│  [shown]  myscene   1,916,379 splats            │
-│  [show ]  other        14,526 splats            │
-│                                                 │
-│  [Bind shown splat to this track]               │
-│  [Unbind this track]  [Hide all]                │
-├─────────────────────────────────────────────────┤
-│  Bindings                                       │
+│  bound → myscene                                │
+│  [Bind shown]  [Unbind]  [Hide all]             │
+│  02 on screen                                   │
+│  myscene   1,916,379 splats                     │
+│  [x] box  [x] solid  [hide mesh]                │
+│  Scale  ────│────  1.00×                        │
+│  Height ────│────  0.00m                        │
+│  03 bindings                                    │
 │  <track name>  →  myscene       [remove]        │
 └─────────────────────────────────────────────────┘
+
+Library is a numbered index of every capture on the machine (search, splat
+count, format, size, collision). Show loads it. Transform sliders stay on
+Control.
 ```
 
 **No game key is taken.** The track editor's arrow keys and F7 keep working. The UI

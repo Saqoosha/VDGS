@@ -608,11 +608,16 @@ src/VDGS/
   TrackName.cs     ロード中のトラック名をランタイムに問い合わせる
   TrackBindings.cs トラック名 -> GS の対応表（bindings.json）
   TrackProbe.cs    難読化されたゲームから文字列の在処を探す調査用
-  WebControl.cs    HTTP サーバー（操作 API）
-  WebUi.cs         ブラウザ UI（埋め込み HTML）
+  WebControl.cs    HTTP サーバー（操作 API と vdgs/ui/ の静的ファイル）
+  WebUi.cs         vdgs/ui/ が無いときのフォールバック HTML
+  VdgsPaths.cs     予約名 ui とパストラバーサル拒否
+  SplatMetaFile.cs GPU バッファを開かない meta 読み
   PerfLog.cs       フレームタイム記録
   PostProcessFix.cs  D3D12 強制の副作用対応（未解決、記録のみ）
 ```
+
+フロントは `web/`（Vite + React）。成果物は `<game>/vdgs/ui/`。ディレクトリ名 `ui` は
+シーンにならない。
 
 upstream から**削った**もの：編集機能・selection・cutouts・URP/HDRP パス・Profiler。
 依存も `Unity.Mathematics` / `Unity.Collections` / `Burst` を全部剥がし、UnityEngine のみにした。
@@ -631,7 +636,9 @@ upstream から**削った**もの：編集機能・selection・cutouts・URP/HD
 
 ## 操作は Web UI（ゲーム内キーではない）
 
-`http://<host>:8777/` でプラグインが HTTP サーバーを立てる（`WebControl` + `WebUi`）。
+`http://<host>:8777/` でプラグインが HTTP サーバーを立てる（`WebControl` + `web/`）。
+見た目は暗い場にガウシアンが漂う。カードは使わない。静的ファイルは
+`<game>/vdgs/ui/`。無いときは `WebUi.cs` が短い案内だけ出す。
 
 **ゲーム内キーでの操作は全部やめた。** 理由：
 
@@ -686,8 +693,8 @@ F12（`vdgs-track.txt`）でトラック名を検索して、新しいフィー�
 ダウンロードでき、その名前がそのまま UI に表示される。サーバーは `http://*:8777/`
 で LAN 全体に開いている。
 
-- **`innerHTML` に動的な値を入れない。** `document.createElement` + `textContent` で
-  組む（`WebUi.cs`）。一度 `innerHTML` で書いてしまい、`<img src=x onerror=...>` という
+- **`innerHTML` / `dangerouslySetInnerHTML` に動的な値を入れない。** React のテキストで
+  組む。一度 `innerHTML` で書いてしまい、`<img src=x onerror=...>` という
   名前のトラックを1本落とすだけで任意コードが動く状態だった
 - **`Access-Control-Allow-Origin` を付けない。** UI は同じサーバーから配信されるので
   不要。付けると利用者が開いた任意のサイトからこの API を叩けるようになる

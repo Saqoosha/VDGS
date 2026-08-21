@@ -263,7 +263,8 @@ Assembly-CSharp は難読化されていて、フィールド名は `glnoaiifnln
 
 ```
 HttpListener (:8777)
-  ├ GET  /            埋め込み HTML（WebUi.cs）
+  ├ GET  /            <game>/vdgs/ui/ の静的ファイル（SPA。無いときは WebUi のフォールバック）
+  ├ GET  /library     同じ index.html
   ├ GET  /api/status  現在のトラック / 表示中 / 利用可能 / 全紐付け
   ├ POST /api/load    指定の GS だけ表示
   ├ POST /api/unload  全部隠す
@@ -291,7 +292,7 @@ HttpListener (:8777)
 
 3 つで守っている：
 
-1. **`innerHTML` を使わない。** `createElement` + `textContent` で組む。
+1. **`innerHTML` / `dangerouslySetInnerHTML` を使わない。** React のテキストノードで組む。
    一度これを怠り、`<img src=x onerror=...>` という名前のトラックを 1 本落とすだけで
    任意コードが動く状態を作ってしまった
 2. **CORS ヘッダを出さない。** UI は同一オリジンから配信されるので不要。
@@ -332,8 +333,11 @@ HttpListener (:8777)
 | `TrackName.cs` | ロード中のトラック名を多段フォールバックで取得 |
 | `TrackBindings.cs` | `bindings.json` の読み書き |
 | `TrackProbe.cs` | 難読化されたゲームから文字列の在処を探す（F12） |
-| `WebControl.cs` | HTTP サーバー、スレッド境界の管理 |
-| `WebUi.cs` | ブラウザ UI（埋め込み HTML） |
+| `WebControl.cs` | HTTP サーバー、スレッド境界、`vdgs/ui/` の静的ファイル |
+| `WebUi.cs` | `vdgs/ui/` が無いときのフォールバック HTML |
+| `VdgsPaths.cs` | 予約名 `ui` と、その外に出ないパス解決 |
+| `SplatMetaFile.cs` | GPU バッファを開かない meta.json / .ply ヘッダ読み |
+| `web/` | Vite + React のコントロール UI（ガウシアン粒子場。Control / Library） |
 | `Probe.cs` | ランタイム環境の実測ダンプ（F9） |
 | `PerfLog.cs` | フレームタイム記録 |
 | `PostProcessFix.cs` | D3D12 強制の副作用対応（**効かない**。経緯の記録として残置） |
@@ -344,7 +348,8 @@ HttpListener (:8777)
 
 - **API を足す**: `WebControl.Handle()` に case を追加し、`Plugin` 側にハンドラを書いて
   デリゲートに繋ぐ。Unity に触る処理は必ず `QueueOnMain` を通す
-- **UI を足す**: `WebUi.Html` に追記。**動的な値は必ず `textContent` で入れる**
+- **UI を足す**: `web/` を編集し `bun run build`、`bash tools/deploy.sh --ui`。
+  **動的な値は React のテキストノード。`dangerouslySetInnerHTML` は禁止**
 - **ゲームの内部状態を読みたい**: `TrackProbe` の needle を変えて F12。
   デコンパイル結果の定数は信用しない
 - **シェーダーを変える**: `unity/VDGSBundler` で焼き直し。**Windows で**。

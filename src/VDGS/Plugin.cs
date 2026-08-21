@@ -66,6 +66,7 @@ namespace VDGS
             {
                 m_Web = new WebControl
                 {
+                    UiRoot = Path.Combine(Paths.GameRootPath, "vdgs", VdgsPaths.UiDirName),
                     StatusProvider = BuildStatus,
                     LoadSplat = ShowOnly,
                     BindCurrent = BindTo,
@@ -105,7 +106,14 @@ namespace VDGS
                 available.Add(new System.Collections.Generic.Dictionary<string, object>
                 {
                     { "name", s.Name },
+                    { "source", s.Source },
+                    { "kind", s.Kind },
                     { "splats", s.SplatCount },
+                    { "posFormat", s.PosFormat },
+                    { "scaleFormat", s.ScaleFormat },
+                    { "colorFormat", s.ColorFormat },
+                    { "shFormat", s.ShFormat },
+                    { "bytes", s.Bytes },
                     { "shown", s.Spawned },
                     { "scale", s.Scale },
                     { "y", s.YOffset },

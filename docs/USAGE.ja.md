@@ -273,24 +273,26 @@ UI では `solid` がドローンを止める。`show wire` / `show solid` が�
 
 ゲームが起動すると、mod が **`http://<ホスト>:8777/`** で操作用の Web UI を出す。
 LAN 上の任意のマシンから開ける。Parsec でゲーム画面を見ながら、手元のブラウザで
-操作するのが想定運用。
+操作するのが想定運用。UI だけ変えたあとは `bash tools/deploy.sh --ui` で
+`web/dist/` を `<game>/vdgs/ui/` に置く。プラグインの再ビルドは不要。
 
 ```
-┌─ VDGS Control ──────────────────────────────────┐
-│  Current track                                  │
+┌ VDGS · local · 01 control / 02 library ─────────┐
+│  01 current track                               │
 │  Empty Scene Day                                │
-│  bound to myscene                               │
-├─────────────────────────────────────────────────┤
-│  Splat scenes on this machine                   │
-│  [shown]  myscene   1,916,379 splats            │
-│  [show ]  other        14,526 splats            │
-│                                                 │
-│  [Bind shown splat to this track]               │
-│  [Unbind this track]  [Hide all]                │
-├─────────────────────────────────────────────────┤
-│  Bindings                                       │
+│  bound → myscene                                │
+│  [Bind shown]  [Unbind]  [Hide all]             │
+│  02 on screen                                   │
+│  myscene   1,916,379 splats                     │
+│  [x] box  [x] solid  [hide mesh]                │
+│  Scale  ────│────  1.00×                        │
+│  Height ────│────  0.00m                        │
+│  03 bindings                                    │
 │  <track名>  →  myscene          [remove]        │
 └─────────────────────────────────────────────────┘
+
+Library はこのマシン上のキャプチャの番号付き目録（検索、splat 数、フォーマット、
+サイズ、コリジョン）。Show で表示する。スライダーは Control 側。
 ```
 
 **ゲームのキーは一切奪わない。** トラックエディタの矢印キーも F7（シーン保存）も
