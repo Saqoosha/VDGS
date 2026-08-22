@@ -27,6 +27,7 @@ namespace VDGS
         private TrackBindings m_Bindings;
         private string m_CurrentTrack;
         private float m_TrackPollTimer;
+        private bool m_WasFlyable = true;
         private string m_TrackLogPath;
         private WebControl m_Web;
 
@@ -431,12 +432,31 @@ namespace VDGS
             // This is not the per-track filter ProbeNextFrame argues against: that one asks
             // which capture to show, and must stay keyed on the track. This asks whether
             // there is a world at all.
-            if (name != null && !IsFlyableScene(SceneManager.GetActiveScene().name))
+            var sceneName = SceneManager.GetActiveScene().name;
+            var flyable = IsFlyableScene(sceneName);
+            if (!flyable && name != null)
             {
-                log.AppendLine("  '" + name + "' ignored: scene '"
-                               + SceneManager.GetActiveScene().name + "' holds no track");
+                log.AppendLine("  '" + name + "' ignored: scene '" + sceneName + "' holds no track");
                 name = null;
             }
+
+            // Clearing the name is not enough to clear the picture. ApplyTrackBinding
+            // returns early for an unbound track and says so - it leaves whatever is on
+            // screen alone, because the browser can spawn a capture by hand and a poll
+            // running every second would otherwise fight the button. That mercy is for
+            // tracks, not for the menus, where a capture hangs behind the menu drone.
+            // Only on the way out: a spawn made deliberately while already in the menus
+            // is the operator's call, and this does not undo it.
+            if (m_WasFlyable && !flyable)
+            {
+                foreach (var s in m_Scenes)
+                {
+                    if (!s.Spawned) continue;
+                    s.Despawn();
+                    log.AppendLine("  " + s.Name + ": despawned, '" + sceneName + "' has no world");
+                }
+            }
+            m_WasFlyable = flyable;
 
             if (!string.Equals(name, m_CurrentTrack, StringComparison.Ordinal))
             {
