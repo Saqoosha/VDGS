@@ -61,6 +61,14 @@ scenes have a broken scale** — one school capture measured 37 km × 100 km. Sa
 against the 1–99% Y spread: a room should land near ceiling height, a neighbourhood near
 building height.
 
+**CC BY costs an attribution.** Ship the name, the author, the licence and the
+source URL alongside it:
+
+```
+Home Scan — @luxury_scans (SuperSplat) — CC BY 4.0
+  https://superspl.at/s?id=3f89bbd3
+```
+
 ---
 
 ## 2. Orient it

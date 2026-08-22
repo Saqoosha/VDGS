@@ -150,6 +150,13 @@ GPU に上げる。
 
 配置を書くなら、同じ場所に `myscene.placement.json` を置く。
 
+**リモートの Windows 機に置くとき、`deploy.sh` は使えない。** あれが同期するのは
+`build/splats/<name>/` → `<game>\vdgs\<name>\` の**変換済みディレクトリだけ**で、
+直置きの `.ply` と `.collision.bin` は対象外。そして**ゲームパスにはスペースが入り、
+リモートの既定シェルは PowerShell でバックスラッシュをエスケープと見ない**ので、
+`scp` に宛先を直接渡すと**エラーも出さずにファイルが消える**。`deploy.sh` と同じ作法で
+逃げる — スペースの無い `vdgs-stage\` に scp してから `Copy-Item` で置く。
+
 ### 4-2. 変換する：ディスクが小さく、ロードが速い
 
 ```bash

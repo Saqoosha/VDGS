@@ -58,6 +58,12 @@ npx @playcanvas/splat-transform -L 4 \
 （実例：ある学校のキャプチャが 37 km × 100 km と出た）。Y の 1〜99% 幅が
 天井高（2〜3 m）や街の高さに落ちるかで正気を確かめる。
 
+**CC BY は表示が条件。** 配るときは名前・作者・ライセンス・元 URL を添える：
+
+```
+Home Scan — @luxury_scans (SuperSplat) — CC BY 4.0
+  https://superspl.at/s?id=3f89bbd3
+```
 
 ---
 

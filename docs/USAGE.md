@@ -157,6 +157,13 @@ Rendering lands about 7% behind the best offline format. See
 
 Placement, if you need it, goes next to the file as `myscene.placement.json`.
 
+**`deploy.sh` will not put it on the remote Windows box.** That script only syncs
+converted directories (`build/splats/<name>/` → `<game>\vdgs\<name>\`); a bare `.ply`
+and its `.collision.bin` are not in scope. And **the game path contains spaces while the
+remote default shell is PowerShell, which does not treat backslash as an escape** — hand
+`scp` that destination and the file vanishes with no error. Do what `deploy.sh` does: scp
+into a space-free `vdgs-stage\`, then `Copy-Item` it into place.
+
 ### 4-2. The converted way: smaller on disk, faster to load
 
 ```bash
