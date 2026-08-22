@@ -9,8 +9,10 @@ web/node_modules/
 # from the Windows box, and released zips live on GitHub Releases
 dist/payload/
 
-# reference assemblies pulled off the game install
-lib/
+# reference assemblies pulled off the game install. Anchored: an unanchored `lib/`
+# also swallows web/src/lib/, which is where shadcn puts the `cn` helper that every
+# generated component imports.
+/lib/
 
 # machine-specific SSH target for deploy / bake / launch
 tools/local.env
