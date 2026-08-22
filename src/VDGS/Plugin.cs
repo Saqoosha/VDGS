@@ -28,6 +28,7 @@ namespace VDGS
         private string m_CurrentTrack;
         private float m_TrackPollTimer;
         private bool m_WasFlyable = true;
+        private string m_QuietScene;
         private string m_TrackLogPath;
         private WebControl m_Web;
 
@@ -436,8 +437,19 @@ namespace VDGS
             var flyable = IsFlyableScene(sceneName);
             if (!flyable && name != null)
             {
-                log.AppendLine("  '" + name + "' ignored: scene '" + sceneName + "' holds no track");
+                // Once per scene, not once per second: the stale label survives for as long
+                // as the menus are up, and a line every poll buries the log it shares with
+                // the track-change history that is actually worth reading.
+                if (!string.Equals(sceneName, m_QuietScene, StringComparison.Ordinal))
+                {
+                    log.AppendLine("  '" + name + "' ignored: scene '" + sceneName + "' holds no track");
+                    m_QuietScene = sceneName;
+                }
                 name = null;
+            }
+            else if (flyable)
+            {
+                m_QuietScene = null;
             }
 
             // Clearing the name is not enough to clear the picture. ApplyTrackBinding
