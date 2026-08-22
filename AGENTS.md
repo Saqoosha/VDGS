@@ -472,8 +472,11 @@ upstream から**削った**もの：編集機能・selection・cutouts・URP/HD
 - **macOS の Editor は D3D 向けに DXC を回せない** —
   `DXC: can only use DXC to target D3D from the Windows Editor.`
 
-**`-force-d3d12` の副作用でログが埋まる。** ゲームは D3D11 向けビルドなので
-PostProcessing v2 の compute が見つからない：
+**`-force-d3d12` の副作用はログだけではない。** 既知のものが 2 つある。軽いほうから。
+
+### 副作用 1：ログが埋まる（描画には無害）
+
+ゲームは D3D11 向けビルドなので PostProcessing v2 の compute が見つからない：
 
 ```
 Kernel 'KEyeHistogramClear' not found
@@ -491,6 +494,42 @@ Auto Exposure が毎フレーム例外を投げる。**描画への実害は無�
 Get-Content $log | Where-Object { $_ -notmatch "KEyeHistogramClear|PostProcessing|^\s*at " }
 ```
 
+### 副作用 2：メインメニューに放置すると落ちる
+
+**D3D12 で起動してメインメニューに置いておくと、5 分前後でクラッシュする。** 直前の一行は
+毎回これ：
+
+```
+Error assigning 2D texture to (null) texture property '_LightTexture0': Dimensions must match
+Crash!!!
+```
+
+`_LightTexture0` は Built-in RP のライトクッキー／減衰テクスチャで、**こちらのコードに接点は
+無い**。切り分けの実測（同じ機械・同じ日）：
+
+| 描画 API | プラグイン | 放置 | 結果 |
+|---|---|---|---|
+| D3D12 | 有り | 約 5 分 | Crash + `_LightTexture0` |
+| D3D12 | **無し**（`plugins/` を空に） | 約 5 分 | **Crash + `_LightTexture0`（同一）** |
+| D3D11 | 無し | 13 分以上 | 無傷 |
+
+**プラグインを外しても直前の一行まで一致する。mod は無関係。** そして D3D11 では起きない。
+
+これは重い。**`-force-d3d12` は mod に必須**（ソートの compute が SM6 の wave intrinsics を
+41 箇所使う）なので、**mod を使う限りこの制約が付いてくる**。`-force-vulkan` はゲーム自身が
+描けないので逃げ道にならない。実務上は**メニューに長居しない**。
+
+未解決のまま残っている問い、3 つ：
+
+- **飛行中も落ちるのか。** splat を読んで飛べたセッションでは `_LightTexture0` が出ていない。
+  メニュー固有の可能性がある
+- **13 分は十分な反証か。** D3D12 側の 2 回が 5 分前後なので差は明確だが、D3D11 側は n=1
+- **mod 側で止められるのか。** ライトクッキーの差し替えを掴めるなら `PostProcessFix` の隣に
+  置ける。未着手
+
+**「クラッシュしたらまず自分の変更を疑う」は正しい順番で、実際そこから始めた。** ただし
+この件は**プラグインを外す 1 回**で決着した。落ちたときは早めにその 1 回を使うこと。
+
 **コリジョンは付くようになった**（`SplatCollision.cs`、実装済み・実機で確認済み）。
 焼き方は [docs/SCENES.ja.md](docs/SCENES.ja.md)。設計の数字と捨てた手法は
 docs/superpowers/specs/2026-08-18-splat-collision-design.md。
@@ -500,6 +539,9 @@ docs/superpowers/specs/2026-08-18-splat-collision-design.md。
 
 ## 残タスク
 
+- **`-force-d3d12` でメニュー放置がクラッシュする原因は未解明。** mod 無しでも同一の直前行
+  （`_LightTexture0` の寸法不一致）で落ち、D3D11 では起きない。飛行中に出るかも未確認。
+  詳細は「制約と、いまも踏める罠」の副作用 2
 - **`Medium` 以下が 2.6 倍暗くなる原因は未解明。** 形は正しい（IoU 0.9958）ので色か
   不透明度。upstream のティアか移植側かも不明。**使わないと決めて封印してある**ので
   実害は無い。追うなら Norm8x4 の色デコードから
