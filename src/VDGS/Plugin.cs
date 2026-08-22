@@ -424,6 +424,20 @@ namespace VDGS
             try { name = TrackName.Current(log); }
             catch (Exception e) { log.AppendLine("track read failed: " + e.Message); name = null; }
 
+            // The menus host no track, and TrackName's last resort is the flight HUD label,
+            // which is not cleared when a flight ends - so leaving a track and walking back
+            // to the menu keeps reporting the track just flown. That stale name reaches the
+            // browser UI and, with a binding, spawns a capture behind the menu drone.
+            // This is not the per-track filter ProbeNextFrame argues against: that one asks
+            // which capture to show, and must stay keyed on the track. This asks whether
+            // there is a world at all.
+            if (name != null && !IsFlyableScene(SceneManager.GetActiveScene().name))
+            {
+                log.AppendLine("  '" + name + "' ignored: scene '"
+                               + SceneManager.GetActiveScene().name + "' holds no track");
+                name = null;
+            }
+
             if (!string.Equals(name, m_CurrentTrack, StringComparison.Ordinal))
             {
                 log.AppendLine(DateTime.Now.ToString("HH:mm:ss") + "  track changed: '"
