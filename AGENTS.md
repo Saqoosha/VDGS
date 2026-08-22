@@ -150,83 +150,6 @@ PatchKit 経由の macOS 版（1.17、arm64 thin、adhoc 署名、同じ Unity 2
 `settings.db` / AssetBundle の構造は Windows と同じなので解析には使える。BepInEx の
 macOS universal ビルドは arm64 では**未検証**。
 
-## ゲーム内部構造（実測）
-
-### シーナリーは内蔵シーン、AssetBundle ではない
-
-`StreamingAssets/settings.db`（SQLite, 357MB）に目録がある。
-
-- `sceneries` テーブル（58行）: `name` が Unity のシーン名（`level0`〜`level50` に対応）、
-  `title` が UI 表示名。例: `BlankCanvas` → "Empty Scene Day"
-  → **新しいシーナリーの追加は不可能**。既存シーンに乗せるしかない
-
-シーン名（`name`）は `SceneManager.sceneLoaded` が渡す値と一致する（実測済み）。
-表示は**トラック名**で決まるのでシーン名を設定に書くことはないが、ログを読むときに要る：
-
-| name | title |
-|---|---|
-| `BlankCanvas` | Empty Scene Day |
-| `BlankCanvasNight` | Empty Scene Night |
-| `EmptyPoly` | Empty PolyWorld |
-| `Bando` | Bando |
-| `House` | House |
-| `Office` | Office |
-| `Library` | Library |
-| `Gym` | Sports Hall |
-| `Scene5` / `Scene6` | Industrial Wasteland / Football Stadium |
-| `MainMenu` / `auth` / `bootstrap` / `NetworkLobby` | （システム。splat は出さない） |
-
-全 43 件は `sqlite3 settings.db "SELECT name,title FROM sceneries WHERE type='track'"` で取れる。
-- `trackprefabs` テーブル（3394行）: トラックエディタで配置できるオブジェクト。
-  `type` が AssetBundle 名（`trees`, `gates`, `barriers`, `bando`…）、`name` がバンドル内の
-  プレハブ名、`image` が `track_editior_thumbs` バンドル内のサムネ名
-
-### AssetBundle
-
-`StreamingAssets/assetbundles/` に素の AssetBundle が 30個（6.4GB）。`AssetBundle.LoadFromFile`
-で読まれる。`aa/` は Addressables（ドローンモデル用）。
-
-**AssetBundle だけでは 3DGS は描けない** — MonoBehaviour のクラスがゲーム側 DLL に無いため
-参照が壊れる。compute shader を dispatch する主体が存在しない。だからコード注入が要る。
-
-### Assembly-CSharp は難読化されている
-
-クラス名・メソッド名の一部（`ScenerySwapper+cngfgoinnio` のような形）に加えて、
-**文字列定数と数値定数がシャッフルされている**。デコンパイル結果に出てくる
-`Screen.width / 0` や、無関係な場所の `"/assetbundles/"` は嘘。
-
-→ **静的解析（ILSpy）の定数は信用しない。実行時リフレクションで調べること。**
-
-デコンパイル済みソース（267万行、gitignore 済み）: `research/decompiled/Assembly-CSharp.decompiled.cs`
-クラス名とメソッドの構造は読める。定数だけが嘘。
-
-### 難読化されているのは Assembly-CSharp だけ。globalgamemanagers は素で読める
-
-**「このゲームの静的解析は信用するな」は Assembly-CSharp の話であって、シリアライズ
-データには当てはまらない。** `globalgamemanagers` はプレーンな Unity のシリアライズ
-データで、UnityPy がそのまま読む。**レイヤーと衝突マトリクスは難読化されていない。**
-
-| 項目 | 値 |
-|---|---|
-| Fixed Timestep | **0.0025（400 Hz）** |
-| Gravity | **-10.78**（9.81 ではない） |
-| ドローンのレイヤー | `QuadColliders`(13) |
-| 衝突相手 | `Default`(0) |
-| Office のコライダー数 | 598、すべて `Default` |
-
-400 Hz でも 150 km/h では **1 ステップ 0.104 m** 進む。**厚さ 10 cm 未満の壁は
-すり抜ける。**
-
-ゲームが何と衝突するかを知りたいときは、リフレクションで探るより 2 分で読める。
-
-（コリジョン設計セッションの実測。こちらでは未検証だが、手順は再現可能）
-
-### アンチチート
-
-`ACTk.Runtime.dll`（Anti-Cheat Toolkit）が同梱されている。Assembly-CSharp 側での
-使用有無は難読化のため未確認。**リーダーボードとマルチプレイでは使用しない。**
-ローカル飛行専用。
-
 ## MOD の仕組み
 
 BepInEx 5.4.23.5 (win_x64) をゲームフォルダに展開。Doorstop 4 が `winhttp.dll` 経由で注入。
@@ -338,70 +261,6 @@ VDGS_BENCH_INSIDE=1 VDGS_BENCH_CULL=0 bash tools/bench-win.sh   # カリング�
 API と無関係（45 秒連続ポーリングで無傷）。ゲームが理由もなく死んだら、まず
 **自分が起動に使ったスクリプトの最後まで読む**こと。
 
-### Windows 側の Unity
-
-`unity` CLI（1.0.0-beta.5）は PowerShell 版のインストーラで入れる（bash 版は Windows を
-検出して拒否する）：
-
-```powershell
-$env:UNITY_CLI_CHANNEL = 'beta'
-irm https://public-cdn.cloud.unity3d.com/hub/prod/cli/install.ps1 | iex
-```
-
-Editor はユーザー領域（`%USERPROFILE%\UnityEditors\2021.3.45f2`）に置いている。2つ罠がある：
-
-- **`Start-Process` で起動したインストーラは SSH 切断で死ぬ**（7GB のダウンロードが 41% で消えた）。
-  タスクスケジューラ経由で起動すること
-- **デフォルトの `C:\Program Files\Unity\Hub\Editor` は UAC 昇格が要る。**
-  `unity install-path --set %USERPROFILE%\UnityEditors` でユーザー領域に変えてもなお昇格を求めるので、
-  タスクは `-RunLevel Highest` で登録する（`-RunLevel Limited` だと誰も答えられない UAC
-  プロンプトが出て `ELEVATION_CANCELLED` になる）
-
-### scp の罠
-
-ゲームパスにスペースが含まれ、リモートのデフォルトシェルが PowerShell。
-**PowerShell はバックスラッシュをエスケープとして扱わない**ので、`scp` に
-`Velocidrone\ Windows\ Launcher` を渡すとファイルが黙って消える（エラーも出ない）。
-
-→ リモートホームの `vdgs-stage/`（スペース無し）に scp し、`Copy-Item` で設置する。
-`tools/deploy.sh` がこれをやっている。
-
-### SSH からゲームを起動できない（セッション 0 の壁）
-
-SSH シェルは **セッション 0** で動く。ユーザーのデスクトップ（explorer）は **セッション 1**。
-セッション 0 にはウィンドウステーションが無いため DirectX がスワップチェーンを作れず、
-Unity は起動途中で死ぬ。症状：
-
-```
-Screen: DX11 could not switch resolution (1280x720 fs=0 hz=0)
-- Completed reload, in 0.111 seconds      ← 正常時は 8.186 秒
-```
-
-Mono のアセンブリロードすら完了しないので、**BepInEx の Chainloader も走らない**。
-プラグインが読まれないように見えるが、原因は BepInEx ではない。
-
-`-screen-fullscreen 0` でも回避できない。解決策はセッション 1 で起動すること：
-
-```powershell
-$principal = New-ScheduledTaskPrincipal -UserId (whoami).Trim() -LogonType Interactive -RunLevel Limited
-Register-ScheduledTask -TaskName 'VDGS-Launch' -Action $action -Principal $principal
-Start-ScheduledTask -TaskName 'VDGS-Launch'
-```
-
-`-UserId` に `"$env:USERDOMAIN\$env:USERNAME"` を使うと `No mapping between account names
-and security IDs was done` で失敗する（SSH セッションでは `USERDOMAIN` が空）。
-`(whoami).Trim()` は `DOMAIN\user` を返すので確実。
-
-**副作用：ゲームがユーザーの物理画面に立ち上がる。** 作業中の相手に断りなくやらないこと。
-
-### 参照アセンブリ
-
-`lib/`（gitignore）にゲーム機から回収する：
-- `lib/bepinex/` — BepInEx.dll, 0Harmony.dll ほか
-- `lib/unity/` — UnityEngine*.dll 71個 + Assembly-CSharp.dll
-
-`scp` の**ダウンロード**方向はスペース付きパスでも通る（アップロード方向だけが壊れる）。
-
 ## バックアップ
 
 ゲームの `Managed/`、`globalgamemanagers` など Data 直下の小さいファイル、`settings.db`、
@@ -417,8 +276,8 @@ AssetBundle のマニフェスト、および `%LOCALAPPDATA%Low\velocidrone\`�
 検証するためのもので、軸のねじれ・色の誤り・スケール違いが一目で分かるように作ってある
 （+X 赤 / +Y 緑 / +Z 青 / 灰の床グリッド / 黄の原点マーカー）。
 
-実データの入手先は学術データセットや SuperSplat の公開シーンだが、**再配布はできない**
-（次節）。手元で飛ぶなら `.ply` を自分で取って `<game>/vdgs/` に置く。手順は
+実データの入手先は学術データセットや SuperSplat の公開シーンだが、**再配布できるかは
+出どころで決まる**（次節）。手元で飛ぶなら `.ply` を自分で取って `<game>/vdgs/` に置く。手順は
 [docs/SCENES.ja.md](docs/SCENES.ja.md)。
 
 `dylanebert/3dgs` には bicycle / garden / kitchen / room / stump / counter / playroom もある。
@@ -438,10 +297,27 @@ AssetBundle のマニフェスト、および `%LOCALAPPDATA%Low\velocidrone\`�
 | Deep Blending（drjohnson, playroom） | **明示的なライセンス無し** | 不可（既定は全権利留保） |
 | Mip-NeRF 360（bonsai） | プロジェクトページに**表記なし** | 不可 |
 | INRIA 3DGS | 研究目的のみ・商用禁止・**制限が派生物に引き継がれる** | 不可 |
-| SuperSplat 公開シーン（utlida / nelson / textilni / calico） | **第三者の公開作品**（`textilni` は「Textilní továrna, Krásná lípa」として公開されている） | 不可 |
+| SuperSplat 公開シーン | **作者が CC を明示していることがある**（下） | ライセンス次第 |
 
 **「ライセンス表記が無い」は「自由」ではなく「許可が無い」。** 既定は全権利留保であって、
 表記の不在は許諾ではない。
+
+**SuperSplat だけは例外で、機械可読のライセンスが付く。** PlayCanvas がシーンごとに CC 4.0 の
+6 種から選ばせていて、explore API が認証なしでその値を返す（叩き方は
+[docs/SCENES.ja.md](docs/SCENES.ja.md)）。実測 14,086 本中 1,764 本がダウンロード可、うち
+**1,544 本が CC BY 4.0** — 表示さえすれば再配布できる。
+
+**すでに飛んでいる 4 本の判定は、これで変わる：**
+
+| シーン | 作者 | ライセンス | 再配布 |
+|---|---|---|---|
+| nelson（3 本） | @tosolini | **CC BY** | 可（表示要） |
+| calico（2 本） | @tosolini | **CC BY** | 可（表示要） |
+| Utlida 1:80 | @overblickstudio | **CC BY** | 可（表示要） |
+| utlida_test_4 | @overblickstudio | by-nc-nd | 不可 |
+| textilni | @zenta | by-nc | 非商用のみ |
+
+**utlida は同名で 2 本あり、ライセンスが違う。** どちらを落としたか確かめずに配らない。
 
 GitHub Releases / R2 / gh-pages のどれに置くかは**この判断の下流**にあり、置き場所を変えても
 再配布であることは変わらない。**配るならデータではなくレシピ** — 名前・元 URL・作者・
@@ -517,79 +393,15 @@ Y オフセットで持ち上げても直らない（位置の問題ではない
 
 ## splat データのオンディスク形式（VDGS 独自）
 
-`GaussianSplatAsset` は ScriptableObject だが、中身は**メタ情報 + 5つの生バイナリ TextAsset**
-でしかない。AssetBundle 経由だと MonoBehaviour/ScriptableObject の型解決で詰まるので、
-同じ内容をプレーンなファイルとして置き、ランタイムで直接読む。
+`GaussianSplatAsset` は ScriptableObject だが、中身はメタ情報 + 5 つの生バイナリでしかない。
+AssetBundle 経由だと型解決で詰まるので、同じ内容をプレーンなファイルとして置いて実行時に直接読む
+（`<game>/vdgs/<name>/` に `meta.json` `chunk.bin` `pos.bin` `other.bin` `color.bin` `sh.bin`）。
 
-```
-<game>/vdgs/
-  vdgs-shaders            AssetBundle（シェーダーのみ）
-  <name>/
-    meta.json
-    chunk.bin
-    pos.bin
-    other.bin
-    color.bin
-    sh.bin
-```
-
-`meta.json`:
-
-```json
-{
-  "formatVersion": 20231020,
-  "splatCount": 1234567,
-  "chunkCount": 0,
-  "boundsMin": [0, 0, 0],
-  "boundsMax": [1, 1, 1],
-  "posFormat":   "Norm11",
-  "scaleFormat": "Norm11",
-  "colorFormat": "Norm8x4",
-  "shFormat":    "Norm6"
-}
-```
-
-- `formatVersion` は `GaussianSplatAsset.kCurrentVersion`（2023_10_20）と一致させる
-- `color.bin` は Texture2D にアップロードする。サイズは `CalcTextureSize(splatCount)`
-  （幅 2048 固定）と `ColorFormatToGraphics(colorFormat)` から決まる
-- `chunk.bin` は `ChunkInfo` の配列。**使うかどうかは `chunkCount` が決める**
-- **`posFormat` は座標空間を語らない。** `Float32` は格納幅の意味で、chunk 付きのシーンは
-  そこに 0..1 のチャンク相対値を入れる。`Float32` から「絶対座標」を推論すると、chunk を
-  捨ててシーン全体を原点の塊に潰す
-- 他の3つは `GraphicsBuffer.Target.Raw`、4バイト単位
-
-### 古い chunk.bin が残ると、シーンが黙って砕ける
-
-**VeryHigh（Float32）で変換すると `chunk.bin` は出力されない。** ところが deploy は
-ファイルをコピーするだけで、消えたファイルを消さなかった。結果、前回 Norm16 で変換した
-ときの `chunk.bin` がゲーム側に生き残る。
-
-シェーダーは **バッファの有無だけ** で chunk 適用を決める。フォーマットを見ない：
-
-```hlsl
-uint chunkIdx = idx / kChunkSize;
-if (chunkIdx < _SplatChunkCount)
-    pos = lerp(chunk.posMin, chunk.posMax, pos);   // pos は 0..1 の重みという前提
-```
-
-chunk 付きなら `pos` は箱の中の 0..1 なので正しい。**Float32 は絶対座標**なので、
-`-23.2` を lerp の重みに入れて盛大に外挿する。スケールはさらに悪く、lerp のあと
-8 乗される。位置も色も SH も同じ扱いを受ける。
-
-見た目は「地面に破片が飛び散る」。**エラーは 1 行も出ない**（ファイル自体は正常だから）。
-向きやクォータニオンを疑って一日溶かした。実際は転送の残骸だった。
-
-対処は 2 段：
-
-- `tools/deploy.sh` は、コピー後に **ソースに無いファイルを送り先から削除**する
-  （`placement.json` だけは in-game で編集されるので除外）
-- `SplatData.AcceptChunks` が、`posFormat` が Float32 のとき chunk.bin を警告つきで
-  破棄し、chunk 付きのときは chunk 数が `ceil(splatCount/256)` と一致しなければ
-  ロードを失敗させる
-
-**サイズ検証だけでは足りない。** drjohnson の残骸 chunk.bin は 794,432 バイトで、
-`ceil(3177554/256)×64` と完全に一致していた（同じ ply を前の品質で変換したもの
-だから当然）。フォーマットで弾く規則のほうが本体。
+**`posFormat` は座標空間を語らない。** そして**古い `chunk.bin` が残るとシーンが黙って砕ける** —
+シェーダーはバッファの有無だけで chunk 適用を決めるので、Float32 の絶対座標を lerp の重みに
+入れて盛大に外挿する。**エラーは 1 行も出ない。** 一日溶かした罠。`meta.json` の中身、
+`ChunkInfo` の 64 バイト、両方向の壊れ方は
+[docs/ARCHITECTURE.ja.md](docs/ARCHITECTURE.ja.md) の「データの形」。
 
 ## プラグインの構成
 
@@ -631,93 +443,16 @@ upstream から**削った**もの：編集機能・selection・cutouts・URP/HD
 
 ## 操作は Web UI（ゲーム内キーではない）
 
-`http://<host>:8777/` でプラグインが HTTP サーバーを立てる（`WebControl` + `WebUi`）。
+`http://<host>:8777/` でプラグインが HTTP サーバーを立てる。**ゲーム内キーでの操作は全部やめた**
+（F7 はトラックエディタの保存に取られている、Numpad は MacBook に無い、HUD を描く場所が無い）。
+表示は**トラック名 → GS の対応表**（`<game>/vdgs/bindings.json`）だけで決まり、1 秒ごとに
+ポーリングする。紐付けの無いトラックでは何も出さない。
 
-**ゲーム内キーでの操作は全部やめた。** 理由：
-
-- **F7 はトラックエディタのシーン保存**に割り当て済み
-- **矢印キーはトラックエディタのオブジェクト移動**。奪うとエディタが使えなくなる
-- **Numpad は MacBook に無い**
-- **ゲームには HUD を描く場所がない**ので、キーを押しても結果が見えない
-
-外に出すとこれが全部消える上に、別マシンのブラウザから操作できる
-（Parsec でゲーム画面を見ながら、手元の Mac で操作する運用）。
-
-### トラック名の取得
-
-多段フォールバック（`TrackName.cs`）。順に：
-
-1. `InGameChangeTrack.glnoaiifnln`（難読化フィールド。**トラックエディタのシーンには
-   この型自体が存在しない**ので、そこでは空振りする）
-2. **`Track Name` ラベル、パスに `Current Track/Table Entry` を含むもの**
-   （`TrackManager2/Modal - Gameplay - Change Scenery/Content/Current Track/...`）。
-   シーン中で「現在のトラック」を名乗る唯一の UI 要素
-3. 飛行 HUD の `TrackName` ラベル。飛行中は正しいが、**エディタに戻っても最後に飛んだ
-   トラック名を保持し続ける**ので最後に置く
-
-**使ってはいけないもの、3 つ:**
-
-- **`EditorManager.nnpnlmbjocf`** — 「最後に *エディタで* 開いたトラック」。飛んでも
-  更新されない。最初に見つかる上に一見正しく見える
-- **`Tracks Admin Entry(Clone)/TrackEntry/Track` ラベル** — トラック一覧の各行で、
-  ユーザーの全トラックが並ぶ。現在のトラックではない
-- **`Track Name` ラベルを名前だけで拾うこと** — 同じ modal に**列見出し**の
-  `Track Name`（テキストも文字列 `"Track Name"`）が併存する。**必ずパスで絞る**
-
-難読化されたフィールド名はゲームのアップデートで変わる。変わった場合は
-F12（`vdgs-track.txt`）でトラック名を検索して、新しいフィールドを探すこと。
-検索語は `<game>/vdgs/needle.txt` に書く（プラグインの再ビルド不要）。
-**調査用にトラック名を `VDGSPROBE7777` のような固有な文字列にすると一発で見つかる。**
-
-### 罠
-
-- **`JsonUtility` は使えない。** 辞書をシリアライズできず、入れ子型を**例外も警告もなく
-  `{}` にする**。ファイルは正常に書けたように見えて中身だけ空になる。
-  bindings はゲーム同梱の **Newtonsoft.Json 13**（`Managed/Newtonsoft.Json.dll`）を使う
-- **`HttpListener` はボディの無い POST を `411 Length Required` で弾く。**
-  ハンドラまで届かないので、`curl -X POST .../api/unload` は失敗する。`-d '{}'` を付ける
-- **API のポーリングはゲームを落とさない。** 45 秒連続で `GET /api/status` を叩いても
-  全部 200、ゲームは無事。一度「起動直後のポーリングで 40 秒後に落ちる」と結論したが
-  **誤り**だった。真相は起動スクリプトの末尾（`開発フロー` 参照）
-
-### UI のセキュリティ（軽く扱わないこと）
-
-**トラック名は攻撃者が書ける文字列。** VelociDrone はコミュニティのトラックを
-ダウンロードでき、その名前がそのまま UI に表示される。サーバーは `http://*:8777/`
-で LAN 全体に開いている。
-
-- **`innerHTML` に動的な値を入れない。** `document.createElement` + `textContent` で
-  組む（`WebUi.cs`）。一度 `innerHTML` で書いてしまい、`<img src=x onerror=...>` という
-  名前のトラックを1本落とすだけで任意コードが動く状態だった
-- **`Access-Control-Allow-Origin` を付けない。** UI は同じサーバーから配信されるので
-  不要。付けると利用者が開いた任意のサイトからこの API を叩けるようになる
-- **POST は `Content-Type: application/json` を必須にする。** クロスオリジンのページは
-  preflight なしにこのヘッダを付けられないため、これが CSRF の防波堤になっている。
-  外すと `text/plain` の simple request で誰でも API を叩ける
-
-### 開発者向けキー（残置）
-
-| キー | 動作 |
-|---|---|
-| F9 | 環境プローブを追記 |
-| F10 | シーンのヒエラルキーをダンプ |
-| F12 | トラック名の探索ダンプ |
-
-F5・F6・F7・F8 は**使っていない**。操作は Web UI から。
-
-### 表示の決まり方
-
-**トラック名 → GS** の対応表（`<game>/vdgs/bindings.json`）だけで決まる。
-シーナリー（Empty Scene Day など）単位ではない。同じシーナリー上に何本も
-トラックが載るため、シーン単位だと全部のトラックに出てしまう。
-
-トラックはシーンを跨がずに切り替えられる（ゲーム内の change track ダイアログ）ので、
-`sceneLoaded` では足りない。**1 秒ごとにトラック名をポーリング**して、
-変わったら GS を入れ替える（`PollTrack`）。
-
-紐付けの無いトラックでは**何も表示しない**。間違った GS を出すより無害。
-
-`<game>/vdgs/autospawn`（空ファイル）が無い場合は自動表示そのものが無効。
+**トラック名の取得は多段フォールバックで、使ってはいけない候補が 3 つある。** `JsonUtility`
+は入れ子型を無言で `{}` にする（Newtonsoft.Json 13 を使う）。UI は `innerHTML` を使わない
+（トラック名は攻撃者が書ける）。設計の理由は
+[docs/ARCHITECTURE.ja.md](docs/ARCHITECTURE.ja.md) の「トラックと GS の対応」「操作面」、
+操作手順とキー割り当ては [docs/USAGE.ja.md](docs/USAGE.ja.md)。
 
 ## 制約と、いまも踏める罠
 

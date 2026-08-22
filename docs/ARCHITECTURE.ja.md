@@ -90,6 +90,24 @@ ScriptableObject にデータを持つ。中身は**メタ情報 + 5 つの生�
 
 `SplatData.Load()` がこれを読み、`SplatRenderer` が GPU バッファに流す。
 
+`meta.json` は upstream の `GaussianSplatAsset` の要点だけを持つ：
+
+```json
+{ "formatVersion": 20231020, "splatCount": 1234567, "chunkCount": 0,
+  "boundsMin": [0,0,0], "boundsMax": [1,1,1],
+  "posFormat": "Norm11", "scaleFormat": "Norm11",
+  "colorFormat": "Norm8x4", "shFormat": "Norm6" }
+```
+
+`formatVersion` は `GaussianSplatAsset.kCurrentVersion`（2023_10_20）と一致させる。
+`color.bin` だけは Texture2D で、寸法は `CalcTextureSize(splatCount)`（幅 2048 固定）と
+`ColorFormatToGraphics(colorFormat)` から決まる。残る 3 つは `GraphicsBuffer.Target.Raw`
+の 4 バイト単位。
+
+`bindings.json` の読み書きに **`JsonUtility` は使えない** — 辞書を扱えず、入れ子型を
+**例外も警告もなく `{}` にする**。ファイルは正常に書けたように見えて中身だけ空になる。
+ゲーム同梱の Newtonsoft.Json 13（`Managed/Newtonsoft.Json.dll`）を使う。
+
 ### `.ply` を直接置いてもいい
 
 `<game>/vdgs/<name>.ply` でも動く。`PlyLoader` がロード時にパースし、
@@ -128,6 +146,10 @@ HLSL 側と一致していなければならず、**間違えても例外は出�
 `PlyExporter` が `chunkCount` を `meta.json` に書き、`SplatData.AcceptChunks` が
 それと突き合わせる。`deploy.sh` もソースに無いファイルを送り先から消すようにした
 （そもそも残骸が生き残った原因がこれ）。
+
+**サイズ検証だけでは足りない。** drjohnson の残骸 `chunk.bin` は 794,432 バイトで、
+`ceil(3177554/256) × 64` と完全に一致していた（同じ ply を前の品質で変換したものだから
+当然）。弾けるのはフォーマット側の規則だけ。
 
 ---
 

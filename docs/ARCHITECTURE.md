@@ -88,6 +88,25 @@ Inside an injected assembly that does not work:
 
 `SplatData.Load()` reads it; `SplatRenderer` pushes it into GPU buffers.
 
+`meta.json` carries only what upstream's `GaussianSplatAsset` needed:
+
+```json
+{ "formatVersion": 20231020, "splatCount": 1234567, "chunkCount": 0,
+  "boundsMin": [0,0,0], "boundsMax": [1,1,1],
+  "posFormat": "Norm11", "scaleFormat": "Norm11",
+  "colorFormat": "Norm8x4", "shFormat": "Norm6" }
+```
+
+`formatVersion` has to match `GaussianSplatAsset.kCurrentVersion` (2023_10_20). Only
+`color.bin` is a Texture2D; its dimensions come from `CalcTextureSize(splatCount)` (width
+fixed at 2048) and `ColorFormatToGraphics(colorFormat)`. The other three are
+`GraphicsBuffer.Target.Raw` in 4-byte units.
+
+**`JsonUtility` cannot write `bindings.json`** — it has no dictionaries and turns nested
+types into `{}` **with no exception and no warning**, so the file writes cleanly and comes
+back empty. Use the Newtonsoft.Json 13 that ships with the game
+(`Managed/Newtonsoft.Json.dll`).
+
 ### Or just a .ply
 
 `<game>/vdgs/<name>.ply` works as well. `PlyLoader` parses it at load time and produces
@@ -128,6 +147,10 @@ this inferred otherwise and broke every chunked capture. Only the conversion kno
 `PlyExporter` writes `chunkCount` into `meta.json` and `SplatData.AcceptChunks` compares
 against it. `deploy.sh` also deletes files that no longer exist in the source, which is
 what let the stale file survive in the first place.
+
+**Validating the size is not enough.** drjohnson's stale `chunk.bin` was 794,432 bytes —
+exactly `ceil(3177554/256) × 64`, as it had to be, having come from the same ply at a
+different quality. Only the format-side rule rejects it.
 
 ---
 

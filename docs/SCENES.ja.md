@@ -5,9 +5,9 @@
 3D Gaussian Splatting の `.ply` を VelociDrone で飛ぶまでの手順。壁と床で止まるための
 コリジョンメッシュの焼き方も含む。
 
-**mod にキャプチャは付いてこない。** 権利のある `.ply` を自分で用意する。学術データセットも
-SuperSplat の公開シーンも他人の作品で、ライセンス表記が無いことは再配布の許可ではない。
-落として自分で飛ぶのと、再公開するのは別の話。
+**mod にキャプチャは付いてこない。** 権利のある `.ply` を自分で用意する。学術データセットは
+表記が無く、表記の不在は許可ではない。**SuperSplat だけは作者が CC を明示していることがあり、
+CC BY なら表示付きで再配布できる**（下）。落として自分で飛ぶのと、再公開するのは別の話。
 
 導入と起動は [USAGE.ja.md](USAGE.ja.md)。このファイルはキャプチャ側のパイプライン。
 
@@ -25,6 +25,39 @@ SuperSplat の公開シーンも他人の作品で、ライセンス表記が無
 
 室内を移動しながら撮ったキャプチャは飛ぶ。物体周回（テーブルの上の盆栽）は飛ばない。
 Y を上げても直らない。
+
+### SuperSplat から CC BY のシーンを引く
+
+explore API は**認証なしで**ライセンスとダウンロード可否を返す。`limit` は最大 100、
+`sort=newest` は 400 を返すので付けない。
+
+```bash
+curl -s "https://playcanvas.com/api/splats/explore?limit=100&skip=0&features=downloadable"
+# -> result[].downloads = {enabled, license}   license は by / by-sa / by-nc / by-nc-sa / by-nc-nd / by-nd
+```
+
+**サイトのダウンロードボタンは PlayCanvas アカウントを要求する**（`/downloads` は 401）。
+だが**ビューアが読む SOG は CloudFront に素で公開されている**ので、ログインは要らない：
+
+```bash
+# シーンページの HTML に URL が埋まっている
+curl -s "https://superspl.at/s?id=<hash>" | grep -o 'https://[a-z0-9]*\.cloudfront\.net/[^"]*meta\.json'
+```
+
+`splat-transform` が `lod-meta.json` を http URL のまま読める。**大きいシーンは
+Streamed SOG（`format: "ssog"`）で、空間ツリー＋LOD 段（1 段ごとに splat 数が半分）**。
+`-L` で 1 段だけ抜けば、チャンク常駐を実装しなくても飛べる大きさになる：
+
+```bash
+npx @playcanvas/splat-transform -L 4 \
+  https://d28zzqy0iyovbz.cloudfront.net/<hash>/v<n>/lod-meta.json out.ply
+```
+
+`lod-meta.json` の `tree` を歩けば**落とす前に**各段の splat 数と実寸 AABB が分かる。
+`--lod-chunk-extent` の単位はメートルだが、**スケールが壊れているシーンもある**
+（実例：ある学校のキャプチャが 37 km × 100 km と出た）。Y の 1〜99% 幅が
+天井高（2〜3 m）や街の高さに落ちるかで正気を確かめる。
+
 
 ---
 
@@ -100,7 +133,17 @@ python3 -m venv ~/vdgsvenv
 ```
 
 前後の処理（`align_ply.py`、`ply_points.py`、`glb_to_collision.py`）は macOS でも走る。
-レベルセットの焼きと最初の間引きだけ `vdb_tool` のある場所で。
+**レベルセットの焼きだけ** `vdb_tool` のある場所で。間引き以降も macOS で走る —
+`decimate_mesh.py` は `fast_simplification`、`clean_mesh.py` はさらに `scipy` を要求するが、
+**システムの python に入れずに済む**：
+
+```bash
+uv run -q --python 3.12 --with numpy --with scipy --with fast-simplification \
+  python tools/decimate_mesh.py fine.ply reduced.ply 500000
+```
+
+中間の `fine.ply` は 5.37M splats の室内で 8.9 MB しかない。**焼きだけリモートに出して
+`fine.ply` を引き戻すほうが、リモートに venv を建てるより速い。**
 
 他に `npx`（`@playcanvas/splat-transform`）と `tools/` の Python。
 
@@ -163,6 +206,17 @@ python3 tools/glb_to_collision.py collision.glb myscene.collision.bin
 | `<game>\vdgs\myscene\`（変換済み） | `<game>\vdgs\myscene\collision.bin` |
 
 ファイルを差し替えたらキャプチャを出し直す。`solid` の付け外しでは再読み込みしない。
+
+**直置き `.ply` 経路では、コリジョンを「鏡映前」の座標系で焼く。** `PlyLoader` は `.ply` を
+読むとき Y を鏡映し、`SplatCollision` も**キャプチャが `.ply` なら** collision.bin を鏡映する
+（`SplatCollision.Attach`）。だから両方とも鏡映前で置けば構造的に一致する。**向きを直した
+`.ply` から焼いた bin を置くと、絵は正しくコリジョンだけ上下逆になる。** 変換済み
+ディレクトリ経路（`myscene/collision.bin`）は逆で、`reprocess.sh` が書き出し前に鏡映済み
+なので実行時は触らない。
+
+プレビューを見るためだけに鏡映した場合は、**出荷用に焼き直す。** 鏡映は対合なので殻を
+反転しても理屈は合うが、voxel グリッドへの当たり方がわずかに変わる（実測：level set の
+三角形数が 577,080 対 576,064、0.2% 差）。焼き直しは数分で済む。
 
 ### Web UI
 

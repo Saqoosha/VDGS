@@ -6,9 +6,10 @@ How to take a 3D Gaussian Splatting `.ply` and fly it in VelociDrone — includi
 collision mesh so the drone stops at walls and floors.
 
 The mod ships **no captures**. Bring a `.ply` you have the right to use. Academic datasets
-and SuperSplat public scenes are other people's work; a missing licence is not permission
-to redistribute. Flying a file you downloaded for yourself is a separate question from
-publishing it.
+carry no licence, and a missing licence is not permission. **SuperSplat is the exception:
+authors can state a Creative Commons licence, and a CC BY scene may be redistributed with
+attribution** (below). Flying a file you downloaded for yourself is a separate question
+from publishing it.
 
 Install and launch are in [USAGE.md](USAGE.md). This file is the capture pipeline.
 
@@ -26,6 +27,39 @@ eye it dissolves. Walk the room. Point the lens at the floor.
 
 Indoor rooms that were walked through fly well. Object-orbit captures (a plant on a table)
 do not, and raising Y will not fix it.
+
+### Pulling CC BY scenes from SuperSplat
+
+The explore API returns the licence and the download flag **without authentication**.
+`limit` caps at 100, and `sort=newest` returns 400 — leave it off.
+
+```bash
+curl -s "https://playcanvas.com/api/splats/explore?limit=100&skip=0&features=downloadable"
+# -> result[].downloads = {enabled, license}   by / by-sa / by-nc / by-nc-sa / by-nc-nd / by-nd
+```
+
+**The site's download button needs a PlayCanvas account** (`/downloads` answers 401). The
+SOG the viewer reads is served plainly from CloudFront, though, so no login is required:
+
+```bash
+curl -s "https://superspl.at/s?id=<hash>" | grep -o 'https://[a-z0-9]*\.cloudfront\.net/[^"]*meta\.json'
+```
+
+`splat-transform` reads a `lod-meta.json` straight from an http URL. **Large scenes are
+Streamed SOG (`format: "ssog"`): a spatial tree over LOD levels, each level half the splat
+count of the one below.** Pulling a single level with `-L` gives a scene small enough to
+fly without implementing chunk residency:
+
+```bash
+npx @playcanvas/splat-transform -L 4 \
+  https://d28zzqy0iyovbz.cloudfront.net/<hash>/v<n>/lod-meta.json out.ply
+```
+
+Walking the `tree` in `lod-meta.json` gives the per-level splat counts and the real AABB
+**before downloading anything**. `--lod-chunk-extent` is documented in metres, but **some
+scenes have a broken scale** — one school capture measured 37 km × 100 km. Sanity-check
+against the 1–99% Y spread: a room should land near ceiling height, a neighbourhood near
+building height.
 
 ---
 
@@ -104,7 +138,17 @@ python3 -m venv ~/vdgsvenv
 ```
 
 macOS can do the steps around it (`align_ply.py`, `ply_points.py`, `glb_to_collision.py`).
-The level-set bake and the first decimation have to run where `vdb_tool` is.
+**Only the level-set bake** has to run where `vdb_tool` is. Decimation onwards also runs on
+macOS — `decimate_mesh.py` needs `fast_simplification` and `clean_mesh.py` also needs
+`scipy`, but **neither has to be installed into the system Python**:
+
+```bash
+uv run -q --python 3.12 --with numpy --with scipy --with fast-simplification \
+  python tools/decimate_mesh.py fine.ply reduced.ply 500000
+```
+
+The intermediate `fine.ply` is only 8.9 MB for a 5.37M-splat interior, so **shipping the
+bake out and pulling `fine.ply` back beats building a venv on the remote box.**
 
 Also: `npx` (for `@playcanvas/splat-transform`) and the Python tools in `tools/`.
 
@@ -171,6 +215,19 @@ one they vanish. Then fly. Keep the flag that holds you up.
 | `<game>\vdgs\myscene\` (converted) | `<game>\vdgs\myscene\collision.bin` |
 
 Reload the capture after replacing the file. Toggling `solid` does not re-read it.
+
+**On the direct `.ply` path, bake collision in the *un-mirrored* frame.** `PlyLoader`
+mirrors Y as it reads a `.ply`, and `SplatCollision` mirrors the collision.bin too **when
+the capture is a `.ply`** (`SplatCollision.Attach`). Ship both un-mirrored and they agree by
+construction. **Bake the bin from a `.ply` you already corrected and the picture is right
+while the collision alone is upside down.** The converted-directory path
+(`myscene/collision.bin`) is the opposite: `reprocess.sh` mirrors before export, so the
+runtime leaves it alone.
+
+If you mirrored only to look at the preview, **re-bake for shipping.** Mirroring is an
+involution so flipping the shell is defensible in theory, but it lands differently on the
+voxel grid (measured: 577,080 vs 576,064 level-set triangles, 0.2% apart). Re-baking costs
+a few minutes.
 
 ### In the Web UI
 
