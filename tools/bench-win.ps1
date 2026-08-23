@@ -27,11 +27,11 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$home = $env:USERPROFILE
-$game = if ($env:VDGS_GAME) { $env:VDGS_GAME } else { Join-Path $home 'Downloads\Velocidrone Windows Launcher\app' }
+$homeDir = $env:USERPROFILE
+$game = if ($env:VDGS_GAME) { $env:VDGS_GAME } else { Join-Path $homeDir 'Downloads\Velocidrone Windows Launcher\app' }
 $task = 'VDGS-Bench'
 
-$editor = Join-Path $home 'UnityEditors\2021.3.45f2\Editor\Unity.exe'
+$editor = Join-Path $homeDir 'UnityEditors\2021.3.45f2\Editor\Unity.exe'
 if (-not (Test-Path $editor)) { throw "Unity 2021.3.45f2 not found at $editor" }
 
 if (Test-Path $Tgz) {

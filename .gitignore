@@ -32,3 +32,6 @@ unity/*/Assets/GaussianAssets/
 
 *.user
 .DS_Store
+
+# Web UI build output only (no sources live here)
+web/

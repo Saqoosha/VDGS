@@ -6,6 +6,9 @@
 scene, a leftover chunk buffer and an orthographic camera each produced something that
 looked like a plausible capture. So measure instead.
 
+**A still frame only measures the defects a still frame can hold.** Time is the exception,
+and it runs the other way: you have to spin the thing to see it (last section).
+
 ## Orientation: `tools/verify_orientation.py`, not your eyes
 
 An orientation error **does not show**. It reads as a slightly hazier version of the same
@@ -121,3 +124,56 @@ max/min ratio was wrong.**
 
 Seen from directly above, a vertical plate is edge-on and reads as a bright line. That
 looks like corruption and is not — the same rendering from a drone's eye view shows walls.
+
+## Fixed in the harness is not fixed in the game
+
+**Treat `RenderCompare` and the running game as two different renderers.** They share the
+C# and the shaders, but not the camera — the game's is HDR with a PostProcessing stack. A
+day went into that gap: a composite-shader fix that matched the web reference to within a
+few units of 255 in the harness changed **not one pixel** in the game. The two had
+different causes that produced the same symptom (splats never reaching the offscreen RT).
+
+So the verdict has to be taken on the real thing, and nobody needs to be sitting there:
+
+```bash
+bash tools/evalshot.sh out.png [camera.json]   # launch, click Quick Start, wait, shoot, quit
+```
+
+`<game>/vdgs/evalcam.json` carries the camera and the renderer knobs. `pos/fwd/up/fov` are
+**optional** — leave them out and the game keeps its own camera while the knobs still apply:
+
+| key | what it does |
+|---|---|
+| `black` | cullingMask=0, black clear, PostProcessing off. **The web viewer's conditions**, so the two images subtract. |
+| `shOrder` | 0 renders DC only, like the web reference |
+| `gaussCut` / `dropDegenerate` / `cullCenterSlack` / `depthClip` | isolate one renderer behaviour at a time |
+
+Three traps, all hit:
+
+- **`black` is not optional.** Against the game's own sky you cannot tell haze around the
+  trees from the background behind them. Black makes the frame subtractable.
+- **Quick Start spawns below the capture's ground.** All you get is the underside of the
+  splat lawn as big white blobs, so **always pass a `pos` for verification.**
+- **Leave it idling and the game paints its own "Outside of Map" glitch over the frame.**
+  Shorten the wait (`-LoadSeconds`). A screenshot full of colour noise is this.
+
+Measure a sky patch's mean and the fraction of pixels over 8/255. **Eyes cannot separate
+6.20 from 0.04** — both read as "black sky".
+
+---
+
+## What measuring cannot see: the time axis
+
+**PSNR, SSIM and LPIPS score one frame at a time and cannot measure a defect that only
+exists across frames.** Training a capture of our own, the build that won on still metrics
+flickered when the camera was orbited in SuperSplat and lost to the one it had beaten. The
+numbers were not close either — SSIM was ahead by 0.086.
+
+The cause is **sort popping**. 3DGS composites with a depth sort every frame, so **hard
+(high-opacity) splats overlapping at similar depth swap order as the camera turns and the
+colour flips back and forth.** A scene drawn from a soft mixture looks the same whichever
+way the swap lands. The culprit is hardness, not size, so clamping the scale floor does not
+remove it.
+
+So **acceptance has to include orbiting it in a viewer.** Where the rest of this file says
+eyes are useless, it means for the defects a still frame can hold. This one is the reverse.

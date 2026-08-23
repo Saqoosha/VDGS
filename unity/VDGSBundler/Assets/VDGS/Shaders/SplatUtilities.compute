@@ -66,6 +66,8 @@ float _CullMargin;
 // margin can be derived from each splat's own size instead of from one global number.
 float2 _CullProjScale;
 float _CullRadiusScale;
+// Web-style centre-only cull limit as a multiple of clip.w (0 = off, 1.2 = the web value).
+float _CullCenterSlack;
 // Largest gaussian radius in each block of kChunkSize splats, built once when the scene
 // loads. Reading each splat's own scale in the distance pass was correct but slower than
 // the cull it enabled: the index comes from the sorted key buffer, so it scatters reads
@@ -122,6 +124,24 @@ void CSCalcDistances (uint3 id : SV_DispatchThreadID)
         culled = (clip.w + radius <= 0)
               || abs(clip.x) > clip.w + radius * _CullProjScale.x
               || abs(clip.y) > clip.w + radius * _CullProjScale.y;
+
+        // The margin above deliberately keeps a splat whose centre is off screen but whose
+        // body reaches into it. Standing inside a capture that is the wrong rule: the
+        // camera sits among splats a few centimetres away, each projects to thousands of
+        // pixels, and dozens of them smear across the whole frame as a haze. The web
+        // reference viewers instead drop on the centre alone -
+        //
+        //     float clip = 1.2 * pos2d.w;
+        //     if (pos2d.x < -clip || pos2d.x > clip || ...) return;   antimatter15/splat
+        //
+        // which quietly removes exactly those near-camera splats. _CullCenterSlack > 0
+        // adds that test; 1.2 is the web constant.
+        if (_CullCenterSlack > 0)
+        {
+            float lim = _CullCenterSlack * clip.w;
+            culled = culled || clip.w <= 0
+                  || abs(clip.x) > lim || abs(clip.y) > lim;
+        }
     }
 
     _SplatSortDistances[idx] = culled ? 0xFFFFFFFFu : FloatToSortableUint(pos.z);
@@ -169,6 +189,7 @@ RWStructuredBuffer<SplatViewData> _SplatViewData;
 
 float _SplatScale;
 float _SplatOpacityScale;
+uint _SplatDropDegenerate;
 uint _SHOrder;
 uint _SHOnly;
 
@@ -235,7 +256,18 @@ void DecomposeCovariance(float3 cov2d, out float2 v1, out float2 v2)
     float mid = 0.5f * (diag1 + diag2);
     float radius = length(float2((diag1 - diag2) / 2.0, offDiag));
     float lambda1 = mid + radius;
-    float lambda2 = max(mid - radius, 0.1);
+    // Upstream clamps the minor eigenvalue up to 0.1; the web reference viewers drop the
+    // splat instead (`if (lambda2 < 0.0) return;`). Clamping turns a degenerate gaussian
+    // into a long thin sliver that still gets drawn - the "large splats" streaking across
+    // this capture. _SplatDropDegenerate != 0 follows the web behaviour by collapsing it
+    // to nothing so the quad is empty.
+    float lambda2 = mid - radius;
+    if (_SplatDropDegenerate != 0 && lambda2 < 0)
+    {
+        v1 = 0; v2 = 0;
+        return;
+    }
+    lambda2 = max(lambda2, 0.1);
     float2 diagVec = normalize(float2(offDiag, lambda1 - diag1));
     diagVec.y = -diagVec.y;
     float maxSize = 4096.0;

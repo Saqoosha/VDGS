@@ -61,9 +61,9 @@ fi
 echo "== install =="
 ssh -o BatchMode=yes "$HOST" "
   ${REMOTE_GAME}\$PLUGIN_ONLY = $PLUGIN_ONLY
-  \$home = \$env:USERPROFILE
-  \$stage = Join-Path \$home 'vdgs-stage'
-  \$game = if (\$env:VDGS_GAME) { \$env:VDGS_GAME } else { Join-Path \$home 'Downloads\\Velocidrone Windows Launcher\\app' }
+  \$homeDir = \$env:USERPROFILE
+  \$stage = Join-Path \$homeDir 'vdgs-stage'
+  \$game = if (\$env:VDGS_GAME) { \$env:VDGS_GAME } else { Join-Path \$homeDir 'Downloads\\Velocidrone Windows Launcher\\app' }
   New-Item -ItemType Directory -Force -Path (Join-Path \$game 'BepInEx\\plugins') | Out-Null
   Copy-Item (Join-Path \$stage 'VDGS.dll') (Join-Path \$game 'BepInEx\\plugins\\VDGS.dll') -Force
   New-Item -ItemType Directory -Force -Path (Join-Path \$game 'vdgs') | Out-Null

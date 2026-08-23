@@ -21,6 +21,12 @@ Shoot a place and reconstruct it (Postshot, Brush, the original 3DGS trainer, �
 export from [SuperSplat](https://superspl.at/editor). The plugin reads **`.ply` only**,
 not `.splat`.
 
+**If you train it yourself, do not train with 3DGUT.** A splat trained with `--with_ut`
+and then drawn by VDGS or SuperSplat (both EWA) goes from **24.5 dB to 12.4** — not a
+degradation, a collapse — and **the eye does not catch it**: the plausible-looking picture
+in the viewer already was the collapsed one. A checkpoint only means anything paired with
+the renderer it was trained for. **EWA at the exit means EWA in training.**
+
 **Shoot the floors.** A capture that only orbits an object reconstructs the ground as
 gaussians stretched toward the camera. From above the floor looks filled; from a drone's
 eye it dissolves. Walk the room. Point the lens at the floor.

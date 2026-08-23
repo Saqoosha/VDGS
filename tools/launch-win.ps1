@@ -17,12 +17,12 @@
 param([string]$GameArgs = '-force-d3d12', [switch]$Diagnose)
 
 $ErrorActionPreference = 'Stop'
-$home   = $env:USERPROFILE
-$app    = if ($env:VDGS_GAME) { $env:VDGS_GAME } else { Join-Path $home 'Downloads\Velocidrone Windows Launcher\app' }
+$homeDir   = $env:USERPROFILE
+$app    = if ($env:VDGS_GAME) { $env:VDGS_GAME } else { Join-Path $homeDir 'Downloads\Velocidrone Windows Launcher\app' }
 $exe    = Join-Path $app 'velocidrone.exe'
 $probe  = Join-Path $app 'vdgs-probe.log'
 $bepLog = Join-Path $app 'BepInEx\LogOutput.log'
-$player = Join-Path $home 'AppData\LocalLow\velocidrone\velocidrone\Player.log'
+$player = Join-Path $homeDir 'AppData\LocalLow\velocidrone\velocidrone\Player.log'
 $task   = 'VDGS-Launch'
 
 foreach ($f in @($probe, $bepLog)) { if (Test-Path $f) { Remove-Item $f -Force } }

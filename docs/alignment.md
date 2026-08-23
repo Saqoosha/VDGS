@@ -142,6 +142,45 @@ nelson-lod2      131 (0.006%)  11.4%                         13.1%
 
 Give no output path to get the report without writing a file.
 
+### Masking the sky during training beats cutting it afterwards
+
+On our own outdoor capture (FDF — sky fills the top half of every frame) the giant splats
+were measured down to their colour. The 1,694 splats over 2 m across and above 15 m:
+
+```
+mean RGB [0.79, 0.82, 0.85]   near-white with a blue cast
+85% of them bright
+median opacity 0.77            near-opaque
+above 50 m: 92% blue-dominant, median size 5.79 m
+```
+
+**The treeline is 10 m. These sit two to five times higher, white, huge and opaque — they
+are the sky and the clouds.** `--max-sigma` only deletes them after the fact, so raising
+the threshold takes treetops and power lines with it and lowering it leaves residue.
+**Masking the sky at training time means they are never created.** VelociDrone draws its
+own sky, so a capture needs none of its own.
+
+**Done — `bash tools/sky-mask-train.sh`.** SegFormer cuts the sky, a local patch teaches
+gsplat to read the masks, and the capture is retrained. Measured: the white sky plates
+(over 2 m, above 15 m) fell from 9,568 to 2,690 and their median opacity from 0.19 to 0.08.
+**The capacity the sky was consuming went into the forest**, where individual trees now
+resolve; the lawn is unchanged, being low-frequency and already explained — MCMC relocates
+to wherever the residual is.
+
+Two traps, both hit:
+
+- **Dilate the mask into the sky, never over the structures** (`--shrink-sky`). Eating a
+  power line loses a real feature; leaving a few pixels of sky costs a few stray gaussians.
+- **Excluding it from the loss is not enough.** Nothing in that region is ever penalised,
+  so gaussians that drift in keep whatever they look like and read as dark streaks.
+  Penalising accumulated alpha there (`--sky_lambda`) took the over-2 m count from 2,690 to
+  923. The rest of the traps are documented at the top of `tools/sky_mask_patch.py`.
+
+**But "giant splats covering the view" turned out to be the renderer, not the data.** Flown
+from inside a capture, splats tens of centimetres from the camera project across the whole
+frame, and upstream's frustum cull keeps them because it includes a radius margin. See
+"Constraints and traps still live" in AGENTS.md.
+
 ## Cropping: don't
 
 Percentile cropping trims the outer shell, and **a room photographed from the inside has

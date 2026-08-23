@@ -49,6 +49,7 @@ namespace VDGS
 
             LoadShaders();
             StartWebControl();
+            EvalCam.Init(Paths.GameRootPath);
 
             SceneManager.sceneLoaded += OnSceneLoaded;
         }
@@ -339,6 +340,17 @@ namespace VDGS
         /// Scenes with no world to place splats into. MainMenu is excluded too: splats
         /// showed up floating behind the menu drone, which looks broken rather than useful.
         /// </summary>
+        /// <summary>True when a track scene is loaded, whether or not it is the active one.</summary>
+        private static bool AnyFlyableSceneLoaded()
+        {
+            for (int i = 0; i < SceneManager.sceneCount; i++)
+            {
+                var s = SceneManager.GetSceneAt(i);
+                if (s.isLoaded && IsFlyableScene(s.name)) return true;
+            }
+            return false;
+        }
+
         private static bool IsFlyableScene(string name)
         {
             return name.IndexOf("auth", StringComparison.OrdinalIgnoreCase) < 0
@@ -349,6 +361,7 @@ namespace VDGS
 
         private void Update()
         {
+            EvalCam.Poll(Time.unscaledDeltaTime);
             // Manual probe while flying - the interesting camera stack only exists mid-flight.
             if (Input.GetKeyDown(KeyCode.F9))
             {
@@ -415,6 +428,22 @@ namespace VDGS
             string name;
             try { name = TrackName.Current(log); }
             catch (Exception e) { log.AppendLine("track read failed: " + e.Message); name = null; }
+
+            // TrackName's fallback sources keep returning the last track after the game
+            // goes back to the menu, so gate on the Unity scenes as well - otherwise the
+            // capture spawns behind the main menu. (IsFlyableScene existed for exactly
+            // this but had lost its call site.)
+            //
+            // Every loaded scene is checked, not the active one: a track is loaded
+            // alongside the menu and does not necessarily become active, so testing
+            // SceneManager.GetActiveScene() alone reports "menu" for the whole flight and
+            // suppresses the capture that is the entire point of the mod.
+            //
+            // A <game>/vdgs/menuspawn flag file skips the gate, so a remote diagnostic can
+            // probe the renderer without entering a track.
+            if (!AnyFlyableSceneLoaded()
+                && !File.Exists(Path.Combine(Paths.GameRootPath, "vdgs", "menuspawn")))
+                name = null;
 
             if (!string.Equals(name, m_CurrentTrack, StringComparison.Ordinal))
             {

@@ -118,6 +118,8 @@ namespace VDGS
                 mpb.SetFloat(Props.SplatScale, gs.m_SplatScale);
                 mpb.SetFloat(Props.SplatOpacityScale, gs.m_OpacityScale);
                 mpb.SetFloat(Props.SplatSize, gs.m_PointDisplaySize);
+                mpb.SetFloat(Props.SplatGaussCut, gs.m_GaussCut);
+                mpb.SetFloat(Props.SplatDepthClip, gs.m_DepthClip ? 1f : 0f);
                 int shOrder = Mathf.Min(gs.m_SHOrder, gs.Data.ShOrder);
                 mpb.SetInt(Props.SHOrder, shOrder);
                 mpb.SetInt(Props.SplatSHOrder, shOrder);
@@ -149,10 +151,17 @@ namespace VDGS
             }
             m_CommandBuffer.Clear();
 
-            m_CommandBuffer.GetTemporaryRT(Props.GaussianSplatRT, -1, -1, 0, FilterMode.Point,
-                GraphicsFormat.R16G16B16A16_SFloat);
-            m_CommandBuffer.SetRenderTarget(Props.GaussianSplatRT, BuiltinRenderTextureType.CurrentActive);
+            // Explicit size, not (-1, -1) - see src/VDGS/SplatRenderer.cs for the story.
+            // The camera-relative size left SetRenderTarget on the previous target and the
+            // composite pass read an empty RT; RenderCompare probes proved it.
+            m_CommandBuffer.GetTemporaryRT(Props.GaussianSplatRT, cam.pixelWidth, cam.pixelHeight,
+                0, FilterMode.Point, GraphicsFormat.R16G16B16A16_SFloat);
+            // Colour-only bind - binding the camera depth here silently kills the whole bind
+            // on the game's cameras; see src/VDGS/SplatRenderer.cs. Occlusion is done in the
+            // splat fragment shader against _CameraDepthTexture.
+            m_CommandBuffer.SetRenderTarget(Props.GaussianSplatRT);
             m_CommandBuffer.ClearRenderTarget(RTClearFlags.Color, new Color(0, 0, 0, 0), 0, 0);
+            cam.depthTextureMode |= DepthTextureMode.Depth;
 
             // Only used to detect whether we render into the backbuffer; BiRP-only trick.
             m_CommandBuffer.SetGlobalTexture(Props.CameraTargetTexture, BuiltinRenderTextureType.CameraTarget);
@@ -179,6 +188,10 @@ namespace VDGS
         internal static readonly int SplatDeletedBits = Shader.PropertyToID("_SplatDeletedBits");
         internal static readonly int SplatBitsValid = Shader.PropertyToID("_SplatBitsValid");
         internal static readonly int SplatFormat = Shader.PropertyToID("_SplatFormat");
+        internal static readonly int SplatGaussCut = Shader.PropertyToID("_SplatGaussCut");
+        internal static readonly int SplatDepthClip = Shader.PropertyToID("_SplatDepthClip");
+        internal static readonly int CullCenterSlack = Shader.PropertyToID("_CullCenterSlack");
+        internal static readonly int SplatDropDegenerate = Shader.PropertyToID("_SplatDropDegenerate");
         internal static readonly int SplatChunks = Shader.PropertyToID("_SplatChunks");
         internal static readonly int SplatChunkCount = Shader.PropertyToID("_SplatChunkCount");
         internal static readonly int SplatViewData = Shader.PropertyToID("_SplatViewData");
@@ -223,6 +236,38 @@ namespace VDGS
         public float m_SplatScale = 1.0f;
         public float m_OpacityScale = 1.0f;
         public int m_SHOrder = 3;
+        /// <summary>
+        /// Squared-radius cut for each gaussian, matching the web viewers' `if (A &lt; -4.0)
+        /// discard;` - two sigma. Without it every splat keeps a 1-5/255 ring out to where
+        /// alpha crosses 1/255, and a million of those rings sum into visible haze. 0 = off.
+        /// </summary>
+        public float m_GaussCut = 4f;
+
+        /// <summary>Manual scene-depth occlusion in the splat shader; off makes splats draw over everything.</summary>
+        public bool m_DepthClip = true;
+
+        /// <summary>
+        /// Cull a splat when its centre leaves this multiple of the frustum, the way the web
+        /// viewers do (`float clip = 1.2 * pos2d.w; if (pos2d.x &lt; -clip ...) return;`).
+        ///
+        /// This is what makes flying inside a capture look right. The radius-margin cull
+        /// above deliberately keeps a splat whose centre is off screen but whose body
+        /// reaches in - correct when looking at a capture from outside, catastrophic when
+        /// the camera sits among splats a few centimetres away: each projects to thousands
+        /// of pixels and dozens of them wash the whole frame, which is the "fog" and the
+        /// "large splats" this scene showed for days. Measured at the same camera as a web
+        /// viewer: sky 6.20 -&gt; 0.04 out of 255 (web reference: 0.00), lawn unchanged.
+        ///
+        /// 0 disables it and restores upstream behaviour.
+        /// </summary>
+        public float m_CullCenterSlack = 1.2f;
+
+        /// <summary>
+        /// Drop splats whose minor eigenvalue went negative rather than clamping them up to
+        /// a sliver, matching the web viewers' `if (lambda2 &lt; 0.0) return;`. A clamped
+        /// degenerate gaussian draws as a long thin streak.
+        /// </summary>
+        public bool m_DropDegenerate = true;
         public bool m_SHOnly;
         public int m_SortNthFrame = 1;
 
@@ -576,6 +621,7 @@ namespace VDGS
             cmb.SetComputeVectorParam(cs, Props.VecWorldSpaceCameraPos, camPos);
             cmb.SetComputeFloatParam(cs, Props.SplatScale, m_SplatScale);
             cmb.SetComputeFloatParam(cs, Props.SplatOpacityScale, m_OpacityScale);
+            cmb.SetComputeIntParam(cs, Props.SplatDropDegenerate, m_DropDegenerate ? 1 : 0);
             int shOrder = Mathf.Min(m_SHOrder, m_Data.ShOrder);
             cmb.SetComputeIntParam(cs, Props.SHOrder, shOrder);
             cmb.SetComputeIntParam(cs, Props.SplatSHOrder, shOrder);
@@ -648,6 +694,7 @@ namespace VDGS
             // folded in because the capture is placed with a scale in the world.
             cmd.SetComputeFloatParam(cs, Props.CullRadiusScale,
                 Mathf.Max(0f, m_CullMargin) * m_SplatScale * Mathf.Abs(transform.lossyScale.x));
+            cmd.SetComputeFloatParam(cs, Props.CullCenterSlack, m_CullCenterSlack);
             cmd.SetComputeBufferParam(cs, k, Props.SplatChunkRadius, m_GpuChunkRadius);
 
             cs.GetKernelThreadGroupSizes(k, out uint gsX, out _, out _);
