@@ -21,6 +21,7 @@ export default defineConfig({
       input: {
         index: path.resolve(root, 'index.html'),
         companion: path.resolve(root, 'companion.html'),
+        site: path.resolve(root, 'site.html'),
       },
     },
   },

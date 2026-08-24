@@ -34,6 +34,17 @@ esac
 rm -rf "$OUT"
 mkdir -p "$OUT/scene" "$OUT/track"
 
+# The page that lists all this is built from the same project as the in-game UI and the
+# app's window, so a visitor who later runs the companion recognises it.
+echo "== building the page =="
+( cd "$ROOT/web" && bun run build ) | tail -2
+[ -f "$ROOT/web/dist/site.html" ] || { echo "no web/dist/site.html produced" >&2; exit 1; }
+cp "$ROOT/web/dist/site.html" "$OUT/index.html"
+cp -R "$ROOT/web/dist/assets" "$OUT/assets"
+[ -f "$ROOT/web/dist/favicon.svg" ] && cp "$ROOT/web/dist/favicon.svg" "$OUT/favicon.svg"
+# The page asks for /assets and /catalog.json, so this folder has to be the site root -
+# not a subdirectory of one.
+
 python3 - "$ROOT" "$OUT" "$BASE_URL" <<'PY'
 import hashlib, json, os, shutil, sys, datetime
 
