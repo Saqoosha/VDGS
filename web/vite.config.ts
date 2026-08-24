@@ -12,6 +12,18 @@ export default defineConfig({
   resolve: {
     alias: { '@': path.resolve(root, './src') },
   },
+  build: {
+    rollupOptions: {
+      // Two pages out of one project: index.html is served by the plugin from
+      // <game>/vdgs/ui while the game runs, companion.html is loaded by the setup app
+      // before it does. They share the theme, the components and the fonts, which is the
+      // entire reason they are not separate projects.
+      input: {
+        index: path.resolve(root, 'index.html'),
+        companion: path.resolve(root, 'companion.html'),
+      },
+    },
+  },
   test: {
     environment: 'jsdom',
     setupFiles: './src/test/setup.ts',

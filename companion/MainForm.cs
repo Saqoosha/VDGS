@@ -17,9 +17,10 @@ namespace VDGSCompanion
     /// shown rather than assumed - a player who cannot tell whether the mod is installed
     /// ends up reinstalling over a working setup.
     ///
-    /// The window is a WebView2 showing AppUi.Html, which is the same design as the mod's
-    /// in-game browser UI. The file and database work stays in C# where it is tested; the
-    /// page only sends command names back and renders the state it is given.
+    /// The window is a WebView2 showing the same React app the mod serves in the browser
+    /// (web/, built to ui/ beside the exe) - one page of it, the setup page. The file and
+    /// database work stays in C# where it is tested; the page only sends command names
+    /// back and renders the state it is given.
     /// </summary>
     internal sealed class MainForm : Form
     {
@@ -32,9 +33,14 @@ namespace VDGSCompanion
         internal MainForm()
         {
             Text = "VDGS Companion";
-            Size = new Size(780, 860);
-            MinimumSize = new Size(640, 620);
-            BackColor = Color.FromArgb(0xf6, 0xf7, 0xf9);   // matches the page, so no white flash
+            // Tall enough for the whole page, but never taller than the desktop it opens
+            // on - a window that starts with its own controls under the taskbar reads as
+            // broken before anything has been done with it.
+            var work = Screen.PrimaryScreen.WorkingArea;
+            Size = new Size(Math.Min(780, work.Width - 80), Math.Min(880, work.Height - 60));
+            MinimumSize = new Size(560, 520);
+            StartPosition = FormStartPosition.CenterScreen;
+            BackColor = Color.FromArgb(0x05, 0x07, 0x0c);   // matches the page, so no white flash
             Controls.Add(_web);
 
             _game = GameInstall.FindGame();
@@ -75,8 +81,28 @@ namespace VDGSCompanion
 
             c.WebMessageReceived += (s, e) => Dispatch(e.WebMessageAsJson);
             c.NavigationCompleted += (s, e) => { _ready = true; Push(); };
-            c.NavigateToString(AppUi.Html);
+
+            // The page is a built bundle of ES modules, which a file:// or
+            // NavigateToString origin will not load. A virtual host gives it a real one
+            // without opening a port on the machine.
+            var ui = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ui");
+            if (!File.Exists(Path.Combine(ui, "companion.html")))
+            {
+                MessageBox.Show(this,
+                    "The interface files are missing.\n\nExpected: " + ui +
+                    "\n\nBuild them with: cd web && bun run build",
+                    "VDGS", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                Close();
+                return;
+            }
+            c.SetVirtualHostNameToFolderMapping(
+                VirtualHost, ui, CoreWebView2HostResourceAccessKind.Allow);
+            c.Navigate("http://" + VirtualHost + "/companion.html");
         }
+
+        // Any name works as long as nothing else claims it; .invalid is reserved by RFC
+        // 2606 precisely so it can never resolve to a real machine.
+        private const string VirtualHost = "vdgs.invalid";
 
         // ------------------------------------------------------------------ host -> page
 
@@ -91,7 +117,7 @@ namespace VDGSCompanion
         private void Push()
         {
             var missing = new List<string>();
-            var scenes = new List<object>();
+            var captures = new List<object>();
             string mod = null;
 
             if (_game != null)
@@ -103,7 +129,7 @@ namespace VDGSCompanion
                     missing.Add("the shader bundle");
 
                 foreach (var s in GameInstall.SceneDetails(_game))
-                    scenes.Add(new { name = s.Name, splats = s.Splats.ToString("N0"), collision = s.Collision });
+                    captures.Add(new { name = s.Name, splats = s.Splats, collision = s.Collision, bytes = s.Bytes });
             }
 
             Post(new
@@ -112,7 +138,7 @@ namespace VDGSCompanion
                 game = _game,
                 mod,
                 missing,
-                scenes,
+                captures,
                 ready = _game != null && missing.Count == 0,
                 running = GameInstall.IsRunning(),
                 launchArgs = GameInstall.LaunchArgs,
@@ -136,7 +162,7 @@ namespace VDGSCompanion
                 case "refresh": Push(); break;
                 case "pick": PickGame(); break;
                 case "installMod": InstallZip("Mod archive|vdgs-mod-*.zip|Zip archives|*.zip"); break;
-                case "installScene": InstallZip("Capture archive|vdgs-scene-*.zip|Zip archives|*.zip"); break;
+                case "installCapture": InstallZip("Capture archive|vdgs-scene-*.zip|Zip archives|*.zip"); break;
                 case "addTrack": AddTrack(); break;
                 case "fly": Launch(); break;
             }

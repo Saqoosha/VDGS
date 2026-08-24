@@ -68,6 +68,7 @@ namespace VDGSCompanion
             public string Name;
             public long Splats;
             public bool Collision;   // without this the capture is flown straight through
+            public long Bytes;
         }
 
         internal static List<SceneInfo> SceneDetails(string game)
@@ -81,9 +82,25 @@ namespace VDGSCompanion
                     Name = name,
                     Splats = Json.SplatCount(Path.Combine(dir, "meta.json")),
                     Collision = File.Exists(Path.Combine(dir, "collision.bin")),
+                    Bytes = DirectorySize(dir),
                 });
             }
             return found;
+        }
+
+        /// <summary>
+        /// Top level only. A capture is a flat handful of .bin files, and walking the tree
+        /// would cost a recursion for a number shown beside a name.
+        /// </summary>
+        private static long DirectorySize(string dir)
+        {
+            try
+            {
+                long total = 0;
+                foreach (var f in Directory.GetFiles(dir)) total += new FileInfo(f).Length;
+                return total;
+            }
+            catch { return 0; }
         }
 
         /// <summary>

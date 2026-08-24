@@ -43,4 +43,15 @@
     <PackageReference Include="System.Text.Json" Version="8.0.5" />
   </ItemGroup>
 
+  <!-- The window's interface is the same React app the mod serves in the browser, built
+       by bun. It is copied in rather than referenced so the shipped app is one folder,
+       and the copy is conditional so a C#-only build does not fail on a missing dist. -->
+  <Target Name="CopyUi" AfterTargets="Build" Condition="Exists('$(MSBuildProjectDirectory)/../web/dist/companion.html')">
+    <ItemGroup>
+      <UiFiles Include="$(MSBuildProjectDirectory)/../web/dist/**/*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(UiFiles)"
+          DestinationFiles="@(UiFiles->'$(OutDir)ui/%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
 </Project>

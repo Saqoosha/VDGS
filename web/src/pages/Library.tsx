@@ -4,6 +4,7 @@ import { runExclusive } from '../busy'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { filterScenes } from '../search'
+import { formatBytes } from '../format'
 import { useStatusContext } from '../status-context'
 import type { Scene } from '../types'
 
@@ -110,12 +111,4 @@ function SceneRow({
       </Button>
     </li>
   )
-}
-
-function formatBytes(n?: number): string | null {
-  if (n == null || n <= 0) return null
-  if (n < 1024) return `${n} B`
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
-  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`
-  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`
 }

@@ -25,3 +25,21 @@ export type Status = {
   available: Scene[]
   bindings: Record<string, string[]>
 }
+
+export type Capture = {
+  name: string
+  splats: number
+  collision: boolean
+  bytes?: number
+}
+
+/** What the companion app knows about this machine before the game is started. */
+export type SetupState = {
+  game: string | null
+  mod: string | null
+  missing: string[]
+  ready: boolean
+  running: boolean
+  launchArgs: string
+  captures: Capture[]
+}
