@@ -55,6 +55,7 @@ let devListeners: ((m: Push) => void)[] = []
 const devState: SetupState = {
   game: 'C:\\Users\\a\\Downloads\\Velocidrone Windows Launcher\\app',
   mod: '0.1.0.0',
+  bundledMod: '0.1.0.0',
   missing: [],
   ready: true,
   running: false,

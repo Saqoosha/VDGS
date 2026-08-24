@@ -142,6 +142,7 @@ namespace VDGSCompanion
                 missing,
                 tracks,
                 unbound,
+                bundledMod = GameInstall.BundledModVersion(),
                 ready = _game != null && missing.Count == 0,
                 running = GameInstall.IsRunning(),
                 launchArgs = GameInstall.LaunchArgs,
@@ -224,7 +225,7 @@ namespace VDGSCompanion
             {
                 case "refresh": Push(); break;
                 case "pick": PickGame(); break;
-                case "installMod": InstallZip("Mod archive|vdgs-mod-*.zip|Zip archives|*.zip"); break;
+                case "installMod": InstallMod(); break;
                 case "installCapture": InstallZip("Capture archive|vdgs-scene-*.zip|Zip archives|*.zip"); break;
                 case "addTrack": AddTrack(); break;
                 case "fly": Launch(); break;
@@ -244,6 +245,21 @@ namespace VDGSCompanion
                 }
                 _game = d.SelectedPath;
                 Push();
+            }
+        }
+
+        private void InstallMod()
+        {
+            if (_game == null) return;
+            try
+            {
+                GameInstall.InstallBundledMod(_game, Log);
+                Push();
+            }
+            catch (Exception ex)
+            {
+                Log("failed: " + ex.Message);
+                MessageBox.Show(this, ex.Message, "VDGS", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 

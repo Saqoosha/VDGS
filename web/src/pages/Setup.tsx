@@ -40,8 +40,12 @@ export default function Setup({
           <Button variant="outline" onClick={() => send('pick')}>
             Change…
           </Button>
-          <Button variant="outline" disabled={!game || busy} onClick={() => send('installMod')}>
-            Install mod
+          <Button
+            variant="outline"
+            disabled={!game || busy || !state?.bundledMod}
+            onClick={() => send('installMod')}
+          >
+            {modAction(state)}
           </Button>
           {state ? <Verdict state={state} /> : null}
         </div>
@@ -103,6 +107,17 @@ export default function Setup({
       </Button>
     </>
   )
+}
+
+/**
+ * The mod travels inside this app, so the button installs what it carries rather than
+ * asking for a file. Saying which of the three things it will do keeps someone from
+ * reinstalling over a working setup to find out.
+ */
+function modAction(state: SetupState | null): string {
+  if (!state?.bundledMod) return 'No mod payload'
+  if (!state.mod) return 'Install mod'
+  return state.mod === state.bundledMod ? 'Reinstall mod' : `Update to ${state.bundledMod}`
 }
 
 function Verdict({ state }: { state: SetupState }) {

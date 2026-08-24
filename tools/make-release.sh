@@ -46,7 +46,10 @@ dotnet build "$ROOT/src/VDGS/VDGS.csproj" -c Release | tail -2
 DLL="$ROOT/src/VDGS/bin/Release/VDGS.dll"
 [ -f "$DLL" ] || { echo "no VDGS.dll produced" >&2; exit 1; }
 
-STAGE="$(mktemp -d)"
+# Staged under build/ rather than in a temp dir: the companion app carries this same
+# tree as its payload, so "Install mod" installs what a release would.
+STAGE="$OUT"
+rm -rf "$STAGE/vdgs-mod"
 mkdir -p "$STAGE/vdgs-mod/BepInEx/plugins" "$STAGE/vdgs-mod/vdgs"
 cp "$DLL" "$STAGE/vdgs-mod/BepInEx/plugins/"
 
@@ -111,7 +114,7 @@ rm -f "$MOD_ZIP"
 ( cd "$STAGE/vdgs-mod" && zip -qr "$MOD_ZIP" . )
 echo "-> $MOD_ZIP  ($(du -h "$MOD_ZIP" | cut -f1))"
 else
-  STAGE="$(mktemp -d)"
+  STAGE="$OUT"
   echo "(--scene-only: no mod archive)"
 fi
 
@@ -121,6 +124,7 @@ if [ -n "$SCENE" ]; then
   [ -f "$SCENE_DIR/meta.json" ] || { echo "$SCENE_DIR has no meta.json" >&2; exit 2; }
 
   say "packaging scene $SCENE"
+  rm -rf "$STAGE/scene"
   mkdir -p "$STAGE/scene/vdgs/$SCENE"
   cp "$SCENE_DIR"/*.bin "$SCENE_DIR"/meta.json "$STAGE/scene/vdgs/$SCENE/"
   [ -f "$SCENE_DIR/placement.json" ] && cp "$SCENE_DIR/placement.json" "$STAGE/scene/vdgs/$SCENE/"
@@ -183,6 +187,6 @@ EOF
   echo "-> $SCENE_ZIP  ($(du -h "$SCENE_ZIP" | cut -f1))"
 fi
 
-rm -rf "$STAGE"
+rm -rf "$STAGE/scene"
 say "done"
 ls -la "$OUT"

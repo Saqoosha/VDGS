@@ -53,6 +53,8 @@ export type TrackEntry = {
 export type SetupState = {
   game: string | null
   mod: string | null
+  /** The mod version this app carries, or null if it was built without a payload. */
+  bundledMod: string | null
   missing: string[]
   ready: boolean
   running: boolean

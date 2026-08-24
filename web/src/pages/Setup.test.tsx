@@ -23,6 +23,7 @@ function state(over: Partial<SetupState> = {}): SetupState {
   return {
     game: 'C:\\game',
     mod: '0.1.0.0',
+    bundledMod: '0.1.0.0',
     missing: [],
     ready: true,
     running: false,
@@ -87,8 +88,25 @@ describe('Setup', () => {
 
   it('will not offer to install anything while the game is running', () => {
     render(<Setup state={state({ running: true })} log={[]} />)
-    expect(screen.getByRole('button', { name: /install mod/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /reinstall mod/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: /^fly$/i })).toBeDisabled()
+  })
+
+  it('says which of install, reinstall or update the button will do', () => {
+    // Installing over a working setup to find out is the failure this avoids.
+    const { rerender } = render(<Setup state={state({ mod: null })} log={[]} />)
+    expect(screen.getByRole('button', { name: /^install mod$/i })).toBeInTheDocument()
+
+    rerender(<Setup state={state()} log={[]} />)
+    expect(screen.getByRole('button', { name: /^reinstall mod$/i })).toBeInTheDocument()
+
+    rerender(<Setup state={state({ bundledMod: '0.2.0.0' })} log={[]} />)
+    expect(screen.getByRole('button', { name: /update to 0\.2\.0\.0/i })).toBeInTheDocument()
+  })
+
+  it('does not offer to install a mod it is not carrying', () => {
+    render(<Setup state={state({ bundledMod: null })} log={[]} />)
+    expect(screen.getByRole('button', { name: /no mod payload/i })).toBeDisabled()
   })
 
   it('holds the log until there is something in it', () => {

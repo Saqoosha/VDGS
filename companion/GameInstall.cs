@@ -193,21 +193,82 @@ namespace VDGSCompanion
 
                     Directory.CreateDirectory(Path.GetDirectoryName(target));
 
-                    // placement.json is where the player put the capture, and bindings.json
-                    // is which track shows it. Both are theirs; an update must not undo it.
-                    var leaf = Path.GetFileName(target);
-                    if (File.Exists(target) &&
-                        (leaf.Equals("placement.json", StringComparison.OrdinalIgnoreCase) ||
-                         leaf.Equals("bindings.json", StringComparison.OrdinalIgnoreCase)))
-                    {
-                        log("kept your " + leaf);
-                        continue;
-                    }
+                    if (KeepExisting(target, log)) continue;
 
                     e.ExtractToFile(target, overwrite: true);
                 }
             }
             log("installed " + Path.GetFileName(zipPath));
+        }
+
+        /// <summary>
+        /// placement.json is where the player put the capture, and bindings.json is which
+        /// track shows it. Both are theirs; installing over them would undo work the mod
+        /// exists to let them do.
+        /// </summary>
+        private static bool KeepExisting(string target, Action<string> log)
+        {
+            if (!File.Exists(target)) return false;
+            var leaf = Path.GetFileName(target);
+            if (!leaf.Equals("placement.json", StringComparison.OrdinalIgnoreCase) &&
+                !leaf.Equals("bindings.json", StringComparison.OrdinalIgnoreCase)) return false;
+            log("kept your " + leaf);
+            return true;
+        }
+
+        /// <summary>
+        /// The mod this app carries: the same tree a release archive holds, laid out to be
+        /// copied straight over the game folder.
+        ///
+        /// It travels inside the app because the app is how the mod is handed out. Asking
+        /// someone to go and find a zip first is asking them to do the job the app is for.
+        /// </summary>
+        internal static string BundledModDir()
+        {
+            var dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "mod");
+            return File.Exists(Path.Combine(dir, "BepInEx", "plugins", "VDGS.dll")) ? dir : null;
+        }
+
+        internal static string BundledModVersion()
+        {
+            var dir = BundledModDir();
+            if (dir == null) return null;
+            try
+            {
+                return FileVersionInfo
+                    .GetVersionInfo(Path.Combine(dir, "BepInEx", "plugins", "VDGS.dll"))
+                    .FileVersion;
+            }
+            catch { return null; }
+        }
+
+        /// <summary>Copies the carried mod over the game folder.</summary>
+        internal static void InstallBundledMod(string game, Action<string> log)
+        {
+            var src = BundledModDir();
+            if (src == null)
+                throw new InvalidOperationException(
+                    "This build carries no mod payload. Install from a vdgs-mod zip instead.");
+            if (IsRunning())
+                throw new InvalidOperationException(
+                    "VelociDrone is running. Close it first - files in use cannot be replaced.");
+
+            var root = Path.GetFullPath(src) + Path.DirectorySeparatorChar;
+            var copied = 0;
+            foreach (var file in Directory.GetFiles(src, "*", SearchOption.AllDirectories))
+            {
+                // README.txt sits at the top of the payload and is for a person reading the
+                // zip, not for the game.
+                var relative = Path.GetFullPath(file).Substring(root.Length);
+                if (relative.IndexOf(Path.DirectorySeparatorChar) < 0) continue;
+
+                var target = Path.Combine(game, relative);
+                if (KeepExisting(target, log)) continue;
+                Directory.CreateDirectory(Path.GetDirectoryName(target));
+                File.Copy(file, target, overwrite: true);
+                copied++;
+            }
+            log("installed mod " + (BundledModVersion() ?? "?") + " (" + copied + " files)");
         }
 
         /// <summary>

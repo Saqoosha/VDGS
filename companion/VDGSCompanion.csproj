@@ -54,4 +54,16 @@
           DestinationFiles="@(UiFiles->'$(OutDir)ui/%(RecursiveDir)%(Filename)%(Extension)')"
           SkipUnchangedFiles="true" />
   </Target>
+
+  <!-- The mod this app hands out, staged by tools/make-release.sh. Conditional so a
+       C#-only build still works; the app reports the payload as absent rather than
+       pretending it can install one. -->
+  <Target Name="CopyMod" AfterTargets="Build" Condition="Exists('$(MSBuildProjectDirectory)/../build/release/vdgs-mod/BepInEx/plugins/VDGS.dll')">
+    <ItemGroup>
+      <ModFiles Include="$(MSBuildProjectDirectory)/../build/release/vdgs-mod/**/*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(ModFiles)"
+          DestinationFiles="@(ModFiles->'$(OutDir)mod/%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
 </Project>
