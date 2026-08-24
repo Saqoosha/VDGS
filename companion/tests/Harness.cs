@@ -141,6 +141,78 @@ internal static class Harness
         Directory.Delete(dir, recursive: true);
     }
 
+    /// <summary>
+    /// The two operations that write into somebody's game folder. What they must not touch
+    /// is the point: captures are gigabytes, and placements and bindings are work done by
+    /// hand that an update or an uninstall has no business undoing.
+    /// </summary>
+    private static void InstallingAndRemovingKeepWhatIsTheirs()
+    {
+        Console.WriteLine();
+        Console.WriteLine("installing into a game folder");
+
+        var game = Path.Combine(Path.GetTempPath(), "vdgs-game-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(game, "vdgs", "mycapture"));
+        File.WriteAllText(Path.Combine(game, "velocidrone.exe"), "");
+        File.WriteAllText(Path.Combine(game, "vdgs", "bindings.json"), "{\"mine\":[\"mycapture\"]}");
+        File.WriteAllText(Path.Combine(game, "vdgs", "mycapture", "meta.json"), "{\"splatCount\":7}");
+        File.WriteAllText(Path.Combine(game, "vdgs", "mycapture", "placement.json"), "{\"y\":3.2}");
+
+        var zip = Path.Combine(Path.GetTempPath(), "vdgs-arch-" + Guid.NewGuid().ToString("N") + ".zip");
+        using (var fs = new FileStream(zip, FileMode.Create))
+        using (var z = new System.IO.Compression.ZipArchive(fs, System.IO.Compression.ZipArchiveMode.Create))
+        {
+            Write(z, "README.txt", "for a person, not the game");
+            Write(z, "BepInEx/plugins/VDGS.dll", "plugin");
+            Write(z, "vdgs/vdgs-shaders", "bundle");
+            Write(z, "vdgs/ui/index.html", "<html>");
+            Write(z, "vdgs/bindings.json", "{\"theirs\":[\"something\"]}");
+        }
+
+        var log = new System.Collections.Generic.List<string>();
+        GameInstall.InstallArchive(game, zip, log.Add);
+
+        Check(File.Exists(Path.Combine(game, "BepInEx", "plugins", "VDGS.dll")), "puts the plugin in place");
+        Check(File.Exists(Path.Combine(game, "vdgs", "ui", "index.html")), "puts the interface in place");
+        Check(!File.Exists(Path.Combine(game, "README.txt")), "leaves the readme out of the game folder");
+        Check(File.ReadAllText(Path.Combine(game, "vdgs", "bindings.json")).Contains("mine"),
+              "does not overwrite the bindings someone set up");
+        Check(File.Exists(Path.Combine(game, "vdgs", "mycapture", "placement.json")),
+              "and leaves their placement alone");
+
+        // An archive names its own destinations, so a crafted entry could otherwise write
+        // anywhere on the disk.
+        var evil = Path.Combine(Path.GetTempPath(), "vdgs-evil-" + Guid.NewGuid().ToString("N") + ".zip");
+        using (var fs = new FileStream(evil, FileMode.Create))
+        using (var z = new System.IO.Compression.ZipArchive(fs, System.IO.Compression.ZipArchiveMode.Create))
+            Write(z, "../escaped.txt", "no");
+        Check(Throws(() => GameInstall.InstallArchive(game, evil, log.Add)),
+              "refuses an archive that writes outside the game folder");
+
+        Console.WriteLine("removing it again");
+        GameInstall.UninstallMod(game, log.Add);
+        Check(!File.Exists(Path.Combine(game, "BepInEx", "plugins", "VDGS.dll")), "takes the plugin away");
+        Check(!File.Exists(Path.Combine(game, "vdgs", "vdgs-shaders")), "takes the shader bundle away");
+        Check(!Directory.Exists(Path.Combine(game, "vdgs", "ui")), "takes the interface away");
+        Check(Directory.Exists(Path.Combine(game, "vdgs", "mycapture")), "keeps the captures");
+        Check(File.Exists(Path.Combine(game, "vdgs", "bindings.json")), "keeps the bindings");
+        Check(Directory.Exists(Path.Combine(game, "BepInEx")), "leaves BepInEx, which is not ours");
+
+        // Reinstalling has to land where it left off, which is the whole reason for the above.
+        GameInstall.InstallArchive(game, zip, log.Add);
+        Check(File.ReadAllText(Path.Combine(game, "vdgs", "bindings.json")).Contains("mine"),
+              "and a reinstall still finds their bindings");
+
+        File.Delete(zip);
+        File.Delete(evil);
+        Directory.Delete(game, recursive: true);
+    }
+
+    private static void Write(System.IO.Compression.ZipArchive z, string name, string content)
+    {
+        using (var w = new StreamWriter(z.CreateEntry(name).Open())) w.Write(content);
+    }
+
     private static bool Throws(Action a)
     {
         try { a(); return false; } catch { return true; }
@@ -274,6 +346,7 @@ internal static class Harness
 
         ScanFindsTheGame();
         CatalogIsReadAndChecked();
+        InstallingAndRemovingKeepWhatIsTheirs();
 
         Console.WriteLine(_fail == 0 ? "\nALL PASS" : "\n" + _fail + " FAILED");
         return _fail == 0 ? 0 : 1;
