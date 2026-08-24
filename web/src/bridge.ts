@@ -11,6 +11,9 @@ import type { SetupState } from './types'
 type Push =
   | ({ type: 'state' } & SetupState)
   | { type: 'log'; line: string }
+  // Progress on its own: rebuilding the whole state a hundred times during a download
+  // would mean walking every capture on disk for each percent.
+  | { type: 'progress'; percent: number | null }
 
 type WebViewHost = {
   postMessage: (message: unknown) => void

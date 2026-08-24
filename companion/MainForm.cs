@@ -120,9 +120,22 @@ namespace VDGSCompanion
         private void Post(object payload)
         {
             // Work runs off the UI thread so the window keeps drawing; the WebView may
-            // only be touched from the thread that owns it.
-            if (InvokeRequired) { BeginInvoke((Action)(() => Post(payload))); return; }
+            // only be touched from the thread that owns it. Closing the window mid-job is
+            // ordinary, and a job still posting into a disposed form is not a crash worth
+            // showing anyone.
+            if (InvokeRequired) { OnUi(() => Post(payload)); return; }
             if (_ready) _web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(payload, _json));
+        }
+
+        private void OnUi(Action a)
+        {
+            try
+            {
+                if (IsDisposed || !IsHandleCreated) return;
+                BeginInvoke(a);
+            }
+            catch (ObjectDisposedException) { }
+            catch (InvalidOperationException) { }
         }
 
         private void Log(string line) =>
@@ -273,7 +286,7 @@ namespace VDGSCompanion
                 try { job(Log); }
                 catch (Exception ex) { error = ex.Message; Log("failed: " + ex.Message); }
 
-                BeginInvoke((Action)(() =>
+                OnUi(() =>
                 {
                     _busy = null;
                     _busyPercent = null;
@@ -281,7 +294,7 @@ namespace VDGSCompanion
                     if (error != null)
                         MessageBox.Show(this, error, "VDGS",
                                         MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }));
+                });
             });
         }
 
@@ -329,12 +342,12 @@ namespace VDGSCompanion
             {
                 var found = GameInstall.ScanForGame(log);
                 if (found == null) return;
-                BeginInvoke((Action)(() =>
+                OnUi(() =>
                 {
                     _game = found;
                     _settings.Game = found;
                     _settings.Save();
-                }));
+                });
             });
         }
 
@@ -357,7 +370,7 @@ namespace VDGSCompanion
                     error = "could not read " + url + " - " + ex.Message;
                     log(error);
                 }
-                BeginInvoke((Action)(() => { _catalog = got; _catalogError = error; }));
+                OnUi(() => { _catalog = got; _catalogError = error; });
             });
         }
 
@@ -437,12 +450,20 @@ namespace VDGSCompanion
 
         private void SetBusy(string what)
         {
-            BeginInvoke((Action)(() => { _busy = what; Push(); }));
+            OnUi(() => { _busy = what; Push(); });
         }
 
+        /// <summary>
+        /// Progress is sent on its own rather than as a fresh state.
+        ///
+        /// A download reports a hundred times, and building the state means walking every
+        /// capture on disk, reading each .ply header and opening the track database. A
+        /// hundred of those during a download is a lot of disk for a number.
+        /// </summary>
         private void Percent(int? p)
         {
-            BeginInvoke((Action)(() => { _busyPercent = p; Push(); }));
+            _busyPercent = p;
+            Post(new { type = "progress", percent = p });
         }
 
         private void PickGame()

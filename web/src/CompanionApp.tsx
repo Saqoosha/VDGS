@@ -21,6 +21,8 @@ export default function CompanionApp() {
       if (m.type === 'state') {
         const { type: _type, ...rest } = m
         setState(rest)
+      } else if (m.type === 'progress') {
+        setState((prev) => (prev ? { ...prev, busyPercent: m.percent } : prev))
       } else {
         // Long enough to see what happened, short enough that a session left open does
         // not grow without bound.
