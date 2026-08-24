@@ -1,9 +1,12 @@
 using System;
-using System.Diagnostics;
+using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Windows.Forms;
+using Microsoft.Web.WebView2.Core;
+using Microsoft.Web.WebView2.WinForms;
 
 namespace VDGSCompanion
 {
@@ -13,61 +16,130 @@ namespace VDGSCompanion
     /// The audience is someone who wants to fly, not to read a setup guide, so state is
     /// shown rather than assumed - a player who cannot tell whether the mod is installed
     /// ends up reinstalling over a working setup.
+    ///
+    /// The window is a WebView2 showing AppUi.Html, which is the same design as the mod's
+    /// in-game browser UI. The file and database work stays in C# where it is tested; the
+    /// page only sends command names back and renders the state it is given.
     /// </summary>
     internal sealed class MainForm : Form
     {
+        private readonly WebView2 _web = new WebView2 { Dock = DockStyle.Fill };
+        private readonly JsonSerializerOptions _json =
+            new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
         private string _game;
-        private readonly Label _gameLabel = new Label();
-        private readonly Label _status = new Label();
-        private readonly ListBox _scenes = new ListBox();
-        private readonly TextBox _log = new TextBox();
-        private readonly Button _launch = new Button();
+        private bool _ready;   // the page is up and can be posted to
 
         internal MainForm()
         {
             Text = "VDGS Companion";
-            Size = new Size(720, 560);
-            MinimumSize = new Size(620, 480);
-            Font = SystemFonts.MessageBoxFont;
-
-            var pick = new Button { Text = "Change…", Left = 560, Top = 12, Width = 120 };
-            pick.Click += (s, e) => PickGame();
-            _gameLabel.SetBounds(14, 16, 540, 20);
-            _gameLabel.AutoEllipsis = true;
-
-            _status.SetBounds(14, 44, 666, 44);
-
-            var scenesLabel = new Label { Text = "Captures installed", Left = 14, Top = 96, Width = 300 };
-            _scenes.SetBounds(14, 118, 400, 160);
-
-            var addMod = new Button { Text = "Install mod (.zip)…", Left = 428, Top = 118, Width = 252, Height = 30 };
-            var addScene = new Button { Text = "Install capture (.zip)…", Left = 428, Top = 156, Width = 252, Height = 30 };
-            var addTrack = new Button { Text = "Add track (.track.json)…", Left = 428, Top = 194, Width = 252, Height = 30 };
-            addMod.Click += (s, e) => InstallZip("Mod archive|vdgs-mod-*.zip|Zip archives|*.zip");
-            addScene.Click += (s, e) => InstallZip("Capture archive|vdgs-scene-*.zip|Zip archives|*.zip");
-            addTrack.Click += (s, e) => AddTrack();
-
-            _launch.SetBounds(428, 240, 252, 38);
-            _launch.Text = "Fly";
-            _launch.Click += (s, e) => Launch();
-
-            var logLabel = new Label { Text = "Log", Left = 14, Top = 292, Width = 100 };
-            _log.SetBounds(14, 314, 666, 190);
-            _log.Multiline = true;
-            _log.ReadOnly = true;
-            _log.ScrollBars = ScrollBars.Vertical;
-            _log.BackColor = SystemColors.Window;
-
-            Controls.AddRange(new Control[] { _gameLabel, pick, _status, scenesLabel, _scenes,
-                                              addMod, addScene, addTrack, _launch, logLabel, _log });
+            Size = new Size(780, 860);
+            MinimumSize = new Size(640, 620);
+            BackColor = Color.FromArgb(0xf6, 0xf7, 0xf9);   // matches the page, so no white flash
+            Controls.Add(_web);
 
             _game = GameInstall.FindGame();
-            Refresh_();
+            Load += async (s, e) => await Start();
         }
 
-        private void Log(string line)
+        private async System.Threading.Tasks.Task Start()
         {
-            _log.AppendText(DateTime.Now.ToString("HH:mm:ss") + "  " + line + Environment.NewLine);
+            try
+            {
+                // The default user-data folder sits beside the exe, which may be read-only
+                // if this was unzipped into Program Files.
+                var data = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "VDGSCompanion", "webview");
+                var env = await CoreWebView2Environment.CreateAsync(null, data);
+                await _web.EnsureCoreWebView2Async(env);
+            }
+            catch (Exception ex)
+            {
+                // WebView2 ships with Windows 11 and with Edge on Windows 10, so this is
+                // rare - but silently showing an empty window would be worse than saying so.
+                MessageBox.Show(this,
+                    "This needs the Microsoft Edge WebView2 Runtime, which could not be started.\n\n" +
+                    ex.Message + "\n\nInstall it from https://go.microsoft.com/fwlink/p/?LinkId=2124703",
+                    "VDGS", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                Close();
+                return;
+            }
+
+            var c = _web.CoreWebView2;
+            c.Settings.AreDefaultContextMenusEnabled = false;
+            c.Settings.AreDevToolsEnabled = false;
+            c.Settings.IsStatusBarEnabled = false;
+            c.Settings.IsZoomControlEnabled = false;
+            // Nothing in the page links out, so anything that tries is not ours.
+            c.NewWindowRequested += (s, e) => e.Handled = true;
+
+            c.WebMessageReceived += (s, e) => Dispatch(e.WebMessageAsJson);
+            c.NavigationCompleted += (s, e) => { _ready = true; Push(); };
+            c.NavigateToString(AppUi.Html);
+        }
+
+        // ------------------------------------------------------------------ host -> page
+
+        private void Post(object payload)
+        {
+            if (_ready) _web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(payload, _json));
+        }
+
+        private void Log(string line) =>
+            Post(new { type = "log", line = DateTime.Now.ToString("HH:mm:ss") + "  " + line });
+
+        private void Push()
+        {
+            var missing = new List<string>();
+            var scenes = new List<object>();
+            string mod = null;
+
+            if (_game != null)
+            {
+                if (!GameInstall.HasBepInEx(_game)) missing.Add("BepInEx");
+                mod = GameInstall.InstalledModVersion(_game);
+                if (mod == null) missing.Add("the mod");
+                if (!File.Exists(Path.Combine(_game, "vdgs", "vdgs-shaders")))
+                    missing.Add("the shader bundle");
+
+                foreach (var s in GameInstall.SceneDetails(_game))
+                    scenes.Add(new { name = s.Name, splats = s.Splats.ToString("N0"), collision = s.Collision });
+            }
+
+            Post(new
+            {
+                type = "state",
+                game = _game,
+                mod,
+                missing,
+                scenes,
+                ready = _game != null && missing.Count == 0,
+                running = GameInstall.IsRunning(),
+                launchArgs = GameInstall.LaunchArgs,
+            });
+        }
+
+        // ------------------------------------------------------------------ page -> host
+
+        private void Dispatch(string messageJson)
+        {
+            string cmd;
+            try
+            {
+                using (var doc = JsonDocument.Parse(messageJson))
+                    cmd = doc.RootElement.TryGetProperty("cmd", out var v) ? v.GetString() : null;
+            }
+            catch { return; }
+
+            switch (cmd)
+            {
+                case "refresh": Push(); break;
+                case "pick": PickGame(); break;
+                case "installMod": InstallZip("Mod archive|vdgs-mod-*.zip|Zip archives|*.zip"); break;
+                case "installScene": InstallZip("Capture archive|vdgs-scene-*.zip|Zip archives|*.zip"); break;
+                case "addTrack": AddTrack(); break;
+                case "fly": Launch(); break;
+            }
         }
 
         private void PickGame()
@@ -82,49 +154,8 @@ namespace VDGSCompanion
                     return;
                 }
                 _game = d.SelectedPath;
-                Refresh_();
+                Push();
             }
-        }
-
-        private void Refresh_()
-        {
-            _scenes.Items.Clear();
-
-            if (_game == null)
-            {
-                _gameLabel.Text = "VelociDrone not found";
-                _status.Text = "Use Change… to point at the folder that holds velocidrone.exe.";
-                _status.ForeColor = Color.Firebrick;
-                _launch.Enabled = false;
-                return;
-            }
-
-            _gameLabel.Text = _game;
-            foreach (var s in GameInstall.InstalledScenes(_game)) _scenes.Items.Add(s);
-
-            var bep = GameInstall.HasBepInEx(_game);
-            var mod = GameInstall.InstalledModVersion(_game);
-            var shaders = File.Exists(Path.Combine(_game, "vdgs", "vdgs-shaders"));
-
-            var missing = new System.Collections.Generic.List<string>();
-            if (!bep) missing.Add("BepInEx");
-            if (mod == null) missing.Add("the mod");
-            if (!shaders) missing.Add("the shader bundle");
-
-            if (missing.Count > 0)
-            {
-                _status.Text = "Missing: " + string.Join(", ", missing) +
-                    (bep ? "" : "\r\nBepInEx 5.4.23.5 (win_x64) has to be unzipped into the game folder first.");
-                _status.ForeColor = Color.Firebrick;
-            }
-            else
-            {
-                _status.Text = "Mod " + mod + " installed, " + _scenes.Items.Count + " capture(s) ready."
-                             + "\r\nFly starts the game with " + GameInstall.LaunchArgs +
-                               ", which the captures need in order to draw at all.";
-                _status.ForeColor = Color.DarkGreen;
-            }
-            _launch.Enabled = true;
         }
 
         private void InstallZip(string filter)
@@ -136,7 +167,7 @@ namespace VDGSCompanion
                 try
                 {
                     GameInstall.InstallArchive(_game, d.FileName, Log);
-                    Refresh_();
+                    Push();
                 }
                 catch (Exception ex)
                 {
@@ -224,6 +255,7 @@ namespace VDGSCompanion
                 }
                 GameInstall.Launch(_game);
                 Log("started with " + GameInstall.LaunchArgs);
+                Push();
             }
             catch (Exception ex)
             {

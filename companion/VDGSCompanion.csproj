@@ -21,6 +21,14 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- The test project compiles this project's sources itself; without excluding it, the
+         default **/*.cs glob also pulls in its generated AssemblyInfo and the build fails
+         on duplicate attributes. -->
+    <Compile Remove="tests/**" />
+    <None Remove="tests/**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- .NET Framework keeps zip handling in its own assemblies, referenced by name. -->
     <Reference Include="System.IO.Compression" />
     <Reference Include="System.IO.Compression.FileSystem" />
@@ -30,6 +38,7 @@
     <!-- Lets the Windows-only target build from macOS. -->
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
     <PackageReference Include="Microsoft.Data.Sqlite.Core" Version="8.0.10" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4129.50" />
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.10" />
     <PackageReference Include="System.Text.Json" Version="8.0.5" />
   </ItemGroup>

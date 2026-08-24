@@ -63,6 +63,29 @@ namespace VDGSCompanion
                     yield return Path.GetFileName(d);
         }
 
+        internal sealed class SceneInfo
+        {
+            public string Name;
+            public long Splats;
+            public bool Collision;   // without this the capture is flown straight through
+        }
+
+        internal static List<SceneInfo> SceneDetails(string game)
+        {
+            var found = new List<SceneInfo>();
+            foreach (var name in InstalledScenes(game))
+            {
+                var dir = Path.Combine(game, "vdgs", name);
+                found.Add(new SceneInfo
+                {
+                    Name = name,
+                    Splats = Json.SplatCount(Path.Combine(dir, "meta.json")),
+                    Collision = File.Exists(Path.Combine(dir, "collision.bin")),
+                });
+            }
+            return found;
+        }
+
         /// <summary>
         /// Unpacks a release archive over the game folder. Both the mod and the scene
         /// archives are laid out to be extracted here, so this is the same operation.

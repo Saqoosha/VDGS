@@ -53,6 +53,22 @@ namespace VDGSCompanion
             }
         }
 
+        /// <summary>
+        /// splatCount out of a scene's meta.json. A capture that cannot be read is reported
+        /// as zero rather than hidden: the folder is there, and saying so is more useful
+        /// than a list that quietly omits it.
+        /// </summary>
+        internal static long SplatCount(string metaPath)
+        {
+            try
+            {
+                using (var doc = JsonDocument.Parse(File.ReadAllText(metaPath)))
+                    return doc.RootElement.TryGetProperty("splatCount", out var v)
+                        && v.ValueKind == JsonValueKind.Number ? v.GetInt64() : 0;
+            }
+            catch { return 0; }
+        }
+
         internal sealed class TrackFile
         {
             public string Name;
