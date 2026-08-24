@@ -72,6 +72,21 @@ if [ "$BUNDLE_BYTES" -lt 1000000 ]; then
 fi
 echo "   bundle ok: $BUNDLE_BYTES bytes"
 
+say "building the control UI"
+# The plugin serves this from <game>/vdgs/ui while the game runs. Without it the browser
+# UI silently falls back to the short placeholder page compiled into the DLL - which
+# loads, looks deliberate, and does none of what the real one does.
+( cd "$ROOT/web" && bun run build ) | tail -2
+[ -f "$ROOT/web/dist/index.html" ] || { echo "no web/dist produced" >&2; exit 1; }
+
+mkdir -p "$STAGE/vdgs-mod/vdgs/ui"
+cp -R "$ROOT/web/dist/." "$STAGE/vdgs-mod/vdgs/ui/"
+# companion.html is the setup app's page, built from the same project. The plugin serves
+# this folder to the LAN, and a setup page with no app behind it only confuses whoever
+# finds it.
+rm -f "$STAGE/vdgs-mod/vdgs/ui/companion.html"
+echo "   ui ok: $(find "$STAGE/vdgs-mod/vdgs/ui" -type f | wc -l | tr -d ' ') files"
+
 cat > "$STAGE/vdgs-mod/README.txt" <<EOF
 VDGS $VERSION - 3D Gaussian Splatting inside VelociDrone
 
@@ -79,9 +94,14 @@ Copy the two folders in here over your VelociDrone app folder, so that you end u
 
     <VelociDrone>/app/BepInEx/plugins/VDGS.dll
     <VelociDrone>/app/vdgs/vdgs-shaders
+    <VelociDrone>/app/vdgs/ui/
 
 BepInEx 5.4.23.5 (win_x64) has to be installed first, and the game has to be started
 with -force-d3d12. Full instructions: docs/USAGE.md in the repository.
+
+While the game is running, the mod is driven from a browser at http://localhost:8777/
+- that page is the vdgs/ui folder above. It is also reachable from another machine on
+the same network, which is the point: you can fly on one screen and drive it from another.
 
 The mod is MIT licensed. Captures are not included and carry their own terms.
 EOF

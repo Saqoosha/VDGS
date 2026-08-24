@@ -37,8 +37,8 @@ you want a smaller file on disk or a faster load.
 
 ## 2. Installing
 
-**From a release, this is three moves.** `vdgs-mod-<version>.zip` already contains the DLL
-and a baked shader bundle, so nothing has to be built:
+**From a release, this is three moves.** `vdgs-mod-<version>.zip` already contains the DLL,
+a baked shader bundle and the control UI, so nothing has to be built:
 
 1. Install BepInEx (2-1)
 2. Unzip `vdgs-mod-*.zip` and copy its `BepInEx/` and `vdgs/` folders over the game's `app/`
