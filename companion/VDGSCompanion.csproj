@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <!-- .NET Framework 4.8 is present on every Windows 10 and 11, so the download stays a
+         couple of megabytes and nobody is asked to install a runtime before they can fly. -->
+    <TargetFramework>net48</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <PlatformTarget>x64</PlatformTarget>
+    <AssemblyName>VDGS</AssemblyName>
+    <RootNamespace>VDGSCompanion</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <!-- Built from macOS, so the RID has to be named or only the Darwin build of the
+         native SQLite library is copied and the app dies on first use on Windows. -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+    <Version>2026.8.24</Version>
+    <Product>VDGS Companion</Product>
+    <Company>Saqoosha</Company>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- .NET Framework keeps zip handling in its own assemblies, referenced by name. -->
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Lets the Windows-only target build from macOS. -->
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.Data.Sqlite.Core" Version="8.0.10" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.10" />
+    <PackageReference Include="System.Text.Json" Version="8.0.5" />
+  </ItemGroup>
+
+</Project>

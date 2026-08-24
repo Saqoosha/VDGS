@@ -1,0 +1,108 @@
+using System;
+using System.IO;
+using Microsoft.Data.Sqlite;
+using VDGSCompanion;
+
+// Exercises the parts that touch the player's own data, against the real tracks schema.
+// Run it on Windows; it writes only to a temporary database of its own.
+internal static class Harness
+{
+    private static int _fail;
+
+    private static void Check(bool ok, string what)
+    {
+        Console.WriteLine((ok ? "  ok    " : "  FAIL  ") + what);
+        if (!ok) _fail++;
+    }
+
+    private static string MakeDb()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "vdgs-test-" + Guid.NewGuid().ToString("N") + ".db");
+        using (var c = new SqliteConnection("Data Source=" + path + ";Pooling=False"))
+        {
+            c.Open();
+            using (var cmd = c.CreateCommand())
+            {
+                cmd.CommandText =
+                    "CREATE TABLE [tracks] ([id] INTEGER NOT NULL PRIMARY KEY, [scene_id] INTEGER NOT NULL," +
+                    " [name] VARCHAR, [value] VARCHAR, [protected_track] TINYINT(1) NOT NULL DEFAULT 0," +
+                    " online_id int default 0, rating int default 0, favourite int default 0," +
+                    " date varchar default '2019-07-01 00:00:00', type int default 0);" +
+                    // One track off the official server, to prove it is never touched.
+                    "insert into tracks (scene_id,name,value,protected_track,online_id,type)" +
+                    " values (16,'Official Course','{\"gates\":[]}',2,35469,1);";
+                cmd.ExecuteNonQuery();
+            }
+        }
+        return path;
+    }
+
+    private static int Main()
+    {
+        var db = MakeDb();
+        const string track = "{\"gates\":[{\"prefab\":279}],\"barriers\":[]}";
+        string backup;
+
+        Console.WriteLine("import into a database that does not have it");
+        var r = TrackStore.Import(db, "VDGS FDF", 16, 0, track, out backup);
+        Check(r == TrackStore.ImportResult.Added, "reports Added");
+        Check(backup != null && File.Exists(backup), "took a backup first");
+        var t = TrackStore.Find(db, "VDGS FDF");
+        Check(t != null, "the row is there");
+        Check(t != null && t.SceneId == 16 && t.Value == track, "scene_id and course survived");
+        Check(t != null && !t.FromServer, "marked as local, not from the server");
+
+        Console.WriteLine("import the same thing twice");
+        r = TrackStore.Import(db, "VDGS FDF", 16, 0, track, out backup);
+        Check(r == TrackStore.ImportResult.AlreadyPresent, "reports AlreadyPresent");
+        Check(backup == null, "no second backup");
+
+        Console.WriteLine("a track of the same name but a different course");
+        r = TrackStore.Import(db, "VDGS FDF", 16, 0, "{\"gates\":[],\"barriers\":[]}", out backup);
+        Check(r == TrackStore.ImportResult.WouldOverwrite, "refuses to replace it");
+        Check(TrackStore.Find(db, "VDGS FDF").Value == track, "the player's version is untouched");
+
+        Console.WriteLine("removal");
+        Check(!TrackStore.Remove(db, "Official Course"), "refuses to remove a server track");
+        Check(TrackStore.Find(db, "Official Course") != null, "the server track is still there");
+        Check(TrackStore.Remove(db, "VDGS FDF"), "removes one it added");
+        Check(TrackStore.Find(db, "VDGS FDF") == null, "and it is gone");
+
+        Console.WriteLine("track file parsing");
+        var parsed = Json.ParseTrackFile(
+            "{\"format\":\"vdgs-track-1\",\"scene_id\":16,\"name\":\"VDGS FDF\",\"type\":0,\"value\":"
+            + System.Text.Json.JsonSerializer.Serialize(track) + "}");
+        Check(parsed.Name == "VDGS FDF" && parsed.SceneId == 16 && parsed.Value == track,
+              "reads name, scene_id and course");
+        try { Json.ParseTrackFile("{\"name\":\"x\"}"); Check(false, "rejects an incomplete file"); }
+        catch (InvalidDataException) { Check(true, "rejects an incomplete file"); }
+        try { Json.ParseTrackFile("{\"scene_id\":1,\"name\":\"x\",\"value\":\"not json\"}");
+              Check(false, "rejects a course that is not JSON"); }
+        catch (System.Text.Json.JsonException) { Check(true, "rejects a course that is not JSON"); }
+
+        Console.WriteLine("bindings merge");
+        var map = Json.ParseBindings("{\"Other Track\":[\"otherscene\"]}");
+        map["VDGS FDF"] = new System.Collections.Generic.List<string> { "FDF-2026-08-24" };
+        var back = Json.ParseBindings(Json.WriteBindings(map));
+        Check(back.Count == 2 && back["Other Track"][0] == "otherscene",
+              "an existing binding survives");
+
+        Console.WriteLine("the database is left openable");
+        // The game opens user11.db the moment it starts, and this tool starts it. A handle
+        // still held here would surface as a game that will not launch, so it is checked
+        // rather than assumed.
+        try
+        {
+            using (var fs = new FileStream(db, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                Check(true, "no handle left behind after importing");
+        }
+        catch (IOException)
+        {
+            Check(false, "no handle left behind after importing");
+        }
+
+        File.Delete(db);
+        Console.WriteLine(_fail == 0 ? "\nALL PASS" : "\n" + _fail + " FAILED");
+        return _fail == 0 ? 0 : 1;
+    }
+}

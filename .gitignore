@@ -35,3 +35,9 @@ unity/*/Assets/GaussianAssets/
 
 # Web UI build output only (no sources live here)
 web/
+
+# Companion app build output
+companion/bin/
+companion/obj/
+companion/tests/bin/
+companion/tests/obj/
