@@ -37,6 +37,15 @@ you want a smaller file on disk or a faster load.
 
 ## 2. Installing
 
+**From a release, this is three moves.** `vdgs-mod-<version>.zip` already contains the DLL
+and a baked shader bundle, so nothing has to be built:
+
+1. Install BepInEx (2-1)
+2. Unzip `vdgs-mod-*.zip` and copy its `BepInEx/` and `vdgs/` folders over the game's `app/`
+3. Add a capture — unzip `vdgs-scene-*.zip` over the same `app/` (§4-7)
+
+2-2 and 2-3 below are for building it yourself.
+
 ### 2-1. BepInEx
 
 Unpack [BepInEx 5.4.23.5 win_x64](https://github.com/BepInEx/BepInEx/releases) into the
@@ -289,6 +298,19 @@ Without `<VelociDrone>\app\vdgs\autospawn` (an empty file), automatic display is
 entirely.
 
 ---
+
+### 4-7. Installing a capture somebody sent you
+
+Unzip `vdgs-scene-*.zip` and copy its `vdgs/` folder over the game's `app/`. Inside is a
+converted scene directory plus, where they exist, `collision.bin` and `placement.json`.
+
+**The one thing that trips people up: a binding is by track NAME.** The bundled
+`bindings.sample.json` assumes the track still carries the name it shipped with. If you
+renamed it after downloading it in Track Manager, bind it under **your** name instead —
+the browser UI in §5 is the quickest way.
+
+`placement.json` positions the capture **for that track**. Building your own course means
+adjusting it in the browser UI, which saves as you go.
 
 ## 5. Operating it from a browser
 
