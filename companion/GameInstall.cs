@@ -168,6 +168,22 @@ namespace VDGSCompanion
             File.WriteAllText(path, Json.WriteBindings(map));
         }
 
+        /// <summary>
+        /// vdgs/bindings.json: which capture each track shows. Missing or unreadable is a
+        /// normal state - it means nothing has been bound yet - so it reads as empty.
+        /// </summary>
+        internal static Dictionary<string, List<string>> ReadBindings(string game)
+        {
+            var path = Path.Combine(game, "vdgs", "bindings.json");
+            try
+            {
+                return File.Exists(path)
+                    ? Json.ParseBindings(File.ReadAllText(path))
+                    : new Dictionary<string, List<string>>(StringComparer.Ordinal);
+            }
+            catch { return new Dictionary<string, List<string>>(StringComparer.Ordinal); }
+        }
+
         internal static Process Launch(string game)
         {
             var exe = Path.Combine(game, "velocidrone.exe");

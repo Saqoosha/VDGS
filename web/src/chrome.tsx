@@ -1,26 +1,11 @@
 import type { ReactNode } from 'react'
 import { ParticleField } from './ParticleField'
 
-/**
- * `compact` is for the companion window, where the generous page margins of a browser tab
- * would push the one button the window exists for below its own bottom edge.
- */
-export function Frame({
-  children,
-  compact = false,
-}: {
-  children: ReactNode
-  compact?: boolean
-}) {
+export function Frame({ children }: { children: ReactNode }) {
   return (
     <>
       <ParticleField />
-      <div
-        className={
-          'relative mx-auto max-w-[44rem] px-6 md:px-8 ' +
-          (compact ? 'py-7 md:py-8' : 'py-12 md:py-16')
-        }
-      >
+      <div className="relative mx-auto max-w-[44rem] px-6 py-12 md:px-8 md:py-16">
         {children}
       </div>
     </>
@@ -44,7 +29,7 @@ export function Masthead({
   status: ReactNode
 }) {
   return (
-    <header className="mb-8">
+    <header className="mb-6">
       <div className="flex items-end justify-between gap-6">
         <div>
           <p className="font-mono text-[10px] tracking-[0.28em] text-muted-foreground uppercase">
@@ -72,13 +57,23 @@ export function Section({
   n,
   label,
   children,
+  className = '',
+  flush = false,
 }: {
   n: string
   label: string
   children: ReactNode
+  className?: string
+  /** No rule or gap above. For a section that already follows one - the masthead's. */
+  flush?: boolean
 }) {
+  // Built by swapping the base rather than appending an override: which of two
+  // conflicting utilities wins depends on their order in the stylesheet, not here.
+  const base = flush
+    ? ''
+    : 'mt-9 border-t border-rule pt-4 first:mt-0 first:border-t-0 first:pt-0'
   return (
-    <section className="mt-9 border-t border-rule pt-4 first:mt-0 first:border-t-0 first:pt-0">
+    <section className={base + ' ' + className}>
       <div className="mb-3 flex items-baseline gap-3 font-mono text-[10px] tracking-[0.22em] text-muted-foreground uppercase">
         <span className="text-signal">{n}</span>
         <span>{label}</span>

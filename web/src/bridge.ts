@@ -59,10 +59,36 @@ const devState: SetupState = {
   ready: true,
   running: false,
   launchArgs: '-force-d3d12',
-  captures: [
-    { name: 'FDF-2026-08-24', splats: 1497617, collision: true, bytes: 121_000_000 },
-    { name: 'playroom', splats: 1916379, collision: true, bytes: 160_900_000 },
-    { name: 'drjohnson-high', splats: 3177554, collision: true, bytes: 260_000_000 },
+  tracks: [
+    {
+      track: 'VDGS FDF',
+      capture: 'FDF-2026-08-24',
+      splats: 1497617,
+      bytes: 128_800_000,
+      collision: true,
+      captureInstalled: true,
+      inGame: true,
+    },
+    {
+      track: 'VDGS Playroom',
+      capture: 'playroom',
+      splats: 1916379,
+      bytes: 156_500_000,
+      collision: true,
+      captureInstalled: true,
+      inGame: true,
+    },
+    {
+      track: 'VDGS Nelson',
+      capture: 'nelson-lod2',
+      splats: 0,
+      collision: false,
+      captureInstalled: false,
+      inGame: true,
+    },
+  ],
+  unbound: [
+    { name: 'drjohnson-high', splats: 3177554, collision: true, bytes: 260_100_000 },
     { name: 'testcube', splats: 640, collision: false, bytes: 52_000 },
   ],
 }

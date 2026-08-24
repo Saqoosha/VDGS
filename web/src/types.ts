@@ -33,6 +33,20 @@ export type Capture = {
   bytes?: number
 }
 
+/**
+ * A track the mod will show a capture on. This is the unit the player thinks in: they
+ * pick a track in VelociDrone, and the capture bound to its name appears.
+ */
+export type TrackEntry = {
+  track: string
+  capture: string | null
+  splats: number
+  bytes?: number
+  collision: boolean
+  captureInstalled: boolean
+  inGame: boolean
+}
+
 /** What the companion app knows about this machine before the game is started. */
 export type SetupState = {
   game: string | null
@@ -41,5 +55,7 @@ export type SetupState = {
   ready: boolean
   running: boolean
   launchArgs: string
-  captures: Capture[]
+  tracks: TrackEntry[]
+  /** Installed captures no track points at - otherwise they are invisible here. */
+  unbound: Capture[]
 }

@@ -1,9 +1,22 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import Setup from './Setup'
-import type { SetupState } from '../types'
+import type { SetupState, TrackEntry } from '../types'
 
 const xss = '<img src=x onerror=alert(1)>'
+
+function track(over: Partial<TrackEntry> = {}): TrackEntry {
+  return {
+    track: 'VDGS FDF',
+    capture: 'FDF-2026-08-24',
+    splats: 1497617,
+    bytes: 128_800_000,
+    collision: true,
+    captureInstalled: true,
+    inGame: true,
+    ...over,
+  }
+}
 
 function state(over: Partial<SetupState> = {}): SetupState {
   return {
@@ -13,7 +26,8 @@ function state(over: Partial<SetupState> = {}): SetupState {
     ready: true,
     running: false,
     launchArgs: '-force-d3d12',
-    captures: [],
+    tracks: [],
+    unbound: [],
     ...over,
   }
 }
@@ -24,30 +38,48 @@ describe('Setup', () => {
     expect(screen.getByText(/missing: BepInEx · the mod/i)).toBeInTheDocument()
   })
 
-  it('names the launch flag, which the captures need in order to draw', () => {
-    render(<Setup state={state()} log={[]} />)
-    expect(screen.getByText(/-force-d3d12/)).toBeInTheDocument()
+  it('lists a track with the capture it shows', () => {
+    render(<Setup state={state({ tracks: [track()] })} log={[]} />)
+    expect(screen.getByText('VDGS FDF')).toBeInTheDocument()
+    expect(screen.getByText(/FDF-2026-08-24/)).toBeInTheDocument()
+    expect(screen.getByText(/1,497,617 splats/)).toBeInTheDocument()
   })
 
   it('marks a capture with no collision mesh', () => {
-    render(
-      <Setup
-        state={state({ captures: [{ name: 'testcube', splats: 640, collision: false }] })}
-        log={[]}
-      />,
-    )
+    render(<Setup state={state({ tracks: [track({ collision: false })] })} log={[]} />)
     expect(screen.getByText(/no collision/)).toBeInTheDocument()
   })
 
-  it('renders a capture name as text', () => {
-    // Capture folders are named by whoever made them, and an installed archive names its
-    // own destination - so the name reaching this page is not ours.
+  it('says when a bound capture is not on the machine', () => {
+    // Silent otherwise: the track loads and simply shows nothing.
     render(
       <Setup
-        state={state({ captures: [{ name: xss, splats: 1, collision: true }] })}
+        state={state({ tracks: [track({ captureInstalled: false, capture: 'nelson-lod2' })] })}
         log={[]}
       />,
     )
+    expect(screen.getByText(/nelson-lod2 is not installed/)).toBeInTheDocument()
+  })
+
+  it('says when a track a binding names is not in the game', () => {
+    render(<Setup state={state({ tracks: [track({ inGame: false })] })} log={[]} />)
+    expect(screen.getByText(/not in velocidrone/i)).toBeInTheDocument()
+  })
+
+  it('reports captures no track points at', () => {
+    render(
+      <Setup
+        state={state({ unbound: [{ name: 'testcube', splats: 640, collision: false }] })}
+        log={[]}
+      />,
+    )
+    expect(screen.getByText(/installed, on no track: testcube/)).toBeInTheDocument()
+  })
+
+  it('renders a track name as text', () => {
+    // VelociDrone downloads community tracks, and their names are written by whoever
+    // uploaded them.
+    render(<Setup state={state({ tracks: [track({ track: xss })] })} log={[]} />)
     expect(screen.getByText(xss)).toBeInTheDocument()
     expect(document.querySelector('img')).toBeNull()
   })
@@ -60,7 +92,7 @@ describe('Setup', () => {
 
   it('holds the log until there is something in it', () => {
     const { rerender } = render(<Setup state={state()} log={[]} />)
-    expect(screen.queryByText(/^log$/i)).toBeNull()
+    expect(screen.queryByText(/12:00:00/)).toBeNull()
     rerender(<Setup state={state()} log={['12:00:00  installed']} />)
     // getByText normalises whitespace, and the host pads the timestamp with two spaces.
     expect(screen.getByText(/12:00:00\s+installed/)).toBeInTheDocument()

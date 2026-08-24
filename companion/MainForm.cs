@@ -117,7 +117,9 @@ namespace VDGSCompanion
         private void Push()
         {
             var missing = new List<string>();
-            var captures = new List<object>();
+            var scenes = new List<GameInstall.SceneInfo>();
+            var tracks = new List<object>();
+            var unbound = new List<object>();
             string mod = null;
 
             if (_game != null)
@@ -128,8 +130,8 @@ namespace VDGSCompanion
                 if (!File.Exists(Path.Combine(_game, "vdgs", "vdgs-shaders")))
                     missing.Add("the shader bundle");
 
-                foreach (var s in GameInstall.SceneDetails(_game))
-                    captures.Add(new { name = s.Name, splats = s.Splats, collision = s.Collision, bytes = s.Bytes });
+                scenes = GameInstall.SceneDetails(_game);
+                BuildTracks(scenes, tracks, unbound);
             }
 
             Post(new
@@ -138,11 +140,69 @@ namespace VDGSCompanion
                 game = _game,
                 mod,
                 missing,
-                captures,
+                tracks,
+                unbound,
                 ready = _game != null && missing.Count == 0,
                 running = GameInstall.IsRunning(),
                 launchArgs = GameInstall.LaunchArgs,
             });
+        }
+
+        /// <summary>
+        /// Turns bindings into the list the window shows: one row per track the mod will
+        /// put a capture on, plus whatever is installed that no track names.
+        /// </summary>
+        private void BuildTracks(List<GameInstall.SceneInfo> scenes,
+                                 List<object> tracks, List<object> unbound)
+        {
+            // A null set means the database could not be read at all - the game may never
+            // have been run. Nothing is called missing on that basis.
+            HashSet<string> inGame = null;
+            try
+            {
+                var db = TrackStore.DatabasePath();
+                if (File.Exists(db))
+                {
+                    inGame = new HashSet<string>(StringComparer.Ordinal);
+                    foreach (var t in TrackStore.List(db)) inGame.Add(t.Name);
+                }
+            }
+            catch { inGame = null; }
+
+            var named = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var kv in GameInstall.ReadBindings(_game))
+            {
+                long splats = 0, bytes = 0;
+                var collision = kv.Value.Count > 0;
+                var installed = kv.Value.Count > 0;
+
+                foreach (var name in kv.Value)
+                {
+                    named.Add(name);
+                    var info = scenes.Find(s =>
+                        string.Equals(s.Name, name, StringComparison.OrdinalIgnoreCase));
+                    if (info == null) { installed = false; continue; }
+                    splats += info.Splats;
+                    bytes += info.Bytes;
+                    // One capture without a mesh is enough to fall through the floor.
+                    collision &= info.Collision;
+                }
+
+                tracks.Add(new
+                {
+                    track = kv.Key,
+                    capture = kv.Value.Count > 0 ? string.Join(" + ", kv.Value.ToArray()) : null,
+                    splats,
+                    bytes,
+                    collision,
+                    captureInstalled = installed,
+                    inGame = inGame == null || inGame.Contains(kv.Key),
+                });
+            }
+
+            foreach (var s in scenes)
+                if (!named.Contains(s.Name))
+                    unbound.Add(new { name = s.Name, splats = s.Splats, collision = s.Collision, bytes = s.Bytes });
         }
 
         // ------------------------------------------------------------------ page -> host
