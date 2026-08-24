@@ -15,6 +15,47 @@ internal static class Harness
         if (!ok) _fail++;
     }
 
+    /// <summary>
+    /// The disk walk that runs when the known install locations miss. PatchKit records the
+    /// path nowhere, so this is the difference between the app finding the game and asking
+    /// someone to go and find a folder themselves.
+    /// </summary>
+    private static void ScanFindsTheGame()
+    {
+        Console.WriteLine();
+        Console.WriteLine("finding the game on disk");
+
+        var root = Path.Combine(Path.GetTempPath(), "vdgs-scan-" + Guid.NewGuid().ToString("N"));
+        var buried = Path.Combine(root, "Games", "launcher", "app");
+        Directory.CreateDirectory(buried);
+        File.WriteAllText(Path.Combine(buried, "velocidrone.exe"), "");
+        Action<string> quiet = _ => { };
+
+        Check(GameInstall.ScanRoots(new[] { root }, 5, quiet) == buried,
+              "finds velocidrone.exe a few folders down");
+
+        // The bound is what keeps this from walking an entire disk; without a test it is
+        // the kind of constant that quietly stops applying.
+        Check(GameInstall.ScanRoots(new[] { root }, 2, quiet) == null,
+              "stops at the depth limit");
+
+        // Skipping applies to what the walk discovers, so the fixture puts the only copy
+        // inside a skipped folder and scans from its parent - the shape of a real disk.
+        var noise = Path.Combine(Path.GetTempPath(), "vdgs-skip-" + Guid.NewGuid().ToString("N"));
+        var skipped = Path.Combine(noise, "Windows", "app");
+        Directory.CreateDirectory(skipped);
+        File.WriteAllText(Path.Combine(skipped, "velocidrone.exe"), "");
+        Check(GameInstall.ScanRoots(new[] { noise }, 5, quiet) == null,
+              "does not descend into Windows");
+        Directory.Delete(noise, recursive: true);
+
+        Check(GameInstall.IsGameFolder(buried), "recognises the folder it found");
+        Check(!GameInstall.IsGameFolder(root), "and does not recognise its parent");
+        Check(!GameInstall.IsGameFolder(null), "a missing path is not a game folder");
+
+        Directory.Delete(root, recursive: true);
+    }
+
     private static string MakeDb()
     {
         var path = Path.Combine(Path.GetTempPath(), "vdgs-test-" + Guid.NewGuid().ToString("N") + ".db");
@@ -102,6 +143,9 @@ internal static class Harness
         }
 
         File.Delete(db);
+
+        ScanFindsTheGame();
+
         Console.WriteLine(_fail == 0 ? "\nALL PASS" : "\n" + _fail + " FAILED");
         return _fail == 0 ? 0 : 1;
     }

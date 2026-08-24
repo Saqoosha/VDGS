@@ -31,6 +31,7 @@ namespace VDGSCompanion
         private string _game;
         private bool _ready;   // the page is up and can be posted to
         private string _busy;  // what is being done right now, or null
+        private readonly Settings _settings;
 
         internal MainForm()
         {
@@ -45,7 +46,12 @@ namespace VDGSCompanion
             BackColor = Color.FromArgb(0x05, 0x07, 0x0c);   // matches the page, so no white flash
             Controls.Add(_web);
 
-            _game = GameInstall.FindGame();
+            // A remembered path first: someone who keeps the game somewhere unusual should
+            // not have to say so twice. It is checked, not trusted - drives get unplugged.
+            _settings = Settings.Load();
+            _game = GameInstall.IsGameFolder(_settings.Game)
+                ? _settings.Game
+                : GameInstall.FindGame();
             Load += async (s, e) => await Start();
         }
 
@@ -82,7 +88,7 @@ namespace VDGSCompanion
             c.NewWindowRequested += (s, e) => e.Handled = true;
 
             c.WebMessageReceived += (s, e) => Dispatch(e.WebMessageAsJson);
-            c.NavigationCompleted += (s, e) => { _ready = true; Push(); };
+            c.NavigationCompleted += (s, e) => { _ready = true; Push(); FindGameIfMissing(); };
 
             // The page is a built bundle of ES modules, which a file:// or
             // NavigateToString origin will not load. A virtual host gives it a real one
@@ -270,6 +276,29 @@ namespace VDGSCompanion
             }
         }
 
+        /// <summary>
+        /// When the known locations miss, go looking - once, on the way in.
+        ///
+        /// The alternative is a window that says "not found" and leaves someone to find a
+        /// folder they may not know the name of. It only runs when there is nothing, so it
+        /// costs the common case nothing.
+        /// </summary>
+        private void FindGameIfMissing()
+        {
+            if (_game != null) return;
+            RunBusy("looking for velocidrone", log =>
+            {
+                var found = GameInstall.ScanForGame(log);
+                if (found == null) return;
+                BeginInvoke((Action)(() =>
+                {
+                    _game = found;
+                    _settings.Game = found;
+                    _settings.Save();
+                }));
+            });
+        }
+
         private void PickGame()
         {
             using (var d = new FolderBrowserDialog { Description = "Select the folder holding velocidrone.exe" })
@@ -282,6 +311,8 @@ namespace VDGSCompanion
                     return;
                 }
                 _game = d.SelectedPath;
+                _settings.Game = _game;
+                _settings.Save();
                 Push();
             }
         }

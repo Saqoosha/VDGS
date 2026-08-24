@@ -37,6 +37,74 @@ namespace VDGSCompanion
             return candidates.FirstOrDefault(IsGameFolder);
         }
 
+        /// <summary>
+        /// Looks for velocidrone.exe across the disks, for when the known locations miss.
+        ///
+        /// PatchKit records the install path nowhere - not in the registry, not in an
+        /// uninstall entry, not in its own %LOCALAPPDATA% folder, which holds one 32-byte
+        /// id and nothing else (checked on a real install). So when the candidate list
+        /// misses, the choice is a scan or asking the person to go and find it themselves.
+        ///
+        /// Bounded rather than exhaustive: the game is unpacked by a launcher or a store,
+        /// and neither buries it deeply.
+        /// </summary>
+        internal static string ScanForGame(Action<string> log)
+        {
+            var roots = new List<string>
+            {
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            };
+            foreach (var d in DriveInfo.GetDrives())
+                if (d.IsReady && d.DriveType == DriveType.Fixed)
+                    roots.Add(d.RootDirectory.FullName);
+
+            return ScanRoots(roots, maxDepth: 5, log: log);
+        }
+
+        /// <summary>The walk itself, taking its roots so it can be exercised on a fixture.</summary>
+        internal static string ScanRoots(IEnumerable<string> roots, int maxDepth, Action<string> log)
+        {
+            // Big, and none of them is where a game lands.
+            var skip = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "Windows", "$Recycle.Bin", "System Volume Information", "ProgramData",
+                "AppData", "node_modules", ".git", "WindowsApps",
+            };
+
+            foreach (var root in roots)
+            {
+                log("looking under " + root);
+                var queue = new Queue<KeyValuePair<string, int>>();
+                queue.Enqueue(new KeyValuePair<string, int>(root, 0));
+                while (queue.Count > 0)
+                {
+                    var item = queue.Dequeue();
+                    try
+                    {
+                        if (File.Exists(Path.Combine(item.Key, "velocidrone.exe")))
+                        {
+                            log("found " + item.Key);
+                            return item.Key;
+                        }
+                        if (item.Value >= maxDepth) continue;
+                        foreach (var sub in Directory.GetDirectories(item.Key))
+                        {
+                            var name = Path.GetFileName(sub);
+                            if (name.StartsWith(".", StringComparison.Ordinal) || skip.Contains(name))
+                                continue;
+                            // A junction can point back up the tree and make this walk forever.
+                            if ((new DirectoryInfo(sub).Attributes & FileAttributes.ReparsePoint) != 0)
+                                continue;
+                            queue.Enqueue(new KeyValuePair<string, int>(sub, item.Value + 1));
+                        }
+                    }
+                    catch { /* unreadable folders are not where the game is */ }
+                }
+            }
+            log("velocidrone.exe is not on any fixed disk");
+            return null;
+        }
+
         internal static bool IsGameFolder(string dir) =>
             !string.IsNullOrEmpty(dir) && File.Exists(Path.Combine(dir, "velocidrone.exe"));
 
