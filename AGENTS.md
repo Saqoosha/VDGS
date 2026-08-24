@@ -464,6 +464,76 @@ F5・F6・F7・F8 は**使っていない**。操作は Web UI から。
 
 設計の理由は [docs/ARCHITECTURE.ja.md](docs/ARCHITECTURE.ja.md) の「トラックと GS の対応」「操作面」、操作手順は [docs/USAGE.ja.md](docs/USAGE.ja.md)。
 
+## 配布は companion アプリ（`companion/`）
+
+**mod を配る道具。** BepInEx 以外は全部これで済む — mod の導入・削除、キャプチャの導入、
+トラックの DB 登録、`-force-d3d12` 付きの起動。.NET Framework 4.8 + WinForms、中身は
+**WebView2 で `web/` の React を描いている**（`companion.html`）。操作 UI と同じテーマ・
+同じコンポーネント・同じフォントで、**別製品に見せない**ため。
+
+```
+companion/
+  Program.cs      GUI 起動と CLI（--export-track / --check-catalog）
+  MainForm.cs     WebView2 ホスト、postMessage のブリッジ、重い処理の別スレッド化
+  GameInstall.cs  ゲーム発見・走査、mod の導入/削除、zip 展開、bindings 書き込み
+  TrackStore.cs   user11.db の読み書き
+  Catalog.cs      公開カタログの取得・検証・ダウンロード
+  Settings.cs     ゲームパスとカタログ URL を %LOCALAPPDATA% に記憶
+  tests/          19+ の実データ寄りテスト（Mac で走る）
+```
+
+**mod はアプリの中に同梱する**（`mod/` フォルダ、`make-release.sh` が組んだ木をビルド時に
+コピー）。ボタンは自分の仕事を名乗る — `INSTALL MOD` / `REINSTALL MOD` /
+`UPDATE TO <版>` / `NO MOD PAYLOAD`。**押してみないと分からない、をやらせない**ため。
+
+**UNINSTALL はキャプチャを消さない。** 消すのは `VDGS.dll` / `vdgs-shaders` / `vdgs/ui` だけ。
+キャプチャは GB 単位で再取得に数時間かかるし、`bindings.json` と `placement.json` を残せば
+**入れ直したとき元の場所に戻る**。BepInEx も残す（こちらのものではない）。
+
+### 踏むと高い罠
+
+- **`scp host:relative` が exit 0 のまま何も転送しないことがある。** `-v` を見ると
+  `Executing: cp --` ＝ **ローカルコピーだと判定されている**（ホスト名が 1 文字だと
+  ドライブレターに見える）。`scp host:/C:/Users/a/name` と**絶対パスにする**
+- **GUI サブシステムの exe は PowerShell が待たない。** `& $exe args` は即座に戻るので、
+  出力もファイルも「無かった」ことになる。`Start-Process -Wait -PassThru`、
+  かつ **`-ArgumentList` は空白を含む引数を勝手に引用しない**ので自分で `'"..."'` にする
+- **WebView2 ホストを殺しても `msedgewebview2.exe` がファイルを掴んだままの瞬間がある。**
+  フォルダごと消してから展開する配備は、そこで 1 ファイルだけ失敗して**半分だけ新しい木**
+  になる。リトライを入れる（`tools/appshot-win.ps1` 隣の unpack が実例）
+- **`AppDomain.CurrentDomain.BaseDirectory` に置いた `ui/` を `file://` では読めない。**
+  ES モジュールが読み込まれない。`SetVirtualHostNameToFolderMapping` で
+  `http://vdgs.invalid/` を生やして読む（ポートは開かない）
+- **`.gitignore` に `web/` があると `web/` 配下の新規ファイルが `git add` で消える。**
+  React 化前の名残。2026-08-25 のマージで一度復活し、コミットが自分のソースを半分
+  置き去りにしかけた
+
+### 配布の通し
+
+**キャプチャは mod に同梱しない**（数百 MB）。アプリの `02 GET` からカタログ経由で落とす。
+
+```bash
+# 1. コースを DB から出す（Windows 側）
+VDGS.exe --export-track "VDGS FDF" VDGS-FDF.track.json   # → catalog/tracks/
+
+# 2. キャプチャを固める
+bash tools/make-release.sh --scene FDF-2026-08-24 --scene-dir <path> --scene-only
+
+# 3. カタログとアップロード用一式を作る
+bash tools/make-catalog.sh --base-url https://vdgs.saqoo.sh
+
+# 4. build/release/site/ をそのまま上げる
+```
+
+**サイズと sha256 は測って書く、手で書かない。** ダウンロードが途中で切れたか差し替えられたか
+を見るのは digest だけで、手写しの digest はいつか必ず狂う。アプリは **https 以外を拒否**
+（loopback だけ例外、テスト用）、**digest が合わなければ展開しない**、**知らない
+`formatVersion` は読まない**。欠けたフィールドを「トラック無し」と誤読して、
+**公開物の半分だけ入れる**のが最悪なので。
+
+**公開していいのはライセンスが再配布を許すものだけ。** 表記の不在は許諾ではない。
+判断は「splat データは配布できない。同梱もしない」節。
+
 ## 制約と、いまも踏める罠
 
 構成の理由（Unity を 2 本使う、ScriptableObject を捨てた、AssetBundle だけでは足りない）
@@ -593,6 +663,10 @@ docs/superpowers/specs/2026-08-18-splat-collision-design.md。
   「針だらけ」という誤診を招く（実際に一度出した）。log 空間で
   `t = (log(mid)-log(min))/(log(max)-log(min))` を取ると `t≈0` が針、`t≈1` が板。
   **3DGS の壁と床は板で、正常**。上から見るとエッジオンで線に見えるだけ
+- **配布サイトとホスティングは未着手。** `tools/make-catalog.sh` は
+  `build/release/site/` を吐くところまで。バケットも DNS も無いので、アプリの既定 URL
+  （`https://vdgs.saqoo.sh/catalog.json`）はまだ 404 する。**アプリ側はそれを想定して
+  黙って空リストを出す**（エラー文言は `02 GET` の中だけ）
 - **キャプチャごとのコリジョン焼き。** 手順は docs/SCENES.ja.md。voxel はシーンで決める
   （細かいほど穴、粗いほど柱が太い）。textilni は 0.06 で穴あり許容、0.14 は柱が太く不採用
 - **nelson は voxel 0.06、`--filter-cluster` は使わない。** 原点が空なのでクラスタが

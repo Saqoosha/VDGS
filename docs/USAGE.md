@@ -37,7 +37,13 @@ you want a smaller file on disk or a faster load.
 
 ## 2. Installing
 
-**From a release, this is three moves.** `vdgs-mod-<version>.zip` already contains the DLL,
+**The companion app is the short way.** Start `VDGS.exe`, press **Install mod**, and the
+DLL, the baked shader bundle and the control UI all go in - it carries them, so there is
+no zip to find. **02 get** downloads a capture, imports its track and binds the two, and
+**Fly** starts the game with `-force-d3d12`. **BepInEx still has to be installed first**
+(2-1).
+
+By hand from a release: `vdgs-mod-<version>.zip` already contains the DLL,
 a baked shader bundle and the control UI, so nothing has to be built:
 
 1. Install BepInEx (2-1)
