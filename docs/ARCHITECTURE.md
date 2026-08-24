@@ -286,7 +286,8 @@ Moving out of the process removes all of it, and adds control from another machi
 
 ```
 HttpListener (:8777)
-  ├ GET  /            embedded HTML (WebUi.cs)
+  ├ GET  /            static files from <game>/vdgs/ui/ (SPA; missing ui/ → WebUi fallback)
+  ├ GET  /library     same index.html
   ├ GET  /api/status  current track / shown / available / all bindings
   ├ POST /api/load    show one capture
   ├ POST /api/unload  hide everything
@@ -315,7 +316,7 @@ their names go straight into the UI, and the server is open to the whole LAN.
 
 Three defences:
 
-1. **No `innerHTML`.** Everything is `createElement` plus `textContent`. Skipping this
+1. **No `innerHTML` / `dangerouslySetInnerHTML`.** React text nodes only. Skipping this
    once left a state where downloading a single track named `<img src=x onerror=...>` ran
    arbitrary code
 2. **No CORS header.** The UI is served from the same origin and does not need one. Adding
@@ -356,8 +357,11 @@ draws the shell (solid or wire). Bake is OpenVDB; see [SCENES.md](SCENES.md).
 | `TrackName.cs` | the loading track's name, through several fallbacks |
 | `TrackBindings.cs` | reads and writes `bindings.json` |
 | `TrackProbe.cs` | hunts strings inside the obfuscated game (F12) |
-| `WebControl.cs` | HTTP server and the thread boundary |
-| `WebUi.cs` | the browser UI (embedded HTML) |
+| `WebControl.cs` | HTTP server, thread boundary, and static files from `vdgs/ui/` |
+| `WebUi.cs` | fallback HTML when `vdgs/ui/` has not been deployed |
+| `VdgsPaths.cs` | reserved `ui` name and path resolution that cannot leave that root |
+| `SplatMetaFile.cs` | meta.json / .ply header without opening GPU buffers |
+| `web/` | Vite + React control UI (gaussian particle field; Control / Library) |
 | `Probe.cs` | runtime environment dump (F9) |
 | `PerfLog.cs` | frame-time logging |
 | `PostProcessFix.cs` | an attempt at the `-force-d3d12` side effect (**it does not work**; kept as a record) |
@@ -368,8 +372,8 @@ draws the shell (solid or wire). Bake is OpenVDB; see [SCENES.md](SCENES.md).
 
 - **Adding an API**: add a case to `WebControl.Handle()`, write the handler in `Plugin` and
   connect the delegate. Anything touching Unity must go through `QueueOnMain`
-- **Adding UI**: append to `WebUi.Html`. **Dynamic values go in through `textContent`,
-  always**
+- **Adding UI**: edit `web/`, `bun run build`, `bash tools/deploy.sh --ui`. **Dynamic
+  values are React text nodes. Never `dangerouslySetInnerHTML`.**
 - **Reading game state**: change the needle and press F12. Do not trust constants from a
   decompile
 - **Changing shaders**: rebake `unity/VDGSBundler` **on Windows**. A bundle under 1 MB

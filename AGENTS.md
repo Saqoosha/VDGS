@@ -344,11 +344,16 @@ src/VDGS/
   TrackName.cs     ロード中のトラック名をランタイムに問い合わせる
   TrackBindings.cs トラック名 -> GS の対応表（bindings.json）
   TrackProbe.cs    難読化されたゲームから文字列の在処を探す調査用
-  WebControl.cs    HTTP サーバー（操作 API）
-  WebUi.cs         ブラウザ UI（埋め込み HTML）
+  WebControl.cs    HTTP サーバー（操作 API と vdgs/ui/ の静的ファイル）
+  WebUi.cs         vdgs/ui/ が無いときのフォールバック HTML
+  VdgsPaths.cs     予約名 ui とパストラバーサル拒否
+  SplatMetaFile.cs GPU バッファを開かない meta 読み
   PerfLog.cs       フレームタイム記録
   PostProcessFix.cs  D3D12 強制の副作用対応（未解決、記録のみ）
 ```
+
+フロントは `web/`（Vite + React）。成果物は `<game>/vdgs/ui/`。ディレクトリ名 `ui` は
+シーンにならない。
 
 upstream から**削った**もの：編集機能・selection・cutouts・URP/HDRP パス・Profiler。
 依存も `Unity.Mathematics` / `Unity.Collections` / `Burst` を全部剥がし、UnityEngine のみにした。
@@ -367,16 +372,97 @@ upstream から**削った**もの：編集機能・selection・cutouts・URP/HD
 
 ## 操作は Web UI（ゲーム内キーではない）
 
-`http://<host>:8777/` でプラグインが HTTP サーバーを立てる。**ゲーム内キーでの操作は全部やめた**
-（F7 はトラックエディタの保存に取られている、Numpad は MacBook に無い、HUD を描く場所が無い）。
-表示は**トラック名 → GS の対応表**（`<game>/vdgs/bindings.json`）だけで決まり、1 秒ごとに
-ポーリングする。紐付けの無いトラックでは何も出さない。
+`http://<host>:8777/` でプラグインが HTTP サーバーを立てる（`WebControl` + `web/`）。
+見た目は暗い場にガウシアンが漂う。カードは使わない。静的ファイルは
+`<game>/vdgs/ui/`。無いときは `WebUi.cs` が短い案内だけ出す。
 
-**トラック名の取得は多段フォールバックで、使ってはいけない候補が 3 つある。** `JsonUtility`
-は入れ子型を無言で `{}` にする（Newtonsoft.Json 13 を使う）。UI は `innerHTML` を使わない
-（トラック名は攻撃者が書ける）。設計の理由は
-[docs/ARCHITECTURE.ja.md](docs/ARCHITECTURE.ja.md) の「トラックと GS の対応」「操作面」、
-操作手順とキー割り当ては [docs/USAGE.ja.md](docs/USAGE.ja.md)。
+**ゲーム内キーでの操作は全部やめた。** 理由：
+
+- **F7 はトラックエディタのシーン保存**に割り当て済み
+- **矢印キーはトラックエディタのオブジェクト移動**。奪うとエディタが使えなくなる
+- **Numpad は MacBook に無い**
+- **ゲームには HUD を描く場所がない**ので、キーを押しても結果が見えない
+
+外に出すとこれが全部消える上に、別マシンのブラウザから操作できる
+（Parsec でゲーム画面を見ながら、手元の Mac で操作する運用）。
+
+### トラック名の取得
+
+多段フォールバック（`TrackName.cs`）。順に：
+
+1. `InGameChangeTrack.glnoaiifnln`（難読化フィールド。**トラックエディタのシーンには
+   この型自体が存在しない**ので、そこでは空振りする）
+2. **`Track Name` ラベル、パスに `Current Track/Table Entry` を含むもの**
+   （`TrackManager2/Modal - Gameplay - Change Scenery/Content/Current Track/...`）。
+   シーン中で「現在のトラック」を名乗る唯一の UI 要素
+3. 飛行 HUD の `TrackName` ラベル。飛行中は正しいが、**エディタに戻っても最後に飛んだ
+   トラック名を保持し続ける**ので最後に置く
+
+**使ってはいけないもの、3 つ:**
+
+- **`EditorManager.nnpnlmbjocf`** — 「最後に *エディタで* 開いたトラック」。飛んでも
+  更新されない。最初に見つかる上に一見正しく見える
+- **`Tracks Admin Entry(Clone)/TrackEntry/Track` ラベル** — トラック一覧の各行で、
+  ユーザーの全トラックが並ぶ。現在のトラックではない
+- **`Track Name` ラベルを名前だけで拾うこと** — 同じ modal に**列見出し**の
+  `Track Name`（テキストも文字列 `"Track Name"`）が併存する。**必ずパスで絞る**
+
+難読化されたフィールド名はゲームのアップデートで変わる。変わった場合は
+F12（`vdgs-track.txt`）でトラック名を検索して、新しいフィールドを探すこと。
+検索語は `<game>/vdgs/needle.txt` に書く（プラグインの再ビルド不要）。
+**調査用にトラック名を `VDGSPROBE7777` のような固有な文字列にすると一発で見つかる。**
+
+### 罠
+
+- **`JsonUtility` は使えない。** 辞書をシリアライズできず、入れ子型を**例外も警告もなく
+  `{}` にする**。ファイルは正常に書けたように見えて中身だけ空になる。
+  bindings はゲーム同梱の **Newtonsoft.Json 13**（`Managed/Newtonsoft.Json.dll`）を使う
+- **`HttpListener` はボディの無い POST を `411 Length Required` で弾く。**
+  ハンドラまで届かないので、`curl -X POST .../api/unload` は失敗する。`-d '{}'` を付ける
+- **API のポーリングはゲームを落とさない。** 45 秒連続で `GET /api/status` を叩いても
+  全部 200、ゲームは無事。一度「起動直後のポーリングで 40 秒後に落ちる」と結論したが
+  **誤り**だった。真相は起動スクリプトの末尾（`開発フロー` 参照）
+
+### UI のセキュリティ（軽く扱わないこと）
+
+**トラック名は攻撃者が書ける文字列。** VelociDrone はコミュニティのトラックを
+ダウンロードでき、その名前がそのまま UI に表示される。サーバーは `http://*:8777/`
+で LAN 全体に開いている。
+
+- **`innerHTML` / `dangerouslySetInnerHTML` に動的な値を入れない。** React のテキストで
+  組む。一度 `innerHTML` で書いてしまい、`<img src=x onerror=...>` という
+  名前のトラックを1本落とすだけで任意コードが動く状態だった
+- **`Access-Control-Allow-Origin` を付けない。** UI は同じサーバーから配信されるので
+  不要。付けると利用者が開いた任意のサイトからこの API を叩けるようになる
+- **POST は `Content-Type: application/json` を必須にする。** クロスオリジンのページは
+  preflight なしにこのヘッダを付けられないため、これが CSRF の防波堤になっている。
+  外すと `text/plain` の simple request で誰でも API を叩ける
+
+### 開発者向けキー（残置）
+
+| キー | 動作 |
+|---|---|
+| F9 | 環境プローブを追記 |
+| F10 | シーンのヒエラルキーをダンプ |
+| F12 | トラック名の探索ダンプ |
+
+F5・F6・F7・F8 は**使っていない**。操作は Web UI から。
+
+### 表示の決まり方
+
+**トラック名 → GS** の対応表（`<game>/vdgs/bindings.json`）だけで決まる。
+シーナリー（Empty Scene Day など）単位ではない。同じシーナリー上に何本も
+トラックが載るため、シーン単位だと全部のトラックに出てしまう。
+
+トラックはシーンを跨がずに切り替えられる（ゲーム内の change track ダイアログ）ので、
+`sceneLoaded` では足りない。**1 秒ごとにトラック名をポーリング**して、
+変わったら GS を入れ替える（`PollTrack`）。
+
+紐付けの無いトラックでは**何も表示しない**。間違った GS を出すより無害。
+
+`<game>/vdgs/autospawn`（空ファイル）が無い場合は自動表示そのものが無効。
+
+設計の理由は [docs/ARCHITECTURE.ja.md](docs/ARCHITECTURE.ja.md) の「トラックと GS の対応」「操作面」、操作手順は [docs/USAGE.ja.md](docs/USAGE.ja.md)。
 
 ## 制約と、いまも踏める罠
 
