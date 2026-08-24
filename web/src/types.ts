@@ -60,8 +60,30 @@ export type SetupState = {
   running: boolean
   /** What the app is doing right now, or null. Installing takes seconds, not an instant. */
   busy: string | null
+  /** How far through, when that is knowable. */
+  busyPercent: number | null
   launchArgs: string
   tracks: TrackEntry[]
+  catalog: CatalogState | null
   /** Installed captures no track points at - otherwise they are invisible here. */
   unbound: Capture[]
+}
+
+/** One capture on offer from the published catalog. */
+export type CatalogEntry = {
+  id: string
+  name: string
+  description: string | null
+  author: string | null
+  licence: string | null
+  splats: number
+  bytes: number
+  installed: boolean
+}
+
+export type CatalogState = {
+  url: string
+  /** Why the list is empty, when it is empty for a reason worth showing. */
+  error: string | null
+  entries: CatalogEntry[]
 }

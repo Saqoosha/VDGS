@@ -28,6 +28,8 @@ function state(over: Partial<SetupState> = {}): SetupState {
     ready: true,
     running: false,
     busy: null,
+    busyPercent: null,
+    catalog: null,
     launchArgs: '-force-d3d12',
     tracks: [],
     unbound: [],

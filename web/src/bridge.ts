@@ -29,13 +29,15 @@ export type Command =
   | 'pick'
   | 'installMod'
   | 'uninstallMod'
+  | 'refreshCatalog'
+  | 'get'
   | 'installCapture'
   | 'addTrack'
   | 'fly'
 
-export function send(cmd: Command): void {
-  if (host) host.postMessage({ cmd })
-  else devSend(cmd)
+export function send(cmd: Command, id?: string): void {
+  if (host) host.postMessage({ cmd, id })
+  else devSend(cmd, id)
 }
 
 export function subscribe(fn: (m: Push) => void): () => void {
@@ -61,6 +63,7 @@ const devState: SetupState = {
   ready: true,
   running: false,
   busy: null,
+  busyPercent: null,
   launchArgs: '-force-d3d12',
   tracks: [
     {
@@ -97,19 +100,48 @@ const devState: SetupState = {
     { name: 'drjohnson-high', splats: 3177554, collision: true, bytes: 260_100_000 },
     { name: 'testcube', splats: 640, collision: false, bytes: 52_000 },
   ],
+  catalog: {
+    url: 'https://vdgs.saqoo.sh/catalog.json',
+    error: null,
+    entries: [
+      {
+        id: 'fdf-2026-08-24',
+        name: 'FDF',
+        description: 'An FPV practice field in Japan, flown from inside.',
+        author: 'Saqoosha',
+        licence: 'CC0-1.0',
+        splats: 1497617,
+        bytes: 123_657_212,
+        installed: true,
+      },
+      {
+        id: 'jdl-2026-r5',
+        name: 'JDL 2026 R5',
+        description: 'A Japan Drone League round, shot from the ground and the air.',
+        author: 'Saqoosha',
+        licence: 'CC0-1.0',
+        splats: 3_900_000,
+        bytes: 402_000_000,
+        installed: false,
+      },
+    ],
+  },
 }
 
 function devPush(m: Push) {
   for (const fn of devListeners) fn(m)
 }
 
-function devSend(cmd: Command) {
+function devSend(cmd: Command, id?: string) {
   if (!import.meta.env.DEV) return
   if (cmd === 'refresh') {
     devPush({ type: 'state', ...devState })
     return
   }
-  devPush({ type: 'log', line: new Date().toTimeString().slice(0, 8) + '  ' + cmd })
+  devPush({
+    type: 'log',
+    line: new Date().toTimeString().slice(0, 8) + '  ' + cmd + (id ? ' ' + id : ''),
+  })
   devPush({ type: 'state', ...devState })
 }
 

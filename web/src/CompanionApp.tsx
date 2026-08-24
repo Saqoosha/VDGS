@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Masthead } from './chrome'
 import { ParticleField } from './ParticleField'
 import { send, subscribe } from './bridge'
 import Setup from './pages/Setup'
+import Get from './pages/Get'
 import type { SetupState } from './types'
 
 /**
@@ -12,6 +13,8 @@ import type { SetupState } from './types'
 export default function CompanionApp() {
   const [state, setState] = useState<SetupState | null>(null)
   const [log, setLog] = useState<string[]>([])
+  // Two views rather than two pages: the app is one window and does not need a router.
+  const [tab, setTab] = useState<'setup' | 'get'>('setup')
 
   useEffect(() => {
     const stop = subscribe((m) => {
@@ -35,13 +38,25 @@ export default function CompanionApp() {
       <ParticleField />
       <div className="relative mx-auto flex h-full w-full max-w-[44rem] flex-col px-6 py-7 md:px-8">
         <Masthead
-          eyebrow="companion · setup"
+          eyebrow="companion"
+          nav={
+            <>
+              <Tab now={tab} me="setup" onPick={setTab}>
+                01 setup
+              </Tab>
+              <Tab now={tab} me="get" onPick={setTab}>
+                02 get
+              </Tab>
+            </>
+          }
           meta="gaussian splat / velocidrone"
           status={
             // While something is running this is the one place a person is already
             // looking, so it says what rather than staying on the old verdict.
             state?.busy ? (
-              <span className="animate-pulse text-signal">◐ working</span>
+              <span className="animate-pulse text-signal">
+                ◐ {state.busyPercent != null ? state.busyPercent + '%' : 'working'}
+              </span>
             ) : (
               <span className={state?.ready ? 'text-live' : 'text-muted-foreground'}>
                 {state?.ready ? '● ready' : '○ setup'}
@@ -49,8 +64,34 @@ export default function CompanionApp() {
             )
           }
         />
-        <Setup state={state} log={log} />
+        {tab === 'setup' ? <Setup state={state} log={log} /> : <Get state={state} />}
       </div>
     </div>
+  )
+}
+
+function Tab({
+  now,
+  me,
+  onPick,
+  children,
+}: {
+  now: string
+  me: 'setup' | 'get'
+  onPick: (t: 'setup' | 'get') => void
+  children: ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onPick(me)}
+      className={
+        now === me
+          ? 'text-signal underline decoration-signal decoration-2 underline-offset-8'
+          : 'text-muted-foreground hover:text-foreground'
+      }
+    >
+      {children}
+    </button>
   )
 }

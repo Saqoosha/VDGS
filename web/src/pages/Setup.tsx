@@ -64,7 +64,8 @@ export default function Setup({
             {state.busy ? (
               <span className="font-mono text-[11px] tracking-[0.14em] text-signal uppercase">
                 <span className="mr-2 animate-pulse">◐</span>
-                {state.busy}…
+                {state.busy}
+                {state.busyPercent != null ? ` ${state.busyPercent}%` : '…'}
               </span>
             ) : (
               <Verdict state={state} />

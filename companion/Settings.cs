@@ -19,6 +19,12 @@ namespace VDGSCompanion
     {
         public string Game { get; set; }
 
+        /// <summary>
+        /// Where the published captures are listed. Settable because the list is a plain
+        /// file on a web server, and someone hosting their own should not need a new build.
+        /// </summary>
+        public string CatalogUrl { get; set; }
+
         private static string Path_ => System.IO.Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "VDGSCompanion", "settings.json");

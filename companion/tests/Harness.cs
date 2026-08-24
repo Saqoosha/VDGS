@@ -56,6 +56,119 @@ internal static class Harness
         Directory.Delete(root, recursive: true);
     }
 
+    /// <summary>
+    /// The catalog decides what gets downloaded onto someone's disk and unpacked over
+    /// their game folder, so what it is allowed to say is worth pinning down.
+    /// </summary>
+    private static void CatalogIsReadAndChecked()
+    {
+        Console.WriteLine();
+        Console.WriteLine("reading the catalog");
+
+        const string good = @"{
+          ""formatVersion"": 1,
+          ""scenes"": [
+            { ""id"": ""fdf"", ""name"": ""FDF"", ""author"": ""Saqoosha"",
+              ""licence"": ""CC0-1.0"", ""splats"": 1497617,
+              ""scene"": { ""url"": ""https://example.test/a.zip"", ""bytes"": 10,
+                          ""sha256"": ""abc"", ""installAs"": ""FDF-2026-08-24"" },
+              ""track"": { ""url"": ""https://example.test/a.json"", ""bytes"": 2,
+                          ""sha256"": ""def"", ""name"": ""VDGS FDF"" } },
+            { ""id"": ""broken"", ""name"": ""No files"" }
+          ]
+        }";
+
+        var entries = Catalog.Parse(good);
+        Check(entries.Count == 1, "an entry with nothing to fetch is dropped");
+        Check(entries[0].InstallAs == "FDF-2026-08-24", "reads where the capture installs");
+        Check(entries[0].TrackName == "VDGS FDF", "reads the track name");
+        Check(entries[0].Bytes == 12, "totals what will be downloaded");
+
+        // Guessing at a newer format would read a missing field as "no track" and install
+        // half of what was published.
+        Check(Throws(() => Catalog.Parse(@"{""formatVersion"": 2, ""scenes"": []}")),
+              "refuses a format it does not know");
+        Check(Throws(() => Catalog.Parse(@"{""formatVersion"": 1}")),
+              "refuses a catalog with no scenes");
+
+        Catalog.RequireSafeUrl("https://example.test/x.zip");
+        Check(true, "allows https");
+        Check(Throws(() => Catalog.RequireSafeUrl("http://example.test/x.zip")),
+              "refuses plain http, which could be swapped in transit");
+        Check(Throws(() => Catalog.RequireSafeUrl("file:///etc/passwd")),
+              "refuses a non-http scheme");
+
+        // The digest is what stands between a truncated or swapped download and code being
+        // unpacked over the game folder, so a mismatch has to fail the download itself.
+        var dir = Path.Combine(Path.GetTempPath(), "vdgs-dl-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var payload = new byte[] { 1, 2, 3, 4, 5 };
+        var served = Path.Combine(dir, "served.bin");
+        File.WriteAllBytes(served, payload);
+        var digest = Catalog.Sha256(served);
+
+        string url;
+        using (var server = Serve(payload, out url))
+        {
+            var ok = Catalog.Download(
+                new Catalog.File_ { Url = url, Bytes = payload.Length, Sha256 = digest }, dir, null);
+            Check(File.ReadAllBytes(ok).Length == payload.Length, "downloads over loopback");
+            Check(Catalog.Sha256(ok) == digest, "and what lands matches");
+            File.Delete(ok);
+
+            Check(Throws(() => Catalog.Download(
+                      new Catalog.File_ { Url = url, Bytes = payload.Length, Sha256 = new string('0', 64) },
+                      dir, null)),
+                  "rejects a file whose digest does not match");
+            Check(Directory.GetFiles(dir, "*.part").Length == 0,
+                  "and leaves nothing behind that could be mistaken for a good download");
+
+            Check(Throws(() => Catalog.Download(
+                      new Catalog.File_ { Url = url, Bytes = payload.Length }, dir, null)),
+                  "refuses to download a file the catalog gives no digest for");
+        }
+        Directory.Delete(dir, recursive: true);
+    }
+
+    private static bool Throws(Action a)
+    {
+        try { a(); return false; } catch { return true; }
+    }
+
+    /// <summary>A one-shot loopback server, so the download path is exercised for real.</summary>
+    private static IDisposable Serve(byte[] payload, out string url)
+    {
+        var port = 8971;
+        var listener = new System.Net.HttpListener();
+        listener.Prefixes.Add("http://127.0.0.1:" + port + "/");
+        listener.Start();
+        url = "http://127.0.0.1:" + port + "/payload.bin";
+
+        var thread = new System.Threading.Thread(() =>
+        {
+            try
+            {
+                while (listener.IsListening)
+                {
+                    var ctx = listener.GetContext();
+                    ctx.Response.ContentLength64 = payload.Length;
+                    ctx.Response.OutputStream.Write(payload, 0, payload.Length);
+                    ctx.Response.Close();
+                }
+            }
+            catch { /* stopped */ }
+        }) { IsBackground = true };
+        thread.Start();
+        return new Stopper(listener);
+    }
+
+    private sealed class Stopper : IDisposable
+    {
+        private readonly System.Net.HttpListener _listener;
+        internal Stopper(System.Net.HttpListener l) { _listener = l; }
+        public void Dispose() { try { _listener.Stop(); _listener.Close(); } catch { } }
+    }
+
     private static string MakeDb()
     {
         var path = Path.Combine(Path.GetTempPath(), "vdgs-test-" + Guid.NewGuid().ToString("N") + ".db");
@@ -145,6 +258,7 @@ internal static class Harness
         File.Delete(db);
 
         ScanFindsTheGame();
+        CatalogIsReadAndChecked();
 
         Console.WriteLine(_fail == 0 ? "\nALL PASS" : "\n" + _fail + " FAILED");
         return _fail == 0 ? 0 : 1;

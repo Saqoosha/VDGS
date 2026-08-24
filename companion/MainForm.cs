@@ -31,7 +31,10 @@ namespace VDGSCompanion
         private string _game;
         private bool _ready;   // the page is up and can be posted to
         private string _busy;  // what is being done right now, or null
+        private int? _busyPercent;
         private readonly Settings _settings;
+        private List<Catalog.Entry> _catalog;
+        private string _catalogError;
 
         internal MainForm()
         {
@@ -155,10 +158,39 @@ namespace VDGSCompanion
                 unbound,
                 bundledMod = GameInstall.BundledModVersion(),
                 busy = _busy,
+                busyPercent = _busyPercent,
+                catalog = CatalogState(scenes),
                 ready = _game != null && missing.Count == 0,
                 running = GameInstall.IsRunning(),
                 launchArgs = GameInstall.LaunchArgs,
             });
+        }
+
+        /// <summary>
+        /// The published list, marked up with what is already here. "Installed" is decided
+        /// against the folder the entry says it installs as, not against its name - two
+        /// captures can be called the same thing and only the folder is the identity.
+        /// </summary>
+        private object CatalogState(List<GameInstall.SceneInfo> scenes)
+        {
+            if (_catalog == null && _catalogError == null) return null;
+
+            var entries = new List<object>();
+            foreach (var e in _catalog ?? new List<Catalog.Entry>())
+                entries.Add(new
+                {
+                    id = e.Id,
+                    name = e.Name,
+                    description = e.Description,
+                    author = e.Author,
+                    licence = e.Licence,
+                    splats = e.Splats,
+                    bytes = e.Bytes,
+                    installed = e.InstallAs != null && scenes.Exists(s =>
+                        string.Equals(s.Name, e.InstallAs, StringComparison.OrdinalIgnoreCase)),
+                });
+
+            return new { url = _settings.CatalogUrl ?? Catalog.DefaultUrl, error = _catalogError, entries };
         }
 
         /// <summary>
@@ -244,6 +276,7 @@ namespace VDGSCompanion
                 BeginInvoke((Action)(() =>
                 {
                     _busy = null;
+                    _busyPercent = null;
                     Push();
                     if (error != null)
                         MessageBox.Show(this, error, "VDGS",
@@ -256,11 +289,15 @@ namespace VDGSCompanion
 
         private void Dispatch(string messageJson)
         {
-            string cmd;
+            string cmd, id = null;
             try
             {
                 using (var doc = JsonDocument.Parse(messageJson))
+                {
                     cmd = doc.RootElement.TryGetProperty("cmd", out var v) ? v.GetString() : null;
+                    if (doc.RootElement.TryGetProperty("id", out var i) &&
+                        i.ValueKind == JsonValueKind.String) id = i.GetString();
+                }
             }
             catch { return; }
 
@@ -271,6 +308,8 @@ namespace VDGSCompanion
                 case "installMod": InstallMod(); break;
                 case "installCapture": InstallZip("Capture archive|vdgs-scene-*.zip|Zip archives|*.zip"); break;
                 case "uninstallMod": UninstallMod(); break;
+                case "refreshCatalog": RefreshCatalog(); break;
+                case "get": GetFromCatalog(id); break;
                 case "addTrack": AddTrack(); break;
                 case "fly": Launch(); break;
             }
@@ -297,6 +336,113 @@ namespace VDGSCompanion
                     _settings.Save();
                 }));
             });
+        }
+
+        private void RefreshCatalog()
+        {
+            var url = _settings.CatalogUrl ?? Catalog.DefaultUrl;
+            RunBusy("fetching the catalog", log =>
+            {
+                List<Catalog.Entry> got = null;
+                string error = null;
+                try
+                {
+                    got = Catalog.Fetch(url);
+                    log("catalog: " + got.Count + " capture(s)");
+                }
+                catch (Exception ex)
+                {
+                    // Nothing published yet is the common case, and it is not a failure
+                    // worth a dialog - the page says so where the list would be.
+                    error = "could not read " + url + " - " + ex.Message;
+                    log(error);
+                }
+                BeginInvoke((Action)(() => { _catalog = got; _catalogError = error; }));
+            });
+        }
+
+        /// <summary>
+        /// Downloads one entry and puts it where the mod will find it: the capture over the
+        /// game folder, the track into the database, and the two bound together.
+        ///
+        /// All three, or it is not usable. A capture with no track is never reached in the
+        /// game, and a track with no binding shows nothing when flown.
+        /// </summary>
+        private void GetFromCatalog(string id)
+        {
+            if (_game == null || id == null || _catalog == null) return;
+            var entry = _catalog.Find(e => e.Id == id);
+            if (entry == null) return;
+            var game = _game;
+
+            RunBusy("downloading " + entry.Name, log =>
+            {
+                var temp = Path.Combine(Path.GetTempPath(), "vdgs-download");
+                var zip = Catalog.Download(entry.Scene, temp, p => Percent(p));
+                try
+                {
+                    Percent(null);
+                    SetBusy("installing " + entry.Name);
+                    GameInstall.InstallArchive(game, zip, log);
+                }
+                finally
+                {
+                    try { File.Delete(zip); } catch { }
+                }
+
+                if (entry.Track == null)
+                {
+                    log("no track published for this capture - bind it yourself once flying");
+                    return;
+                }
+
+                var trackFile = Catalog.Download(entry.Track, temp, p => Percent(p));
+                try
+                {
+                    Percent(null);
+                    var t = Json.ParseTrackFile(File.ReadAllText(trackFile));
+                    var db = TrackStore.DatabasePath();
+                    if (!File.Exists(db))
+                        throw new FileNotFoundException(
+                            "VelociDrone's database is not there yet - run the game once.", db);
+
+                    string backup;
+                    switch (TrackStore.Import(db, t.Name, t.SceneId, t.Type, t.Value, out backup))
+                    {
+                        case TrackStore.ImportResult.Added:
+                            log("added track \"" + t.Name + "\" (backup: " +
+                                Path.GetFileName(backup) + ")");
+                            break;
+                        case TrackStore.ImportResult.AlreadyPresent:
+                            log("track \"" + t.Name + "\" is already there, unchanged");
+                            break;
+                        case TrackStore.ImportResult.WouldOverwrite:
+                            log("a different track is already called \"" + t.Name +
+                                "\" - left alone, so yours is not replaced");
+                            return;
+                    }
+
+                    if (entry.InstallAs != null)
+                    {
+                        GameInstall.Bind(game, t.Name, entry.InstallAs);
+                        log("bound \"" + t.Name + "\" to " + entry.InstallAs);
+                    }
+                }
+                finally
+                {
+                    try { File.Delete(trackFile); } catch { }
+                }
+            });
+        }
+
+        private void SetBusy(string what)
+        {
+            BeginInvoke((Action)(() => { _busy = what; Push(); }));
+        }
+
+        private void Percent(int? p)
+        {
+            BeginInvoke((Action)(() => { _busyPercent = p; Push(); }));
         }
 
         private void PickGame()

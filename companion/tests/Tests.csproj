@@ -14,6 +14,7 @@
     <Compile Include="../TrackStore.cs" />
     <Compile Include="../Json.cs" />
     <Compile Include="../GameInstall.cs" />
+    <Compile Include="../Catalog.cs" />
   </ItemGroup>
   <ItemGroup>
     <!-- GameInstall unpacks release archives; the framework's zip support is not in the
