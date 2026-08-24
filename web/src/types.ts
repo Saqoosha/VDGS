@@ -44,6 +44,8 @@ export type TrackEntry = {
   bytes?: number
   collision: boolean
   captureInstalled: boolean
+  /** false: a .ply the plugin parses at load time rather than a converted directory. */
+  converted: boolean
   inGame: boolean
 }
 

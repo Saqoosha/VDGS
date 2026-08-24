@@ -175,6 +175,7 @@ namespace VDGSCompanion
                 long splats = 0, bytes = 0;
                 var collision = kv.Value.Count > 0;
                 var installed = kv.Value.Count > 0;
+                var converted = true;
 
                 foreach (var name in kv.Value)
                 {
@@ -186,6 +187,7 @@ namespace VDGSCompanion
                     bytes += info.Bytes;
                     // One capture without a mesh is enough to fall through the floor.
                     collision &= info.Collision;
+                    converted &= info.Converted;
                 }
 
                 tracks.Add(new
@@ -196,6 +198,7 @@ namespace VDGSCompanion
                     bytes,
                     collision,
                     captureInstalled = installed,
+                    converted,
                     inGame = inGame == null || inGame.Contains(kv.Key),
                 });
             }

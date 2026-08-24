@@ -145,6 +145,10 @@ function TrackRow({ index, entry }: { index: string; entry: TrackEntry }) {
             {entry.capture}
             <span className="mx-2 text-rule">/</span>
             {entry.splats ? entry.splats.toLocaleString() : '—'} splats
+            <span className="mx-2 text-rule">/</span>
+            {/* A .ply is read and converted every time the capture is shown, which is
+                seconds of stutter a converted directory does not cost. */}
+            {entry.converted ? 'converted' : 'ply'}
             {formatBytes(entry.bytes) ? (
               <>
                 <span className="mx-2 text-rule">/</span>

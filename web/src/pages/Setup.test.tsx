@@ -13,6 +13,7 @@ function track(over: Partial<TrackEntry> = {}): TrackEntry {
     bytes: 128_800_000,
     collision: true,
     captureInstalled: true,
+    converted: true,
     inGame: true,
     ...over,
   }

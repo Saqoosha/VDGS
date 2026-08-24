@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Text;
 
 namespace VDGSCompanion
 {
@@ -56,11 +57,7 @@ namespace VDGSCompanion
 
         internal static IEnumerable<string> InstalledScenes(string game)
         {
-            var vdgs = Path.Combine(game, "vdgs");
-            if (!Directory.Exists(vdgs)) yield break;
-            foreach (var d in Directory.GetDirectories(vdgs))
-                if (File.Exists(Path.Combine(d, "meta.json")))
-                    yield return Path.GetFileName(d);
+            foreach (var s in SceneDetails(game)) yield return s.Name;
         }
 
         internal sealed class SceneInfo
@@ -69,23 +66,86 @@ namespace VDGSCompanion
             public long Splats;
             public bool Collision;   // without this the capture is flown straight through
             public long Bytes;
+            public bool Converted;   // false: a .ply the plugin parses at load time
         }
 
+        /// <summary>
+        /// Every capture the plugin will find, in both the shapes it accepts: a converted
+        /// directory holding meta.json, and a bare .ply dropped straight into vdgs/.
+        ///
+        /// A directory beats a .ply of the same name - which is the plugin's own rule, and
+        /// listing both would report one capture twice.
+        /// </summary>
         internal static List<SceneInfo> SceneDetails(string game)
         {
             var found = new List<SceneInfo>();
-            foreach (var name in InstalledScenes(game))
+            var vdgs = Path.Combine(game, "vdgs");
+            if (!Directory.Exists(vdgs)) return found;
+
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var dir in Directory.GetDirectories(vdgs))
             {
-                var dir = Path.Combine(game, "vdgs", name);
+                if (!File.Exists(Path.Combine(dir, "meta.json"))) continue;
+                var name = Path.GetFileName(dir);
+                seen.Add(name);
                 found.Add(new SceneInfo
                 {
                     Name = name,
                     Splats = Json.SplatCount(Path.Combine(dir, "meta.json")),
                     Collision = File.Exists(Path.Combine(dir, "collision.bin")),
                     Bytes = DirectorySize(dir),
+                    Converted = true,
                 });
             }
+
+            foreach (var ply in Directory.GetFiles(vdgs, "*.ply"))
+            {
+                var name = Path.GetFileNameWithoutExtension(ply);
+                if (!seen.Add(name)) continue;
+                // The collision mesh and placement sit beside a .ply rather than inside it.
+                var beside = Path.Combine(vdgs, name);
+                long bytes = 0;
+                foreach (var ext in new[] { ".ply", ".collision.bin", ".placement.json" })
+                    if (File.Exists(beside + ext)) bytes += new FileInfo(beside + ext).Length;
+                found.Add(new SceneInfo
+                {
+                    Name = name,
+                    Splats = PlyVertexCount(ply),
+                    Collision = File.Exists(beside + ".collision.bin"),
+                    Bytes = bytes,
+                    Converted = false,
+                });
+            }
+
+            found.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
             return found;
+        }
+
+        /// <summary>
+        /// The splat count out of a .ply header. Only the header is read - these files run
+        /// to hundreds of megabytes, and the number is on the second or third line.
+        /// </summary>
+        private static long PlyVertexCount(string path)
+        {
+            try
+            {
+                using (var fs = File.OpenRead(path))
+                using (var r = new StreamReader(fs, Encoding.ASCII))
+                {
+                    string line;
+                    while ((line = r.ReadLine()) != null)
+                    {
+                        if (line.StartsWith("end_header", StringComparison.Ordinal)) break;
+                        if (!line.StartsWith("element vertex ", StringComparison.Ordinal)) continue;
+                        long n;
+                        if (long.TryParse(line.Substring("element vertex ".Length).Trim(), out n))
+                            return n;
+                    }
+                }
+            }
+            catch { }
+            return 0;
         }
 
         /// <summary>

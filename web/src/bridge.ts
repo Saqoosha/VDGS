@@ -67,6 +67,7 @@ const devState: SetupState = {
       bytes: 128_800_000,
       collision: true,
       captureInstalled: true,
+      converted: true,
       inGame: true,
     },
     {
@@ -76,6 +77,7 @@ const devState: SetupState = {
       bytes: 156_500_000,
       collision: true,
       captureInstalled: true,
+      converted: true,
       inGame: true,
     },
     {
@@ -84,6 +86,7 @@ const devState: SetupState = {
       splats: 0,
       collision: false,
       captureInstalled: false,
+      converted: false,
       inGame: true,
     },
   ],
