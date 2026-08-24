@@ -127,6 +127,17 @@ internal static class Harness
                       new Catalog.File_ { Url = url, Bytes = payload.Length }, dir, null)),
                   "refuses to download a file the catalog gives no digest for");
         }
+
+        // Fetch is the whole path a published list takes to get here, and the pieces are
+        // only ever tested apart otherwise.
+        var catalogJson = System.Text.Encoding.UTF8.GetBytes(good);
+        string catUrl;
+        using (Serve(catalogJson, out catUrl))
+        {
+            var fetched = Catalog.Fetch(catUrl);
+            Check(fetched.Count == 1 && fetched[0].Name == "FDF",
+                  "fetches and reads a catalog off a server");
+        }
         Directory.Delete(dir, recursive: true);
     }
 
@@ -136,9 +147,13 @@ internal static class Harness
     }
 
     /// <summary>A one-shot loopback server, so the download path is exercised for real.</summary>
+    private static int _nextPort = 8971;
+
     private static IDisposable Serve(byte[] payload, out string url)
     {
-        var port = 8971;
+        // A fresh port each time: a listener that has just been stopped can hold the old
+        // one long enough for the next test to fail for a reason that is not the test's.
+        var port = _nextPort++;
         var listener = new System.Net.HttpListener();
         listener.Prefixes.Add("http://127.0.0.1:" + port + "/");
         listener.Start();
