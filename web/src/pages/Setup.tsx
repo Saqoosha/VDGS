@@ -47,8 +47,21 @@ export default function Setup({
           >
             {modAction(state)}
           </Button>
-          {state ? <Verdict state={state} /> : null}
+          <Button
+            variant="destructive"
+            disabled={!game || busy || !state?.mod}
+            onClick={() => send('uninstallMod')}
+          >
+            Uninstall
+          </Button>
         </div>
+        {/* Under the buttons, not beside them: it is the result of pressing one, and
+            three buttons and a sentence do not share a line on a narrow window. */}
+        {state ? (
+          <div className="mt-3">
+            <Verdict state={state} />
+          </div>
+        ) : null}
       </Section>
 
       <Section n="02" label="tracks" className="flex min-h-0 flex-1 flex-col">

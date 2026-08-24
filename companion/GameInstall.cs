@@ -272,6 +272,45 @@ namespace VDGSCompanion
         }
 
         /// <summary>
+        /// Removes what the mod installed, and only that.
+        ///
+        /// Captures stay: they are gigabytes, they were downloaded or built by hand, and
+        /// nothing about turning the mod off says they are unwanted. bindings.json and the
+        /// placements stay for the same reason - reinstalling should land where it left.
+        /// BepInEx stays because it is not ours and other mods may use it.
+        /// </summary>
+        internal static void UninstallMod(string game, Action<string> log)
+        {
+            if (IsRunning())
+                throw new InvalidOperationException(
+                    "VelociDrone is running. Close it first - files in use cannot be removed.");
+
+            var removed = 0;
+            foreach (var rel in new[]
+                     {
+                         Path.Combine("BepInEx", "plugins", "VDGS.dll"),
+                         Path.Combine("vdgs", "vdgs-shaders"),
+                     })
+            {
+                var path = Path.Combine(game, rel);
+                if (!File.Exists(path)) continue;
+                File.Delete(path);
+                log("removed " + rel);
+                removed++;
+            }
+
+            var ui = Path.Combine(game, "vdgs", "ui");
+            if (Directory.Exists(ui))
+            {
+                Directory.Delete(ui, recursive: true);
+                log("removed vdgs/ui");
+                removed++;
+            }
+
+            log(removed == 0 ? "nothing to remove" : "the mod is off; captures kept");
+        }
+
+        /// <summary>
         /// Binds a track name to a capture in vdgs/bindings.json, merging rather than
         /// replacing: the file is a map of every track the player has set up.
         /// </summary>

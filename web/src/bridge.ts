@@ -28,6 +28,7 @@ export type Command =
   | 'refresh'
   | 'pick'
   | 'installMod'
+  | 'uninstallMod'
   | 'installCapture'
   | 'addTrack'
   | 'fly'

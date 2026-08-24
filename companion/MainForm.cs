@@ -227,6 +227,7 @@ namespace VDGSCompanion
                 case "pick": PickGame(); break;
                 case "installMod": InstallMod(); break;
                 case "installCapture": InstallZip("Capture archive|vdgs-scene-*.zip|Zip archives|*.zip"); break;
+                case "uninstallMod": UninstallMod(); break;
                 case "addTrack": AddTrack(); break;
                 case "fly": Launch(); break;
             }
@@ -254,6 +255,30 @@ namespace VDGSCompanion
             try
             {
                 GameInstall.InstallBundledMod(_game, Log);
+                Push();
+            }
+            catch (Exception ex)
+            {
+                Log("failed: " + ex.Message);
+                MessageBox.Show(this, ex.Message, "VDGS", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void UninstallMod()
+        {
+            if (_game == null) return;
+            // The captures are the expensive part and none of them are touched, so the
+            // question is worth asking once rather than leaving someone to wonder.
+            var answer = MessageBox.Show(this,
+                "Remove the mod from this VelociDrone?\n\n" +
+                "The plugin, the shader bundle and the interface go. Your captures, " +
+                "placements and track bindings all stay, and BepInEx is left alone.",
+                "VDGS", MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
+            if (answer != DialogResult.OK) return;
+
+            try
+            {
+                GameInstall.UninstallMod(_game, Log);
                 Push();
             }
             catch (Exception ex)

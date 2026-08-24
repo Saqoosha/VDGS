@@ -104,6 +104,11 @@ describe('Setup', () => {
     expect(screen.getByRole('button', { name: /update to 0\.2\.0\.0/i })).toBeInTheDocument()
   })
 
+  it('will not offer to uninstall a mod that is not there', () => {
+    render(<Setup state={state({ mod: null })} log={[]} />)
+    expect(screen.getByRole('button', { name: /uninstall/i })).toBeDisabled()
+  })
+
   it('does not offer to install a mod it is not carrying', () => {
     render(<Setup state={state({ bundledMod: null })} log={[]} />)
     expect(screen.getByRole('button', { name: /no mod payload/i })).toBeDisabled()
