@@ -4,6 +4,7 @@ using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Threading;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
@@ -29,6 +30,7 @@ namespace VDGSCompanion
             new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
         private string _game;
         private bool _ready;   // the page is up and can be posted to
+        private string _busy;  // what is being done right now, or null
 
         internal MainForm()
         {
@@ -108,6 +110,9 @@ namespace VDGSCompanion
 
         private void Post(object payload)
         {
+            // Work runs off the UI thread so the window keeps drawing; the WebView may
+            // only be touched from the thread that owns it.
+            if (InvokeRequired) { BeginInvoke((Action)(() => Post(payload))); return; }
             if (_ready) _web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(payload, _json));
         }
 
@@ -143,6 +148,7 @@ namespace VDGSCompanion
                 tracks,
                 unbound,
                 bundledMod = GameInstall.BundledModVersion(),
+                busy = _busy,
                 ready = _game != null && missing.Count == 0,
                 running = GameInstall.IsRunning(),
                 launchArgs = GameInstall.LaunchArgs,
@@ -209,6 +215,37 @@ namespace VDGSCompanion
                     unbound.Add(new { name = s.Name, splats = s.Splats, collision = s.Collision, bytes = s.Bytes });
         }
 
+        /// <summary>
+        /// Runs one job off the UI thread, with the page told what is happening.
+        ///
+        /// Installing copies forty-odd files past a virus scanner and removing deletes
+        /// them again; either takes seconds on a real machine. Doing that on the UI thread
+        /// froze the window and swallowed the log until it was over, so the only thing a
+        /// person could tell was that nothing had happened yet.
+        /// </summary>
+        private void RunBusy(string what, Action<Action<string>> job)
+        {
+            if (_busy != null) return;
+            _busy = what;
+            Push();
+
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                string error = null;
+                try { job(Log); }
+                catch (Exception ex) { error = ex.Message; Log("failed: " + ex.Message); }
+
+                BeginInvoke((Action)(() =>
+                {
+                    _busy = null;
+                    Push();
+                    if (error != null)
+                        MessageBox.Show(this, error, "VDGS",
+                                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }));
+            });
+        }
+
         // ------------------------------------------------------------------ page -> host
 
         private void Dispatch(string messageJson)
@@ -252,16 +289,8 @@ namespace VDGSCompanion
         private void InstallMod()
         {
             if (_game == null) return;
-            try
-            {
-                GameInstall.InstallBundledMod(_game, Log);
-                Push();
-            }
-            catch (Exception ex)
-            {
-                Log("failed: " + ex.Message);
-                MessageBox.Show(this, ex.Message, "VDGS", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
+            var game = _game;
+            RunBusy("installing the mod", log => GameInstall.InstallBundledMod(game, log));
         }
 
         private void UninstallMod()
@@ -276,16 +305,8 @@ namespace VDGSCompanion
                 "VDGS", MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
             if (answer != DialogResult.OK) return;
 
-            try
-            {
-                GameInstall.UninstallMod(_game, Log);
-                Push();
-            }
-            catch (Exception ex)
-            {
-                Log("failed: " + ex.Message);
-                MessageBox.Show(this, ex.Message, "VDGS", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
+            var game = _game;
+            RunBusy("removing the mod", log => GameInstall.UninstallMod(game, log));
         }
 
         private void InstallZip(string filter)
@@ -294,16 +315,12 @@ namespace VDGSCompanion
             using (var d = new OpenFileDialog { Filter = filter })
             {
                 if (d.ShowDialog(this) != DialogResult.OK) return;
-                try
-                {
-                    GameInstall.InstallArchive(_game, d.FileName, Log);
-                    Push();
-                }
-                catch (Exception ex)
-                {
-                    Log("failed: " + ex.Message);
-                    MessageBox.Show(this, ex.Message, "VDGS", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
+                // A capture archive is hundreds of megabytes; this is the slowest thing
+                // the window does.
+                var game = _game;
+                var zip = d.FileName;
+                RunBusy("installing " + Path.GetFileName(zip),
+                        log => GameInstall.InstallArchive(game, zip, log));
             }
         }
 

@@ -18,7 +18,9 @@ export default function Setup({
   state: SetupState | null
   log: string[]
 }) {
-  const busy = state?.running ?? false
+  // Nothing may be started while the game holds the files, or while the last job is
+  // still copying.
+  const busy = (state?.running ?? false) || !!state?.busy
   const game = state?.game ?? null
   const tracks = state?.tracks ?? []
   const unbound = state?.unbound ?? []
@@ -59,7 +61,14 @@ export default function Setup({
             three buttons and a sentence do not share a line on a narrow window. */}
         {state ? (
           <div className="mt-3">
-            <Verdict state={state} />
+            {state.busy ? (
+              <span className="font-mono text-[11px] tracking-[0.14em] text-signal uppercase">
+                <span className="mr-2 animate-pulse">◐</span>
+                {state.busy}…
+              </span>
+            ) : (
+              <Verdict state={state} />
+            )}
           </div>
         ) : null}
       </Section>
@@ -102,7 +111,7 @@ export default function Setup({
           <Button variant="outline" disabled={!game || busy} onClick={() => send('installCapture')}>
             Install capture
           </Button>
-          {busy ? (
+          {state?.running ? (
             <span className="self-center font-mono text-[11px] tracking-[0.14em] text-muted-foreground uppercase">
               close velocidrone first
             </span>

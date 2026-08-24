@@ -38,9 +38,15 @@ export default function CompanionApp() {
           eyebrow="companion · setup"
           meta="gaussian splat / velocidrone"
           status={
-            <span className={state?.ready ? 'text-live' : 'text-muted-foreground'}>
-              {state?.ready ? '● ready' : '○ setup'}
-            </span>
+            // While something is running this is the one place a person is already
+            // looking, so it says what rather than staying on the old verdict.
+            state?.busy ? (
+              <span className="animate-pulse text-signal">◐ working</span>
+            ) : (
+              <span className={state?.ready ? 'text-live' : 'text-muted-foreground'}>
+                {state?.ready ? '● ready' : '○ setup'}
+              </span>
+            )
           }
         />
         <Setup state={state} log={log} />

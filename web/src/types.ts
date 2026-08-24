@@ -58,6 +58,8 @@ export type SetupState = {
   missing: string[]
   ready: boolean
   running: boolean
+  /** What the app is doing right now, or null. Installing takes seconds, not an instant. */
+  busy: string | null
   launchArgs: string
   tracks: TrackEntry[]
   /** Installed captures no track points at - otherwise they are invisible here. */

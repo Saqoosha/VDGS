@@ -27,6 +27,7 @@ function state(over: Partial<SetupState> = {}): SetupState {
     missing: [],
     ready: true,
     running: false,
+    busy: null,
     launchArgs: '-force-d3d12',
     tracks: [],
     unbound: [],
@@ -102,6 +103,15 @@ describe('Setup', () => {
 
     rerender(<Setup state={state({ bundledMod: '0.2.0.0' })} log={[]} />)
     expect(screen.getByRole('button', { name: /update to 0\.2\.0\.0/i })).toBeInTheDocument()
+  })
+
+  it('says what it is doing, and starts nothing else meanwhile', () => {
+    // Installing copies forty-odd files past a virus scanner. Without this the window
+    // looks like the click did nothing.
+    render(<Setup state={state({ busy: 'installing the mod' })} log={[]} />)
+    expect(screen.getByText(/installing the mod/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^fly$/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /reinstall mod/i })).toBeDisabled()
   })
 
   it('will not offer to uninstall a mod that is not there', () => {

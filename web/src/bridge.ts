@@ -60,6 +60,7 @@ const devState: SetupState = {
   missing: [],
   ready: true,
   running: false,
+  busy: null,
   launchArgs: '-force-d3d12',
   tracks: [
     {
