@@ -14,6 +14,9 @@ type Push =
   // Progress on its own: rebuilding the whole state a hundred times during a download
   // would mean walking every capture on disk for each percent.
   | { type: 'progress'; percent: number | null }
+  // The word before the work: building a whole state means walking the disk, and the
+  // button should not look dead while that happens.
+  | { type: 'busy'; what: string | null }
 
 type WebViewHost = {
   postMessage: (message: unknown) => void

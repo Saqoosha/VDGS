@@ -62,6 +62,8 @@ export type SetupState = {
   busy: string | null
   /** How far through, when that is knowable. */
   busyPercent: number | null
+  /** How long the host took to gather this. Shown only when it is slow enough to matter. */
+  stateMs?: number
   launchArgs: string
   tracks: TrackEntry[]
   catalog: CatalogState | null

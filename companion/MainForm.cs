@@ -143,6 +143,11 @@ namespace VDGSCompanion
 
         private void Push()
         {
+            // Measured rather than assumed: this walk is the reason the busy message goes
+            // out on its own, and if it ever grows past a moment that is worth knowing
+            // from a real machine rather than from a guess.
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+
             var missing = new List<string>();
             var scenes = new List<GameInstall.SceneInfo>();
             var tracks = new List<object>();
@@ -173,6 +178,7 @@ namespace VDGSCompanion
                 busy = _busy,
                 busyPercent = _busyPercent,
                 catalog = CatalogState(scenes),
+                stateMs = (int)clock.ElapsedMilliseconds,
                 ready = _game != null && missing.Count == 0,
                 running = GameInstall.IsRunning(),
                 launchArgs = GameInstall.LaunchArgs,
@@ -277,8 +283,7 @@ namespace VDGSCompanion
         private void RunBusy(string what, Action<Action<string>> job)
         {
             if (_busy != null) return;
-            _busy = what;
-            Push();
+            SetBusy(what);
 
             ThreadPool.QueueUserWorkItem(_ =>
             {
@@ -448,9 +453,18 @@ namespace VDGSCompanion
             });
         }
 
+        /// <summary>
+        /// Says what is happening, and nothing else.
+        ///
+        /// This used to push a whole fresh state, which means walking every capture on
+        /// disk before the word "installing" could reach the page - so the button looked
+        /// dead for the couple of seconds that walk takes. Now the news goes first and the
+        /// state catches up at the end.
+        /// </summary>
         private void SetBusy(string what)
         {
-            OnUi(() => { _busy = what; Push(); });
+            _busy = what;
+            Post(new { type = "busy", what });
         }
 
         /// <summary>
