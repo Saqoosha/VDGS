@@ -3,18 +3,11 @@
 VelociDrone に 3D Gaussian Splatting シーンを読み込む mod。BepInEx プラグインとして
 コードを注入し、実行時に splat データをレンダリングする。
 
-## 状態：実データで動作確認済み（2026-08-17）
+## 状態
 
-| シーン | splats | 確認内容 |
-|---|---|---|
-| testcube（合成） | 640 | 軸・色・スケール・深度、すべて設計通り |
-| luigi（実データ） | 14,526 | 変換・描画 OK |
-| bonsai（実データ） | **1,157,141** | 屋内シーンが実写の質感で描画 |
-
-3つ同時（計 117 万 splats）を RTX 3060 で描画してクラッシュなし。ドローン機体との
-前後関係（深度）も半透明ブレンドも破綻していない。
-
-スクリーンショット: `build/shots/first.png`（テストキューブ）、`build/shots/real.png`（実データ）。
+**実データで動作確認済み。** 3 シーン同時（計 117 万 splats）を RTX 3060 で描画してクラッシュ
+なし。ドローン機体との前後関係も半透明ブレンドも破綻しない。配布まで通っていて、まっさらな
+Windows から 4 クリックで飛べる（「配布は companion アプリ」）。
 
 ```
 shader 'Gaussian Splatting/Render Splats'  supported=True
@@ -22,7 +15,7 @@ compute 'SplatUtilities'                   supported=True
 => shaders READY
 ```
 
-### 実測パフォーマンス（詳細は docs/performance.ja.md）
+### 性能の要点（数字と導出は docs/performance.ja.md）
 
 **フレームの 87% は splat ごとの固定コスト。** 射影・2D 共分散・SH 評価が splat 1 つに
 つき 1 スレッド走る。帯域は 7%、ソートは 6%、画素の仕事は 6%。**「バイト/splat を減らせば
@@ -34,29 +27,14 @@ compute 'SplatUtilities'                   supported=True
 - **視錐台カリング**（`m_FrustumCulling`、既定 on）— 内部視点で 10.7% 減、ピクセル完全一致
 - **Float32 を避ける**。実機で `26.83 ms / 37.3 fps` → `17.30 ms / 57.8 fps`
 
-RTX 3060 / D3D12 のシーン別フレーム時間と内訳は docs/performance.ja.md
-（`bash tools/bench-win.sh` で再測できる）。
-
-**`Medium` 以下は使わない。** drjohnson が 2.6 倍暗くなる（平均差 58.83/255、形は
-IoU 0.9958 で正しい）。原因は未解明。`PlyExporter` の既定は `High`、Medium 以下は警告を出す。
-
-#### High と Cluster16k はサイズで選ぶ
-
-**速度も見た目も差が無い。** ベンチの 0.20 ms 差は実機のノイズ床の下（1 シーン内の
-ばらつきが 6.4 ms あり、決着には 2.2 時間の飛行が 2 回要る）。同一カメラで引き算しても
-最悪の 1 画素で 5/255、8/255 超はゼロ。**残る判断軸はサイズだけ** — Cluster16k は 44%
-小さいが k-means が約 10 分かかり、`.ply` 直読みでは作れない。`reprocess.sh` の既定は
-摩擦の少ない `High`。数字と導出は docs/performance.ja.md。
-
-#### ログの読み方
-
-`<game>/vdgs-perf.log` に 5 秒ごとに `time / fps / avg_ms / worst_ms / splats / scenes`
-が**追記**される（起動をまたいで残る）。**飛んで、あとで読むだけ。**
-読むときの罠 — splat 数はシーンを特定しない（`--- shown:` を見る）、上限に張り付いた値は
-「速い」ではなく「測れていない」 — は docs/performance.ja.md。
+**品質は `High` を使う。** `Medium` 以下は drjohnson が 2.6 倍暗くなる（原因は未解明。
+`PlyExporter` の既定は `High`、Medium 以下は警告を出す）。`Cluster16k` は 44% 小さいが
+**速度も見た目も差が無く**、k-means に約 10 分かかり `.ply` 直読みでは作れないので、
+`reprocess.sh` の既定は摩擦の少ない `High`。
 
 **測定は必ず実機で。** 同じ比較が M1 Max で 6.5%、RTX 3060 で 48%。ユニファイドメモリが
-帯域を隠す。ベンチは切り分け用で、判断は実機の値で下す。
+帯域を隠す。ベンチは切り分け用で、判断は実機の値で下す。`<game>/vdgs-perf.log` に 5 秒ごと
+追記されるので**飛んで、あとで読むだけ**（読むときの罠は docs/performance.ja.md）。
 
 スポーン直後の 1 フレームだけ止まる（`GraphicsBuffer.SetData` で数十 MB をアップロード
 するため）。飛行中に切り替えると必ずスタッターになるので、**飛ぶ前に表示させておく**。
@@ -92,11 +70,10 @@ BepInEx 5.4.23.5 (win_x64) をゲームフォルダに展開。Doorstop 4 が `w
 
 **注入は動作確認済み**（`BepInEx/cache/` と `BepInEx/config/` が起動のたびに更新される）。
 
-BepInEx 5.4.23 は **ディスクログがデフォルト無効**。`BepInEx/config/BepInEx.cfg` に
-`[Logging.Disk]` セクションを手で足すと `BepInEx/LogOutput.log` が出るようになる
-（`Enabled = true`, `WriteUnityLog = true`）。Chainloader が一度も走っていない状態では
-そのセクション自体が生成されないので、**セクションの不在は「まだ Chainloader に到達していない」
-という診断情報になる**。
+BepInEx 5.4.23 は **ディスクログがデフォルト無効**で、`BepInEx.cfg` はゲームを一度動かすまで
+生成されない。**セクションの不在は「まだ Chainloader に到達していない」という診断情報になる。**
+companion が導入時に `[Logging.Disk] Enabled = true` と `UnityLogListening = false` を書くので
+（既存の `.cfg` には触らない）、手で足す必要はもう無い。後者の理由は「副作用 1」。
 
 プラグインは自前で `<game>/vdgs-probe.log` にも書く。
 
@@ -177,21 +154,15 @@ VDGS_BENCH_INSIDE=1 VDGS_BENCH_CULL=0 bash tools/bench-win.sh   # カリング�
 
 #### 起動スクリプトは既定でゲームを残す。`-Diagnose` を付けると殺す
 
-`bash tools/launch-win.sh` が `tools/launch-win.ps1` を Windows 機に送って走らせる。**毎回送る
-のが要点** — 以前は向こうに手で置いた版とリポジトリの版が別々に育ち、片方にしかない処理が
-あった。
+`bash tools/launch-win.sh` が `tools/launch-win.ps1` を**毎回送ってから**走らせる — 以前は
+向こうに手で置いた版とリポジトリの版が別々に育ち、片方にしかない処理があった。
 
-`-Diagnose` を付けたときだけ、ログを整形して出したうえでゲームを止める。**この末尾は元々
-無条件に走っていて、「起動して 40 秒ほどで静かに落ちるゲーム」にしか見えなかった**：
-
-- `Stop-Process -Force` はプロセスを即座に終わらせるので、**クラッシュダンプも Windows の
-  イベントログも残らず、Player.log は行の途中で切れる**
-- タイミングは固定の `Start-Sleep` なので毎回ほぼ同じ ≒ 本物のバグに見える
-- 出力を `grep pid` で絞っていると `=== stopping ===` が視界に入らない
-
-これを「起動直後に Web API を叩くとクラッシュする」と誤診し、長い回り道をした。実際は
-API と無関係（45 秒連続ポーリングで無傷）。ゲームが理由もなく死んだら、まず
-**自分が起動に使ったスクリプトの最後まで読む**こと。
+`-Diagnose` のときだけログを整形して出し、ゲームを止める。**この末尾は元々無条件に走って
+いて、「起動して 40 秒ほどで静かに落ちるゲーム」にしか見えなかった** — `Stop-Process -Force`
+はダンプもイベントログも残さず `Player.log` を行の途中で切り、固定 `Start-Sleep` なので
+タイミングまで毎回同じで、本物のバグに見える。これを「起動直後に Web API を叩くと
+クラッシュする」と誤診した（実際は無関係。45 秒連続ポーリングで無傷）。
+**ゲームが理由もなく死んだら、まず自分が起動に使ったスクリプトの最後まで読む。**
 
 ## バックアップ
 
@@ -284,14 +255,12 @@ Y オフセットで持ち上げても直らない（位置の問題ではない
 - **巨大 splat はサイズで切る**（`--max-sigma 5`）。位置でも連結性でもない —
   extent 1.8 個分の幅がある splat は定義上すべてに接続している。utlida では 178 個
   （0.004%）が描画面積の 60% を占めていた
-- **`splat-transform` は読み込み時に Z 軸 180 度回転を掛ける** — ドキュメント通りで、
-  `(x, y, z)` が `(-x, -y, z)`。`--mirror y` の `(x, -y, z)` とは **X の符号だけ違う**。
-  そこから出たメッシュをそのまま Unity に置くとキャプチャの鏡像を包む。X を反転し、
-  巻き順も 3 個ずつ逆順にすること（行列式 -1 で全面が内向きになるため）。
-  **ここは一度「実際は Y 反転だけ」と逆に書かれていた** — `.voxel.json` のヘッダを
-  `.collision.glb` の頂点と同じ座標系だと思って測っていた。決着は AABB 残差の比較
-  （Z rot 180 が 0.12、Y flip が 1.06、8.9 倍差）。**同じデータの IoU は 0.203 対 0.193 で
-  決着しない**ので、向きの判定に IoU は使わない
+- **`splat-transform` は読み込み時に Z 軸 180 度回転を掛ける** — `(x, y, z)` が
+  `(-x, -y, z)`。`--mirror y` の `(x, -y, z)` とは **X の符号だけ違う**。そこから出た
+  メッシュをそのまま Unity に置くとキャプチャの鏡像を包むので、X を反転し、巻き順も
+  3 個ずつ逆順にする（行列式 -1 で全面が内向きになるため）。**向きの判定に IoU は使わない**
+  — 同じデータで 0.203 対 0.193 にしかならず決着しない。決着したのは AABB 残差
+  （Z rot 180 が 0.12、Y flip が 1.06、8.9 倍差）
 
 ### 検証は目視でなく数値で（全文は docs/verification.ja.md）
 
@@ -376,15 +345,10 @@ upstream から**削った**もの：編集機能・selection・cutouts・URP/HD
 見た目は暗い場にガウシアンが漂う。カードは使わない。静的ファイルは
 `<game>/vdgs/ui/`。無いときは `WebUi.cs` が短い案内だけ出す。
 
-**ゲーム内キーでの操作は全部やめた。** 理由：
-
-- **F7 はトラックエディタのシーン保存**に割り当て済み
-- **矢印キーはトラックエディタのオブジェクト移動**。奪うとエディタが使えなくなる
-- **Numpad は MacBook に無い**
-- **ゲームには HUD を描く場所がない**ので、キーを押しても結果が見えない
-
-外に出すとこれが全部消える上に、別マシンのブラウザから操作できる
-（Parsec でゲーム画面を見ながら、手元の Mac で操作する運用）。
+**ゲーム内キーでの操作は全部やめた。** ゲームが F7 と矢印キーをトラックエディタで使って
+いて奪えず、Numpad は MacBook に無く、そもそも**押した結果を出す HUD がゲームに無い**。
+外に出すとこれが全部消える上に、**別マシンのブラウザから操作できる**（Parsec でゲーム画面を
+見ながら、手元の Mac で操作する運用）。
 
 ### トラック名の取得
 
@@ -466,29 +430,46 @@ F5・F6・F7・F8 は**使っていない**。操作は Web UI から。
 
 ## 配布は companion アプリ（`companion/`）
 
-**mod を配る道具。** BepInEx 以外は全部これで済む — mod の導入・削除、キャプチャの導入、
-トラックの DB 登録、`-force-d3d12` 付きの起動。.NET Framework 4.8 + WinForms、中身は
-**WebView2 で `web/` の React を描いている**（`companion.html`）。操作 UI と同じテーマ・
-同じコンポーネント・同じフォントで、**別製品に見せない**ため。
+**mod を配る道具で、人がやることは 4 クリックだけ。** BepInEx の取得、mod の導入・削除、
+キャプチャのダウンロードと導入、トラックの DB 登録と紐付け、`-force-d3d12` 付きの起動 —
+全部これで済む。.NET Framework 4.8 + WinForms、中身は **WebView2 で `web/` の React を
+描いている**（`companion.html`）。操作 UI と同じテーマ・同じコンポーネント・同じフォントで、
+**別製品に見せない**ため。
 
 ```
 companion/
   Program.cs      GUI 起動と CLI（--export-track / --check-catalog）
   MainForm.cs     WebView2 ホスト、postMessage のブリッジ、重い処理の別スレッド化
   GameInstall.cs  ゲーム発見・走査、mod の導入/削除、zip 展開、bindings 書き込み
+  BepInEx.cs      ローダーの取得（版と digest を固定）
   TrackStore.cs   user11.db の読み書き
   Catalog.cs      公開カタログの取得・検証・ダウンロード
   Settings.cs     ゲームパスとカタログ URL を %LOCALAPPDATA% に記憶
-  tests/          19+ の実データ寄りテスト（Mac で走る）
+  tests/          実データ寄りのテスト（Mac で走る）
 ```
 
 **mod はアプリの中に同梱する**（`mod/` フォルダ、`make-release.sh` が組んだ木をビルド時に
 コピー）。ボタンは自分の仕事を名乗る — `INSTALL MOD` / `REINSTALL MOD` /
 `UPDATE TO <版>` / `NO MOD PAYLOAD`。**押してみないと分からない、をやらせない**ため。
 
-**UNINSTALL はキャプチャを消さない。** 消すのは `VDGS.dll` / `vdgs-shaders` / `vdgs/ui` だけ。
+**BepInEx も自分で取ってくる**（無いときだけ）。同梱ではなく本家リリースから、URL・サイズ・
+sha256 を固定して。**「先に BepInEx を入れて」は全インストールの第 1 手で、いちばん間違えやすい手順だった。**
+1 階層深く展開すると、**ゲームは起動して、何も起きない**。
+
+**トラックは行ごと消せる**（各行にホバーで出る `REMOVE`）。消えるのは `user11.db` の行と
+`bindings.json` の項目だけで、**キャプチャは残る** — GB 単位で、消す理由が無い。
+**公式サーバー由来のトラックは削除しない**（ボタンは `UNBIND` になる）。作者のものであって、
+こちらが人の機械から消していいものではない。DB は削除前にコピーする（**ラップタイムは
+再取得不能**）。
+
+**UNINSTALL もキャプチャを消さない。** 消すのは `VDGS.dll` / `vdgs-shaders` / `vdgs/ui` だけ。
 キャプチャは GB 単位で再取得に数時間かかるし、`bindings.json` と `placement.json` を残せば
 **入れ直したとき元の場所に戻る**。BepInEx も残す（こちらのものではない）。
+
+**ゲームパスは `%LOCALAPPDATA%` に覚える。** 見つからなければ固定ディスクを走査する
+（深さ制限つき、`Windows` 等は飛ばす、ジャンクションは辿らない）。**PatchKit は
+インストール先をレジストリにも自前フォルダにも残さない**（`%LOCALAPPDATA%\PatchKit` は
+32 バイトの `sender_id` 1 個だけ）ので、走査か「自分で探して」しかない。
 
 ### 踏むと高い罠
 
@@ -498,31 +479,40 @@ companion/
 - **GUI サブシステムの exe は PowerShell が待たない。** `& $exe args` は即座に戻るので、
   出力もファイルも「無かった」ことになる。`Start-Process -Wait -PassThru`、
   かつ **`-ArgumentList` は空白を含む引数を勝手に引用しない**ので自分で `'"..."'` にする
+- **`Get-Process VDGS` は配列を返しうる。** 2 つ動いていると `AppActivate($p.Id)` が
+  `DISP_E_TYPEMISMATCH` で落ちる。`Select-Object -First 1` を挟む
 - **WebView2 ホストを殺しても `msedgewebview2.exe` がファイルを掴んだままの瞬間がある。**
   フォルダごと消してから展開する配備は、そこで 1 ファイルだけ失敗して**半分だけ新しい木**
-  になる。リトライを入れる（`tools/appshot-win.ps1` 隣の unpack が実例）
+  になる。リトライを入れる
 - **`AppDomain.CurrentDomain.BaseDirectory` に置いた `ui/` を `file://` では読めない。**
   ES モジュールが読み込まれない。`SetVirtualHostNameToFolderMapping` で
   `http://vdgs.invalid/` を生やして読む（ポートは開かない）
 - **`.gitignore` に `web/` があると `web/` 配下の新規ファイルが `git add` で消える。**
-  React 化前の名残。2026-08-25 のマージで一度復活し、コミットが自分のソースを半分
-  置き去りにしかけた
+  React 化前の名残。マージで一度復活し、コミットが自分のソースを半分置き去りにしかけた
+- **macOS では `site.tsx` と `Site.tsx` が同じファイル。** 両方書くと後から書いた方だけが
+  残る。エントリを消したのに **tsc も build もページのテストも全部通った**（コンポーネントを
+  直接描くテストしか無かったため）。**各エントリが実際にマウントすることを固定してある**
+  （`web/src/entries.test.tsx`）
+- **state を作るのは重い。** 全キャプチャを歩いて `.ply` ヘッダを読んで SQLite を開く。
+  「作業中」の表示をこれで送っていたら、**歩き終わるまで無言**になった（進捗表示が
+  直そうとしていたもの、そのもの）。進捗と busy は**専用の軽いメッセージ**で送る。
+  各 state は生成にかかった `stateMs` を持って帰るので、次に遅くなったら実測で分かる
+- **テスト project に `RuntimeIdentifier` を付けない。** mono が Windows 版の
+  `e_sqlite3.dll` を掴んで落ちる。RID が要るのはアプリ本体だけ
 
 ### 配布の通し
 
 **キャプチャは mod に同梱しない**（数百 MB）。アプリの `02 GET` からカタログ経由で落とす。
 
 ```bash
-# 1. コースを DB から出す（Windows 側）
+# 1. コースを DB から出す（Windows 側。公式サーバー由来のトラックは拒否される）
 VDGS.exe --export-track "VDGS FDF" VDGS-FDF.track.json   # → catalog/tracks/
+VDGS.exe --check-catalog https://vdgs.saqoo.sh/catalog.json   # 読めるか確かめる
 
-# 2. キャプチャを固める
-bash tools/make-release.sh --scene FDF-2026-08-24 --scene-dir <path> --scene-only
-
-# 3. カタログとアップロード用一式を作る
+# 2〜4. 固めて、カタログを組んで、上げる
+bash tools/make-release.sh --scene <name> --scene-dir <path>
 bash tools/make-catalog.sh --base-url https://vdgs.saqoo.sh
-
-# 4. build/release/site/ をそのまま上げる
+bash tools/publish.sh
 ```
 
 **サイズと sha256 は測って書く、手で書かない。** ダウンロードが途中で切れたか差し替えられたか
@@ -531,8 +521,49 @@ bash tools/make-catalog.sh --base-url https://vdgs.saqoo.sh
 `formatVersion` は読まない**。欠けたフィールドを「トラック無し」と誤読して、
 **公開物の半分だけ入れる**のが最悪なので。
 
+**`publish.sh` は R2 に上げてから deploy する。** 逆にすると、**まだ無いファイルを指す
+リストを必ず一度公開する**。
+
 **公開していいのはライセンスが再配布を許すものだけ。** 表記の不在は許諾ではない。
 判断は「splat データは配布できない。同梱もしない」節。
+
+### ホスティング（`worker/`）
+
+**https://vdgs.saqoo.sh/ — Cloudflare Worker 1 本。**
+
+| パス | 出どころ |
+|---|---|
+| `/`, `/assets/*`, `/catalog.json` | 静的アセット（`build/release/site`） |
+| `/scene/*`, `/track/*`, `/app/*` | R2 バケット `vdgs`（`build/release/files`） |
+
+**分けている理由はサイズだけ** — デプロイは 1 ファイル 25 MiB 上限、キャプチャは数百 MB。
+**オリジンは 1 つ**にしてあるので、カタログの URL とページのリンクが食い違いようがない。
+R2 は Range 対応で streaming（回線が切れても再開できる）、`immutable` で長期キャッシュ
+（公開ファイルは同じ名前で中身が変わらない）。
+
+- **`wrangler` は `a@saqoo.sh` で認証済み**（`~/.wrangler/config/default.toml`）。
+  `npx wrangler` でそのまま使える。**ダッシュボードは要らない** — カスタムドメインは
+  `wrangler.jsonc` の `routes` に `custom_domain: true` で付く
+- **saqoo.sh のゾーンは `User-Agent: Python-urllib/*` を 403 で弾く。** curl も
+  companion（`VDGSCompanion`）も 200。スクリプトから叩くときは UA を変える
+
+### 検証で使える基準値
+
+| 測るもの | 値 |
+|---|---|
+| まっさらなゲームフォルダに `INSTALL MOD` | 133 ファイル / 5.2 MB、約 1 秒 |
+| ＋ FDF を `02 GET` | 142 ファイル / 134.0 MB |
+| `vdgs-shaders` | 1,538,627 バイト（1MB 未満は失敗版） |
+| FDF のキャプチャ zip | 123,654,552 バイト / 1,497,617 splats |
+| companion の zip | 約 6.0 MB |
+| FDF のダウンロード | コールド 54 秒、エッジキャッシュ後 5 秒 |
+
+**GUI は実機でしか確かめられない。** セッション 0 には窓が無いので、起動も撮影も
+クリックもスケジュールタスク（`New-ScheduledTaskPrincipal -LogonType Interactive`）経由。
+`tools/appstart-win.ps1` が起動して残し、撮影スクリプトが前面に上げて撮る。
+**合成クリック**（`SetCursorPos` + `mouse_event`）で本物のボタンを押せる — 偽のゲーム
+フォルダ（`velocidrone.exe` という名前の空ファイル 1 個）に向ければ**本番を触らずに
+通し確認できる**。
 
 ## 制約と、いまも踏める罠
 
@@ -560,14 +591,13 @@ PostProcessing カメラ（D3D12）で**バインドごと無言で失敗する*
 
 **`-force-d3d12` 必須。** ソートの compute が SM6 の wave intrinsics を 41 箇所使う。
 `-force-vulkan` は**ゲーム自身**が描けない（VelociDrone が Vulkan 向けにビルドされていない）。
+companion の `FLY` は常にこのフラグを付ける。
 
 **シェーダーは Windows の Unity 2021.3.45f2 でしか焼けない。** 罠が 2 つ：
 
-- **プロジェクトのグラフィックス API を先に D3D12 にする。** splat シェーダーは
-  `#pragma require wavebasic/waveballot` を宣言していて、既定（D3D11）で焼くと
-  **エラーを出さずに** unsupported として焼かれる。バンドルは正常にロードでき、
-  `shader.isSupported` が false になるだけ。`PlayerSettings.SetGraphicsAPIs` を
-  ビルド前に呼ぶ。**焼けたバンドルが 1MB 未満なら失敗**（正常は約 150 万バイト）
+- **プロジェクトのグラフィックス API を先に D3D12 にする**（`PlayerSettings.SetGraphicsAPIs`
+  をビルド前に呼ぶ）。既定のまま焼くと無言で unsupported になる — 症状とサイズの基準は
+  「開発フロー」
 - **macOS の Editor は D3D 向けに DXC を回せない** —
   `DXC: can only use DXC to target D3D from the Windows Editor.`
 
@@ -620,11 +650,10 @@ nelson-lod2（217 万 splats）を出したまま 15.8 分飛んで無傷、正�
 3 倍。**犯人は「D3D12」単独ではなく「D3D12 かつメニュー」。** 実務上の対処は一行で済む —
 **メニューに長居しない。**
 
-これは重い。**`-force-d3d12` は mod に必須**（ソートの compute が SM6 の wave intrinsics を
-41 箇所使う）なので、**mod を使う限りこの制約が付いてくる**。`-force-vulkan` はゲーム自身が
-描けないので逃げ道にならない。実務上は**メニューに長居しない**。
+これは重い。`-force-d3d12` は mod に必須で `-force-vulkan` は逃げ道にならないので、
+**mod を使う限りこの制約が付いてくる**。
 
-未解決のまま残っている問い、3 つ：
+未解決のまま残っている問い、2 つ：
 
 - **どちらの側も n=1。** D3D11 放置 13 分、D3D12 トラック内 15.8 分。D3D12 側の
   クラッシュ 2 回が 5 分前後なので差は明確だが、生存側を積む価値はある
@@ -643,30 +672,23 @@ docs/superpowers/specs/2026-08-18-splat-collision-design.md。
 
 ## 残タスク
 
-- **`-force-d3d12` でメニュー放置がクラッシュする原因は未解明。** mod 無しでも同一の直前行
-  （`_LightTexture0` の寸法不一致）で落ち、D3D11 では起きない。飛行中に出るかも未確認。
-  詳細は「制約と、いまも踏める罠」の副作用 2
+- **`-force-d3d12` でメニュー放置がクラッシュする原因は未解明**（「副作用 2」）。
+  飛行中に出るかも未確認
 - **`Medium` 以下が 2.6 倍暗くなる原因は未解明。** 使わないと決めて封印してあるので実害は
   無い。追うなら Norm8x4 の色デコードから
 - **完全な High パッキングは未実装。** 焼いた版との差は 7% で、**差に見合うかは疑問**
   （数字は docs/ply-loading.ja.md）
-- **空を学習から除くマスクは未実施。** FDF の巨大 splat は色まで測ると空と雲そのもので
-  （高度 15m 超・2m 超の 1,694 個が平均 RGB 0.79/0.82/0.85、不透明度 0.77）、
-  `--max-sigma` はそれを後から削っているだけ。学習時にマスクすれば作られない。
-  細い前景（電線・旗のポール・枝）を食う危険があるので、マスクは空側を削る方向に膨張させる。
-  詳細は docs/alignment.ja.md
-- **FDF の芝の平坦化は不要だった可能性が高い。** 平坦化前の版を同一カメラで実機描画すると
-  地面は破綻せず、むしろ芝目のディテールが残る（「over flattened で眠い」の原因）。
-  一方**ゴミ除去（範囲クロップ＋巨大 splat）は本当に必要**で、生データは空が白く埋まる。
-  検証用シーンは `<game>/vdgs/FDF-noflat2` などに置いたまま
+- **空を学習から除くマスクは未実施。** FDF の巨大 splat は色まで測ると空と雲そのもの
+  （高度 15m 超・2m 超の 1,694 個が平均 RGB 0.79/0.82/0.85、不透明度 0.77）で、
+  `--max-sigma` はそれを後から削っているだけ。**マスクは空側を削る方向に膨張させる** —
+  細い前景（電線・旗のポール・枝）を食うので。詳細は docs/alignment.ja.md
+- **FDF の芝の平坦化は不要だった可能性が高い。** 平坦化前でも地面は破綻せず、むしろ芝目が
+  残る（「over flattened で眠い」の原因）。一方**ゴミ除去は本当に必要**で、生データは空が
+  白く埋まる
 - **異方性から板と針を見分けるには中間軸が要る。** `max/min` だけでは両方 100 になり、
   「針だらけ」という誤診を招く（実際に一度出した）。log 空間で
   `t = (log(mid)-log(min))/(log(max)-log(min))` を取ると `t≈0` が針、`t≈1` が板。
   **3DGS の壁と床は板で、正常**。上から見るとエッジオンで線に見えるだけ
-- **配布サイトとホスティングは未着手。** `tools/make-catalog.sh` は
-  `build/release/site/` を吐くところまで。バケットも DNS も無いので、アプリの既定 URL
-  （`https://vdgs.saqoo.sh/catalog.json`）はまだ 404 する。**アプリ側はそれを想定して
-  黙って空リストを出す**（エラー文言は `02 GET` の中だけ）
 - **キャプチャごとのコリジョン焼き。** 手順は docs/SCENES.ja.md。voxel はシーンで決める
   （細かいほど穴、粗いほど柱が太い）。textilni は 0.06 で穴あり許容、0.14 は柱が太く不採用
 - **nelson は voxel 0.06、`--filter-cluster` は使わない。** 原点が空なのでクラスタが

@@ -79,7 +79,12 @@ export default function Setup({
           {tracks.length ? (
             <ol>
               {tracks.map((t, i) => (
-                <TrackRow key={t.track} index={String(i + 1).padStart(2, '0')} entry={t} />
+                <TrackRow
+                  key={t.track}
+                  index={String(i + 1).padStart(2, '0')}
+                  entry={t}
+                  disabled={busy}
+                />
               ))}
             </ol>
           ) : (
@@ -163,9 +168,17 @@ function Verdict({ state }: { state: SetupState }) {
   )
 }
 
-function TrackRow({ index, entry }: { index: string; entry: TrackEntry }) {
+function TrackRow({
+  index,
+  entry,
+  disabled,
+}: {
+  index: string
+  entry: TrackEntry
+  disabled: boolean
+}) {
   return (
-    <li className="grid grid-cols-[2.25rem_minmax(0,1fr)] items-start gap-3 border-b border-rule/80 py-4 last:border-b-0">
+    <li className="group/row grid grid-cols-[2.25rem_minmax(0,1fr)_auto] items-start gap-3 border-b border-rule/80 py-4 last:border-b-0">
       <span className="pt-1 font-mono text-[11px] text-muted-foreground">{index}</span>
       <div className="min-w-0">
         <div className="flex flex-wrap items-baseline gap-3">
@@ -204,6 +217,20 @@ function TrackRow({ index, entry }: { index: string; entry: TrackEntry }) {
           </p>
         )}
       </div>
+      {/* Kept quiet until the row is pointed at: this is a list to read, and the button
+          is for the one row in it someone wants gone. */}
+      <Button
+        variant="ghost"
+        size="sm"
+        disabled={disabled}
+        onClick={() => send('removeTrack', entry.track)}
+        className="opacity-0 transition-opacity group-hover/row:opacity-100 focus-visible:opacity-100"
+        aria-label={
+          entry.fromServer ? `Unbind ${entry.track}` : `Remove ${entry.track}`
+        }
+      >
+        {entry.fromServer ? 'Unbind' : 'Remove'}
+      </Button>
     </li>
   )
 }

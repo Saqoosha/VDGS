@@ -15,6 +15,7 @@ function track(over: Partial<TrackEntry> = {}): TrackEntry {
     captureInstalled: true,
     converted: true,
     inGame: true,
+    fromServer: false,
     ...over,
   }
 }
@@ -114,6 +115,17 @@ describe('Setup', () => {
     expect(screen.getByText(/installing the mod/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /^fly$/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: /reinstall mod/i })).toBeDisabled()
+  })
+
+  it('offers to remove a track, and only to unbind a downloaded one', () => {
+    // A track from the official server is its author's, not ours to delete off someone's
+    // machine - but the binding is ours either way.
+    const { rerender } = render(<Setup state={state({ tracks: [track()] })} log={[]} />)
+    expect(screen.getByRole('button', { name: /remove VDGS FDF/i })).toBeInTheDocument()
+
+    rerender(<Setup state={state({ tracks: [track({ fromServer: true })] })} log={[]} />)
+    expect(screen.getByRole('button', { name: /unbind VDGS FDF/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /remove VDGS FDF/i })).toBeNull()
   })
 
   it('will not offer to uninstall a mod that is not there', () => {

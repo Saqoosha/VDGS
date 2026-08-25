@@ -139,11 +139,22 @@ namespace VDGSCompanion
             return ImportResult.Added;
         }
 
-        /// <summary>Removes a track this tool added. Refuses to touch anything from the server.</summary>
-        internal static bool Remove(string dbPath, string name)
+        /// <summary>
+        /// Removes a track this tool added. Refuses to touch anything from the server:
+        /// its author put it there, and it is not ours to delete off someone's machine.
+        ///
+        /// Backed up first, for the same reason importing is - the file holds every lap
+        /// time the player has ever set, and none of it is recoverable.
+        /// </summary>
+        internal static bool Remove(string dbPath, string name, out string backup)
         {
+            backup = null;
             var t = Find(dbPath, name);
             if (t == null || t.FromServer) return false;
+
+            backup = dbPath + ".vdgs-backup-" + DateTime.Now.ToString("yyyyMMdd-HHmmss");
+            if (!File.Exists(backup)) File.Copy(dbPath, backup);
+
             using (var c = Open(dbPath, writable: true))
             using (var cmd = c.CreateCommand())
             {

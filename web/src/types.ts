@@ -47,6 +47,8 @@ export type TrackEntry = {
   /** false: a .ply the plugin parses at load time rather than a converted directory. */
   converted: boolean
   inGame: boolean
+  /** Downloaded from the official track server: it can be unbound, never deleted. */
+  fromServer: boolean
 }
 
 /** What the companion app knows about this machine before the game is started. */

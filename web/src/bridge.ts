@@ -35,6 +35,7 @@ export type Command =
   | 'pick'
   | 'installMod'
   | 'uninstallMod'
+  | 'removeTrack'
   | 'refreshCatalog'
   | 'get'
   | 'installCapture'
@@ -81,6 +82,7 @@ const devState: SetupState = {
       captureInstalled: true,
       converted: true,
       inGame: true,
+      fromServer: false,
     },
     {
       track: 'VDGS Playroom',
@@ -91,6 +93,7 @@ const devState: SetupState = {
       captureInstalled: true,
       converted: true,
       inGame: true,
+      fromServer: false,
     },
     {
       track: 'VDGS Nelson',
@@ -100,6 +103,7 @@ const devState: SetupState = {
       captureInstalled: false,
       converted: false,
       inGame: true,
+      fromServer: false,
     },
   ],
   unbound: [

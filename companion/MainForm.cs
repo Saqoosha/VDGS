@@ -221,14 +221,14 @@ namespace VDGSCompanion
         {
             // A null set means the database could not be read at all - the game may never
             // have been run. Nothing is called missing on that basis.
-            HashSet<string> inGame = null;
+            Dictionary<string, bool> inGame = null;   // name -> came from the official server
             try
             {
                 var db = TrackStore.DatabasePath();
                 if (File.Exists(db))
                 {
-                    inGame = new HashSet<string>(StringComparer.Ordinal);
-                    foreach (var t in TrackStore.List(db)) inGame.Add(t.Name);
+                    inGame = new Dictionary<string, bool>(StringComparer.Ordinal);
+                    foreach (var t in TrackStore.List(db)) inGame[t.Name] = t.FromServer;
                 }
             }
             catch { inGame = null; }
@@ -263,7 +263,9 @@ namespace VDGSCompanion
                     collision,
                     captureInstalled = installed,
                     converted,
-                    inGame = inGame == null || inGame.Contains(kv.Key),
+                    inGame = inGame == null || inGame.ContainsKey(kv.Key),
+                    // A track from the official server can be unbound but not deleted.
+                    fromServer = inGame != null && inGame.ContainsKey(kv.Key) && inGame[kv.Key],
                 });
             }
 
@@ -328,6 +330,7 @@ namespace VDGSCompanion
                 case "uninstallMod": UninstallMod(); break;
                 case "refreshCatalog": RefreshCatalog(); break;
                 case "get": GetFromCatalog(id); break;
+                case "removeTrack": RemoveTrack(id); break;
                 case "addTrack": AddTrack(); break;
                 case "fly": Launch(); break;
             }
@@ -461,6 +464,55 @@ namespace VDGSCompanion
         /// dead for the couple of seconds that walk takes. Now the news goes first and the
         /// state catches up at the end.
         /// </summary>
+        /// <summary>
+        /// Takes a track off this machine: its binding always, and its row in the database
+        /// when it is one we put there.
+        ///
+        /// The capture stays. It is the expensive half - gigabytes, and hours to fetch or
+        /// build again - and nothing about dropping a course says it is unwanted.
+        /// </summary>
+        private void RemoveTrack(string name)
+        {
+            if (_game == null || name == null) return;
+
+            var db = TrackStore.DatabasePath();
+            TrackStore.Track row = null;
+            try { if (File.Exists(db)) row = TrackStore.Find(db, name); } catch { }
+
+            var mine = row != null && !row.FromServer;
+            var question = mine
+                ? "Remove the track \"" + name + "\" from VelociDrone?\n\n" +
+                  "Its binding goes with it. The capture stays where it is, and the " +
+                  "database is copied first."
+                : "Stop showing a capture on \"" + name + "\"?\n\n" +
+                  (row == null
+                      ? "There is no such track in VelociDrone, so only the binding goes."
+                      : "The track came from the official track server, so it is left alone - " +
+                        "only the binding goes.");
+
+            if (MessageBox.Show(this, question, "VDGS",
+                                MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK)
+                return;
+
+            var game = _game;
+            RunBusy("removing " + name, log =>
+            {
+                if (GameInstall.Unbind(game, name)) log("unbound \"" + name + "\"");
+
+                if (!mine) return;
+                if (GameInstall.IsRunning())
+                    throw new InvalidOperationException(
+                        "VelociDrone is running. Close it first - it keeps its track database open.");
+
+                string backup;
+                if (TrackStore.Remove(db, name, out backup))
+                    log("removed track \"" + name + "\" (backup: " +
+                        Path.GetFileName(backup) + ")");
+                else
+                    log("the track was already gone from the database");
+            });
+        }
+
         private void SetBusy(string what)
         {
             _busy = what;

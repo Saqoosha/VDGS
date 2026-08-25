@@ -382,9 +382,14 @@ internal static class Harness
         Check(TrackStore.Find(db, "VDGS FDF").Value == track, "the player's version is untouched");
 
         Console.WriteLine("removal");
-        Check(!TrackStore.Remove(db, "Official Course"), "refuses to remove a server track");
+        string removeBackup;
+        Check(!TrackStore.Remove(db, "Official Course", out removeBackup),
+              "refuses to remove a server track");
         Check(TrackStore.Find(db, "Official Course") != null, "the server track is still there");
-        Check(TrackStore.Remove(db, "VDGS FDF"), "removes one it added");
+        Check(TrackStore.Remove(db, "VDGS FDF", out removeBackup), "removes one it added");
+        Check(removeBackup != null && File.Exists(removeBackup),
+              "and copies the database first - it holds every lap time ever set");
+        File.Delete(removeBackup);
         Check(TrackStore.Find(db, "VDGS FDF") == null, "and it is gone");
 
         Console.WriteLine("track file parsing");

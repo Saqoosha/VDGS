@@ -417,6 +417,21 @@ namespace VDGSCompanion
             catch { return new Dictionary<string, List<string>>(StringComparer.Ordinal); }
         }
 
+        /// <summary>
+        /// Drops a track's entry from vdgs/bindings.json, leaving every other binding and
+        /// the capture itself alone.
+        /// </summary>
+        internal static bool Unbind(string game, string trackName)
+        {
+            var path = Path.Combine(game, "vdgs", "bindings.json");
+            if (!File.Exists(path)) return false;
+
+            var map = ReadBindings(game);
+            if (!map.Remove(trackName)) return false;
+            File.WriteAllText(path, Json.WriteBindings(map));
+            return true;
+        }
+
         internal static Process Launch(string game)
         {
             var exe = Path.Combine(game, "velocidrone.exe");
