@@ -296,6 +296,8 @@ the file needs a reload, not a checkbox toggle.
 
 You can write it by hand, but doing it from the UI is faster (§5).
 
+**Laying your own course over a capture and publishing it** is [TRACKS.md](TRACKS.md).
+
 - **An unbound track shows nothing.** That is safer than showing the wrong capture
 - one track may bind several captures
 - binding is **per track, not per scenery**, because many tracks share one scenery

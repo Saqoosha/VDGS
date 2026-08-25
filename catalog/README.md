@@ -11,6 +11,9 @@ catalog/tracks/<name>.track.json   the course, exported from a VelociDrone datab
 An entry is metadata only. The capture itself is hundreds of megabytes and is built by
 `tools/make-release.sh --scene`; it is never committed.
 
+Building the course itself — naming, scenery, placement, export — is
+[docs/TRACKS.md](../docs/TRACKS.md). This file is what happens after it exists.
+
 ## Publishing one
 
 ```bash

@@ -179,8 +179,8 @@ AssetBundle のマニフェスト、および `%LOCALAPPDATA%Low\velocidrone\`�
 検証するためのもので、軸のねじれ・色の誤り・スケール違いが一目で分かるように作ってある
 （+X 赤 / +Y 緑 / +Z 青 / 灰の床グリッド / 黄の原点マーカー）。
 
-実データの入手先と取り込み手順は [docs/SCENES.ja.md](docs/SCENES.ja.md)、手元の在庫は
-docs/testdata.ja.md。**再配布できるかは出どころで決まる**（次節）。
+実データの入手先と取り込み手順は [docs/SCENES.ja.md](docs/SCENES.ja.md)、その上にコースを
+組んで配る通しは [docs/TRACKS.ja.md](docs/TRACKS.ja.md)、手元の在庫は docs/testdata.ja.md。**再配布できるかは出どころで決まる**（次節）。
 
 `dylanebert/3dgs` から引くときは `point_cloud/iteration_*/point_cloud.ply` を探すこと —
 多くは `.splat` 形式で、UnityGaussianSplatting は **`.ply` と `.spz` しか読まない**。

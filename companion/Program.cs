@@ -83,8 +83,13 @@ namespace VDGSCompanion
 
             if (args[1] == "--list")
             {
+                // scene_id is the scenery the course sits on, and a capture is placed
+                // relative to that scenery's origin - so it is the number that decides
+                // whether a published track lands where its capture is.
                 foreach (var t in TrackStore.List(db))
-                    Console.WriteLine((t.FromServer ? "[server] " : "[local]  ") + t.Name);
+                    Console.WriteLine(
+                        (t.FromServer ? "[server] " : "[local]  ") +
+                        "scene " + t.SceneId.ToString().PadLeft(3) + "  " + t.Name);
                 return 0;
             }
 

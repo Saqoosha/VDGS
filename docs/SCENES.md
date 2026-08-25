@@ -11,7 +11,8 @@ authors can state a Creative Commons licence, and a CC BY scene may be redistrib
 attribution** (below). Flying a file you downloaded for yourself is a separate question
 from publishing it.
 
-Install and launch are in [USAGE.md](USAGE.md). This file is the capture pipeline.
+Install and launch are in [USAGE.md](USAGE.md); laying a course over the result and
+publishing it is [TRACKS.md](TRACKS.md). This file is the capture pipeline.
 
 ---
 
