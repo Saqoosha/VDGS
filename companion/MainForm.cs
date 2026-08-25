@@ -401,7 +401,7 @@ namespace VDGSCompanion
                 {
                     Percent(null);
                     SetBusy("installing " + entry.Name);
-                    GameInstall.InstallArchive(game, zip, log);
+                    GameInstall.InstallArchive(game, zip, log, entry.InstallAs ?? entry.Name);
                 }
                 finally
                 {

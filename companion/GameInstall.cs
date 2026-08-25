@@ -234,8 +234,13 @@ namespace VDGSCompanion
         /// <summary>
         /// Unpacks a release archive over the game folder. Both the mod and the scene
         /// archives are laid out to be extracted here, so this is the same operation.
+        ///
+        /// <paramref name="label"/> is what to call it in the log. A download arrives under
+        /// a temporary name, and reporting that name tells the reader nothing about what
+        /// they just installed.
         /// </summary>
-        internal static void InstallArchive(string game, string zipPath, Action<string> log)
+        internal static void InstallArchive(string game, string zipPath, Action<string> log,
+                                            string label = null)
         {
             if (IsRunning())
                 throw new InvalidOperationException(
@@ -266,7 +271,7 @@ namespace VDGSCompanion
                     e.ExtractToFile(target, overwrite: true);
                 }
             }
-            log("installed " + Path.GetFileName(zipPath));
+            log("installed " + (label ?? Path.GetFileName(zipPath)));
         }
 
         /// <summary>

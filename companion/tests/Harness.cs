@@ -128,6 +128,33 @@ internal static class Harness
                   "refuses to download a file the catalog gives no digest for");
         }
 
+        // Progress is the only thing on screen during the slowest operation here, and a
+        // capture is big enough that silence reads as a hang. Timing makes it impossible
+        // to catch on screen reliably - a cached file arrives in seconds - so it is
+        // asserted rather than watched.
+        var big = new byte[2 * 1024 * 1024];
+        for (var i = 0; i < big.Length; i++) big[i] = (byte)i;
+        var bigFile = Path.Combine(dir, "big.bin");
+        File.WriteAllBytes(bigFile, big);
+        var bigDigest = Catalog.Sha256(bigFile);
+
+        string bigUrl;
+        using (Serve(big, out bigUrl))
+        {
+            var reported = new System.Collections.Generic.List<int>();
+            var got = Catalog.Download(
+                new Catalog.File_ { Url = bigUrl, Bytes = big.Length, Sha256 = bigDigest },
+                dir, reported.Add);
+            File.Delete(got);
+
+            Check(reported.Count > 1, "reports progress while downloading");
+            Check(reported.Count <= 101, "and not once per chunk - a hundred states, not thousands");
+            var rising = true;
+            for (var i = 1; i < reported.Count; i++) if (reported[i] <= reported[i - 1]) rising = false;
+            Check(rising, "each report is further along than the last");
+            Check(reported.Count > 0 && reported[reported.Count - 1] == 100, "and it ends at 100");
+        }
+
         // Fetch is the whole path a published list takes to get here, and the pieces are
         // only ever tested apart otherwise.
         var catalogJson = System.Text.Encoding.UTF8.GetBytes(good);
