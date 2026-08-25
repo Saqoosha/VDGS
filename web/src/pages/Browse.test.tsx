@@ -33,15 +33,32 @@ describe('Browse', () => {
     expect(screen.getByText(/CC0-1\.0/)).toBeInTheDocument()
   })
 
-  it('hands over the files a browser can actually take', async () => {
+  it('offers the app, since a browser cannot install anything itself', async () => {
+    serve({
+      formatVersion: 1,
+      scenes: [scene],
+      app: { version: '2026.08.25', url: 'https://h/app/c.zip', bytes: 6_061_831 },
+    })
+    render(<Browse />)
+    const download = await screen.findByRole('link', { name: /download the companion/i })
+    expect(download).toHaveAttribute('href', 'https://h/app/c.zip')
+  })
+
+  it('does not hand out the raw files', async () => {
+    // A capture is useless without its track and a binding, and a track file opened in a
+    // browser is a wall of JSON. Taking one is the app's job.
     serve({ formatVersion: 1, scenes: [scene] })
     render(<Browse />)
-    const capture = await screen.findByRole('link', { name: /capture/i })
-    expect(capture).toHaveAttribute('href', 'https://h/scene/a.zip')
-    expect(screen.getByRole('link', { name: /track/i })).toHaveAttribute(
-      'href',
-      'https://h/track/a.json',
-    )
+    await screen.findByText('FDF')
+    expect(screen.queryByRole('link', { name: /^capture$/i })).toBeNull()
+    expect(screen.queryByRole('link', { name: /^track$/i })).toBeNull()
+  })
+
+  it('links the loader it installs on your behalf', async () => {
+    serve({ formatVersion: 1, scenes: [scene] })
+    render(<Browse />)
+    const link = await screen.findByRole('link', { name: /BepInEx/i })
+    expect(link).toHaveAttribute('href', expect.stringContaining('BepInEx/releases'))
   })
 
   it('says so when there is no catalog rather than sitting blank', async () => {

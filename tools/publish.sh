@@ -24,7 +24,7 @@ say "captures to R2"
 # Uploaded before the catalog that names them: a list pointing at files that are not there
 # yet is the one state worth avoiding, and it is the state a reversed order leaves behind
 # every single time.
-for f in "$FILES"/scene/*.zip "$FILES"/track/*.json; do
+for f in "$FILES"/scene/*.zip "$FILES"/track/*.json "$FILES"/app/*.zip; do
   [ -e "$f" ] || continue
   key="$(basename "$(dirname "$f")")/$(basename "$f")"
   size=$(wc -c < "$f" | tr -d ' ')

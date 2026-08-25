@@ -113,6 +113,23 @@ MOD_ZIP="$OUT/vdgs-mod-$VERSION.zip"
 rm -f "$MOD_ZIP"
 ( cd "$STAGE/vdgs-mod" && zip -qr "$MOD_ZIP" . )
 echo "-> $MOD_ZIP  ($(du -h "$MOD_ZIP" | cut -f1))"
+
+# ---------------------------------------------------------------- companion
+# Built after the mod, not before: the app carries that staged tree as its payload, so
+# building it first would ship whatever the last run left behind.
+say "building the companion"
+dotnet build "$ROOT/companion/VDGSCompanion.csproj" -c Release | tail -2
+APP_DIR="$ROOT/companion/bin/Release/net48"
+[ -f "$APP_DIR/VDGS.exe" ] || { echo "no VDGS.exe produced" >&2; exit 1; }
+[ -f "$APP_DIR/mod/BepInEx/plugins/VDGS.dll" ] || {
+  echo "the app was built without its mod payload - it cannot install anything" >&2; exit 1; }
+[ -f "$APP_DIR/ui/companion.html" ] || {
+  echo "the app was built without its interface" >&2; exit 1; }
+
+APP_ZIP="$OUT/vdgs-companion-$VERSION.zip"
+rm -f "$APP_ZIP"
+( cd "$APP_DIR" && zip -qr "$APP_ZIP" . )
+echo "-> $APP_ZIP  ($(du -h "$APP_ZIP" | cut -f1))"
 else
   STAGE="$OUT"
   echo "(--scene-only: no mod archive)"

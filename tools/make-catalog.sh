@@ -37,7 +37,7 @@ esac
 
 FILES="${FILES:-$(dirname "$OUT")/files}"
 rm -rf "$OUT" "$FILES"
-mkdir -p "$OUT" "$FILES/scene" "$FILES/track"
+mkdir -p "$OUT" "$FILES/scene" "$FILES/track" "$FILES/app"
 
 # The page that lists all this is built from the same project as the in-game UI and the
 # app's window, so a visitor who later runs the companion recognises it.
@@ -126,6 +126,20 @@ for name in sorted(os.listdir(entries_dir)):
         entry["minModVersion"] = meta["minModVersion"]
     scenes.append(entry)
 
+# The app itself is published alongside the captures: a page that lists things to install
+# and does not offer the thing that installs them is a dead end.
+app = None
+for name in sorted(os.listdir(release)):
+    if name.startswith("vdgs-companion-") and name.endswith(".zip"):
+        path = os.path.join(release, name)
+        shutil.copy2(path, os.path.join(out, "app", name))
+        app = {
+            "version": name[len("vdgs-companion-"):-len(".zip")],
+            "url": "%s/app/%s" % (base, name),
+            "bytes": os.path.getsize(path),
+            "sha256": digest(path),
+        }
+
 catalog = {
     "formatVersion": 1,
     # Stamped from the clock rather than from a file's mtime: this says when the list was
@@ -134,6 +148,8 @@ catalog = {
                 .replace(microsecond=0).isoformat().replace("+00:00", "Z"),
     "scenes": scenes,
 }
+if app:
+    catalog["app"] = app
 # The catalog is part of the site, not of the files it points at.
 with open(os.path.join(os.path.dirname(out), "site", "catalog.json"), "w") as f:
     json.dump(catalog, f, indent=2)
@@ -163,6 +179,13 @@ for s in c["scenes"]:
         assert len(f["sha256"]) == 64, "%s: %s digest is not a sha256" % (s["id"], part)
         assert f["bytes"] > 0, "%s: %s has no size" % (s["id"], part)
     assert s["scene"]["installAs"], "%s: nowhere to install" % s["id"]
+app = c.get("app")
+if app:
+    assert app["url"].startswith("https://"), "app is not https"
+    assert len(app["sha256"]) == 64, "app digest is not a sha256"
+    assert app["bytes"] > 0, "app has no size"
+else:
+    print("   note: no companion build in this catalog")
 print("   catalog.json checks out")
 CHECK
 

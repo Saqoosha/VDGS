@@ -502,7 +502,14 @@ namespace VDGSCompanion
         {
             if (_game == null) return;
             var game = _game;
-            RunBusy("installing the mod", log => GameInstall.InstallBundledMod(game, log));
+            RunBusy("installing the mod", log =>
+            {
+                // The loader first if it is not there. Nobody presses this wanting the
+                // plugin on its own - they want the mod to work, and it does not without
+                // something to load it.
+                if (!GameInstall.HasBepInEx(game)) BepInEx.Install(game, log);
+                GameInstall.InstallBundledMod(game, log);
+            });
         }
 
         private void UninstallMod()

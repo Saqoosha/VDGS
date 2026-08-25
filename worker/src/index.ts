@@ -12,7 +12,7 @@ export interface Env {
 }
 
 // Everything else is the site.
-const FROM_R2 = /^\/(scene|track)\//
+const FROM_R2 = /^\/(scene|track|app)\//
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {

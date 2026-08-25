@@ -11,6 +11,8 @@ import { formatBytes } from '../format'
  * what exists, what it costs and what it is licensed as, hands over the files, and points
  * at the app for the part a page cannot do.
  */
+type App = { version: string; url: string; bytes: number }
+
 type Published = {
   id: string
   name: string
@@ -25,13 +27,17 @@ type Published = {
 
 export default function Browse() {
   const [scenes, setScenes] = useState<Published[] | null>(null)
+  const [app, setApp] = useState<App | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [q, setQ] = useState('')
 
   useEffect(() => {
     fetch('catalog.json', { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error('catalog.json: ' + r.status))))
-      .then((c) => setScenes(c.scenes ?? []))
+      .then((c) => {
+        setScenes(c.scenes ?? [])
+        setApp(c.app ?? null)
+      })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'could not load the catalog'))
   }, [])
 
@@ -75,26 +81,59 @@ export default function Browse() {
       </Section>
 
       <Section n="02" label="how">
-        <ol className="space-y-2 text-[14px] leading-relaxed text-muted-foreground">
+        <ol className="space-y-3 text-[14px] leading-relaxed text-muted-foreground">
           <li>
             <span className="mr-3 font-mono text-[11px] text-signal">01</span>
-            Install BepInEx 5.4.23.5 (win_x64) into your VelociDrone folder.
+            Download the companion below and run it.
           </li>
           <li>
             <span className="mr-3 font-mono text-[11px] text-signal">02</span>
-            Run the VDGS companion and press <b className="text-foreground">Install mod</b>.
+            Press <b className="text-foreground">Install mod</b>. It finds VelociDrone, fetches
+            BepInEx if you do not have it, and puts the mod in place.
           </li>
           <li>
             <span className="mr-3 font-mono text-[11px] text-signal">03</span>
             Open <b className="text-foreground">02 get</b> and take a capture. It downloads the
             scene, adds the track and binds the two.
           </li>
+          <li>
+            <span className="mr-3 font-mono text-[11px] text-signal">04</span>
+            Press <b className="text-foreground">Fly</b>.
+          </li>
         </ol>
-        {/* The files above are here for anyone who would rather do it by hand, but the
-            binding step has no manual equivalent that is pleasant to describe. */}
-        <p className="mt-4 font-mono text-[11px] leading-relaxed text-muted-foreground">
+
+        <div className="mt-6 flex flex-wrap items-center gap-4">
+          {app ? (
+            <Button size="lg" className="font-mono tracking-[0.2em] uppercase" asChild>
+              <a href={app.url}>Download the companion</a>
+            </Button>
+          ) : null}
+          {app ? (
+            <span className="font-mono text-[11px] text-muted-foreground">
+              {app.version}
+              <span className="mx-2 text-rule">/</span>
+              {formatBytes(app.bytes) ?? '—'}
+              <span className="mx-2 text-rule">/</span>
+              windows
+            </span>
+          ) : null}
+        </div>
+
+        <p className="mt-5 font-mono text-[11px] leading-relaxed text-muted-foreground">
           the game must be started with -force-d3d12, which the companion always does.
           without it the captures do not draw at all, and nothing says why.
+        </p>
+        {/* The app fetches this itself; the link is for anyone who would rather see what
+            they are installing, or who is doing it by hand. */}
+        <p className="mt-2 font-mono text-[11px] leading-relaxed text-muted-foreground">
+          the loader is{' '}
+          <a
+            href="https://github.com/BepInEx/BepInEx/releases/tag/v5.4.23.5"
+            className="text-foreground underline underline-offset-4 hover:text-signal"
+          >
+            BepInEx 5.4.23.5 (win_x64)
+          </a>
+          , fetched from its own release and checked against a pinned digest.
         </p>
       </Section>
     </div>
@@ -103,7 +142,7 @@ export default function Browse() {
 
 function Row({ index, scene }: { index: string; scene: Published }) {
   return (
-    <li className="grid grid-cols-[2.25rem_minmax(0,1fr)_auto] items-start gap-3 border-b border-rule/80 py-4">
+    <li className="grid grid-cols-[2.25rem_minmax(0,1fr)] items-start gap-3 border-b border-rule/80 py-4">
       <span className="pt-1 font-mono text-[11px] text-muted-foreground">{index}</span>
       <div className="min-w-0">
         <p className="font-serif text-[1.65rem] leading-tight font-light">{scene.name}</p>
@@ -130,16 +169,7 @@ function Row({ index, scene }: { index: string; scene: Published }) {
           ) : null}
         </p>
       </div>
-      <div className="flex flex-col items-end gap-2">
-        <Button asChild>
-          <a href={scene.scene.url}>Capture</a>
-        </Button>
-        {scene.track ? (
-          <Button variant="ghost" asChild>
-            <a href={scene.track.url}>Track</a>
-          </Button>
-        ) : null}
-      </div>
+
     </li>
   )
 }

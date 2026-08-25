@@ -5,7 +5,7 @@ One Worker serving three things from one origin:
 | Path | Where it comes from |
 |---|---|
 | `/`, `/assets/*`, `/catalog.json` | static assets, out of `build/release/site` |
-| `/scene/*.zip`, `/track/*.json` | the `vdgs` R2 bucket |
+| `/scene/*.zip`, `/track/*.json`, `/app/*.zip` | the `vdgs` R2 bucket |
 
 The split is by size, not by kind. A capture is hundreds of megabytes — far past what a
 static deployment takes — so it lives in R2 and is streamed through the Worker. Keeping
