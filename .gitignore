@@ -42,3 +42,8 @@ companion/bin/
 companion/obj/
 companion/tests/bin/
 companion/tests/obj/
+
+# Worker dependencies and wrangler's own cache, which names the account it is signed
+# into - machine state, not the project's
+worker/node_modules/
+.wrangler/

@@ -14,6 +14,10 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$ROOT/build/release/site"
+# The captures are kept apart from the site on purpose: the site is a deployment with a
+# 25 MiB per-file ceiling, and a capture is hundreds of megabytes. Same origin at the far
+# end, different destinations getting there.
+FILES=""
 BASE_URL=""
 
 while [ $# -gt 0 ]; do
@@ -31,8 +35,9 @@ case "$BASE_URL" in
   *) echo "--base-url must be https: the app refuses to download over plain http" >&2; exit 2 ;;
 esac
 
-rm -rf "$OUT"
-mkdir -p "$OUT/scene" "$OUT/track"
+FILES="${FILES:-$(dirname "$OUT")/files}"
+rm -rf "$OUT" "$FILES"
+mkdir -p "$OUT" "$FILES/scene" "$FILES/track"
 
 # The page that lists all this is built from the same project as the in-game UI and the
 # app's window, so a visitor who later runs the companion recognises it.
@@ -45,7 +50,7 @@ cp -R "$ROOT/web/dist/assets" "$OUT/assets"
 # The page asks for /assets and /catalog.json, so this folder has to be the site root -
 # not a subdirectory of one.
 
-python3 - "$ROOT" "$OUT" "$BASE_URL" <<'PY'
+python3 - "$ROOT" "$FILES" "$BASE_URL" <<'PY'
 import hashlib, json, os, shutil, sys, datetime
 
 root, out, base = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -129,7 +134,8 @@ catalog = {
                 .replace(microsecond=0).isoformat().replace("+00:00", "Z"),
     "scenes": scenes,
 }
-with open(os.path.join(out, "catalog.json"), "w") as f:
+# The catalog is part of the site, not of the files it points at.
+with open(os.path.join(os.path.dirname(out), "site", "catalog.json"), "w") as f:
     json.dump(catalog, f, indent=2)
     f.write("\n")
 
@@ -161,7 +167,10 @@ print("   catalog.json checks out")
 CHECK
 
 echo
-echo "-> $OUT"
-find "$OUT" -type f | sed "s|$OUT|   .|"
+echo "-> $OUT  (the site: deploy this)"
+find "$OUT" -type f | sed "s|$OUT|   .|" | head -6
+echo "   ... $(find "$OUT" -type f | wc -l | tr -d ' ') files"
+echo "-> $FILES  (the captures: these go to object storage)"
+find "$FILES" -type f | sed "s|$FILES|   .|"
 echo
-echo "upload that folder so that $BASE_URL/catalog.json serves the file at its root."
+echo "bash tools/publish.sh does both."
