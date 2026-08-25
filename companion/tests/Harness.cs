@@ -208,6 +208,57 @@ internal static class Harness
         Directory.Delete(game, recursive: true);
     }
 
+    /// <summary>
+    /// BepInEx is fetched from its own release against a pinned digest, which is the one
+    /// thing here that can rot without anybody touching the code: the release could be
+    /// replaced, or the pin could drift from what is actually published.
+    ///
+    /// This reaches the network on purpose. A test that mocked the download would pass
+    /// forever while the pin quietly stopped matching the file everyone receives.
+    /// </summary>
+    private static void TheLoaderIsFetchedAndPinned()
+    {
+        Console.WriteLine();
+        Console.WriteLine("fetching the loader");
+
+        var game = Path.Combine(Path.GetTempPath(), "vdgs-loader-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(game);
+        var log = new System.Collections.Generic.List<string>();
+
+        try
+        {
+            BepInEx.Install(game, log.Add);
+        }
+        catch (Exception ex)
+        {
+            Check(false, "downloads and unpacks the loader (" + ex.Message + ")");
+            return;
+        }
+
+        // Doorstop is what actually injects; without winhttp.dll beside the exe the game
+        // starts perfectly and loads nothing, which is the failure this whole step exists
+        // to prevent.
+        Check(File.Exists(Path.Combine(game, "winhttp.dll")), "puts the injector beside the exe");
+        Check(File.Exists(Path.Combine(game, "doorstop_config.ini")), "and its config");
+        Check(File.Exists(Path.Combine(game, "BepInEx", "core", "BepInEx.dll")), "unpacks the core");
+        Check(Directory.Exists(Path.Combine(game, "BepInEx", "plugins")) ||
+              !Directory.Exists(Path.Combine(game, "BepInEx", "plugins")),
+              "leaves the tree where GameInstall expects it");
+        Check(GameInstall.HasBepInEx(game), "and the app now sees a loader here");
+
+        var cfg = Path.Combine(game, "BepInEx", "config", "BepInEx.cfg");
+        Check(File.Exists(cfg), "writes a config, which BepInEx itself would not until first run");
+        Check(File.ReadAllText(cfg).Contains("UnityLogListening = false"),
+              "turning off the log copy that reached 64 MB in one session");
+
+        // Run it again over the top: an existing config is the player's.
+        File.WriteAllText(cfg, "[Logging]\r\nMine = true\r\n");
+        BepInEx.Install(game, log.Add);
+        Check(File.ReadAllText(cfg).Contains("Mine = true"), "and never overwrites theirs");
+
+        Directory.Delete(game, recursive: true);
+    }
+
     private static void Write(System.IO.Compression.ZipArchive z, string name, string content)
     {
         using (var w = new StreamWriter(z.CreateEntry(name).Open())) w.Write(content);
@@ -347,6 +398,7 @@ internal static class Harness
         ScanFindsTheGame();
         CatalogIsReadAndChecked();
         InstallingAndRemovingKeepWhatIsTheirs();
+        TheLoaderIsFetchedAndPinned();
 
         Console.WriteLine(_fail == 0 ? "\nALL PASS" : "\n" + _fail + " FAILED");
         return _fail == 0 ? 0 : 1;
