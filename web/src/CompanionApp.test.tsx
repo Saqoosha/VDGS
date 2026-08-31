@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SetupState } from './types'
 
 /**
- * The window merges three kinds of message from the host, and two of them are partial on
+ * The window merges four kinds of message from the host, and three of them are partial on
  * purpose: rebuilding the whole state for a progress tick would walk the disk a hundred
  * times during one download. That merging is the part with somewhere to go wrong.
  */
@@ -12,6 +12,7 @@ type Push =
   | { type: 'log'; line: string }
   | { type: 'progress'; percent: number | null }
   | { type: 'busy'; what: string | null }
+  | { type: 'running'; running: boolean }
 
 let deliver: (m: Push) => void = () => {}
 
@@ -62,6 +63,18 @@ describe('the companion window', () => {
     await waitFor(() => expect(screen.getByText(/working/i)).toBeInTheDocument())
     deliver({ type: 'state', ...base })
     await waitFor(() => expect(screen.getByText(/ready/i)).toBeInTheDocument())
+  })
+
+  // Nothing tells the app the game exited except the host noticing, so a whole-state
+  // rebuild is not what arrives - and a merge that dropped this would leave Fly dead
+  // until someone pressed refresh.
+  it('lets you fly again once the game is closed', async () => {
+    deliver({ type: 'state', ...base, running: true })
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /^fly$/i })).toBeDisabled(),
+    )
+    deliver({ type: 'running', running: false })
+    await waitFor(() => expect(screen.getByRole('button', { name: /^fly$/i })).toBeEnabled())
   })
 
   it('keeps the log', async () => {

@@ -35,6 +35,13 @@ namespace VDGSCompanion
         private readonly Settings _settings;
         private List<Catalog.Entry> _catalog;
         private string _catalogError;
+        // What the page was last told about the game, so a tick only speaks when it changes.
+        private bool _running;
+        // Nothing tells this app that VelociDrone exited, so it looks. Half the window is
+        // about files the game holds open, and Fly turns itself off while it is up - all
+        // of that stays wrong until someone thinks to press refresh, which nobody does.
+        private readonly System.Windows.Forms.Timer _watch =
+            new System.Windows.Forms.Timer { Interval = 1500 };
 
         internal MainForm()
         {
@@ -56,6 +63,24 @@ namespace VDGSCompanion
                 ? _settings.Game
                 : GameInstall.FindGame();
             Load += async (s, e) => await Start();
+            _watch.Tick += (s, e) => WatchGame();
+            FormClosed += (s, e) => _watch.Stop();
+        }
+
+        /// <summary>
+        /// Running is one bool, and building a whole state walks every capture on disk -
+        /// so the game starting is sent on its own. Quitting is not the same: the game
+        /// owns the track database while it is up, so what is on disk afterwards may not
+        /// be what this window is showing. That one earns a fresh state, and it happens
+        /// with nobody touching the window.
+        /// </summary>
+        private void WatchGame()
+        {
+            var now = GameInstall.IsRunning();
+            if (now == _running) return;
+            _running = now;
+            if (now) Post(new { type = "running", running = true });
+            else Push();
         }
 
         private async System.Threading.Tasks.Task Start()
@@ -91,7 +116,13 @@ namespace VDGSCompanion
             c.NewWindowRequested += (s, e) => e.Handled = true;
 
             c.WebMessageReceived += (s, e) => Dispatch(e.WebMessageAsJson);
-            c.NavigationCompleted += (s, e) => { _ready = true; Push(); FindGameIfMissing(); };
+            c.NavigationCompleted += (s, e) =>
+            {
+                _ready = true;
+                Push();
+                _watch.Start();
+                FindGameIfMissing();
+            };
 
             // The page is a built bundle of ES modules, which a file:// or
             // NavigateToString origin will not load. A virtual host gives it a real one
@@ -180,7 +211,7 @@ namespace VDGSCompanion
                 catalog = CatalogState(scenes),
                 stateMs = (int)clock.ElapsedMilliseconds,
                 ready = _game != null && missing.Count == 0,
-                running = GameInstall.IsRunning(),
+                running = _running = GameInstall.IsRunning(),
                 launchArgs = GameInstall.LaunchArgs,
             });
         }
