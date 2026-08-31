@@ -13,8 +13,9 @@ lib/
 # machine-specific SSH target for deploy / bake / launch
 tools/local.env
 
-# upstream checkout
-vendor/
+# upstream checkout. スラッシュ無し —— 実体がシンボリックリンクなので
+# `vendor/` では当たらず、git status に出続けていた
+vendor
 
 # decompiled game code (27MB dll -> 73MB of C#)
 research/decompiled/
