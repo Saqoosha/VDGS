@@ -75,10 +75,12 @@ namespace VDGSCompanion
         /// window is showing. That one earns a fresh state, and it happens with nobody
         /// touching the window.
         ///
-        /// Which is exactly why it does not run here. That walk is the reason busy and
-        /// progress are separate messages at all; on the UI thread it would freeze the
-        /// window for seconds with nothing clicked and no hint anything was happening -
-        /// at the moment someone is looking back at it after closing the game.
+        /// It runs on the UI thread, and that is deliberate. Moving it to the pool to
+        /// keep the window painting was tried and taken back out: nothing on a pool
+        /// thread guards the walk, and an unhandled I/O error there takes the whole
+        /// process down without a word, where on this thread WinForms catches it. A
+        /// window that stops painting for as long as the walk takes is the smaller
+        /// failure, so the walk stays here and the pause is a known cost.
         /// </summary>
         private void WatchGame()
         {
@@ -86,7 +88,7 @@ namespace VDGSCompanion
             if (now == _running) return;
             _running = now;
             if (now) Post(new { type = "running", running = true });
-            else ThreadPool.QueueUserWorkItem(_ => Push());
+            else Push();
         }
 
         private async System.Threading.Tasks.Task Start()

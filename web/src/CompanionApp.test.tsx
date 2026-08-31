@@ -65,16 +65,23 @@ describe('the companion window', () => {
     await waitFor(() => expect(screen.getByText(/ready/i)).toBeInTheDocument())
   })
 
-  // Nothing tells the app the game exited except the host noticing, so a whole-state
-  // rebuild is not what arrives - and a merge that dropped this would leave Fly dead
-  // until someone pressed refresh.
-  it('lets you fly again once the game is closed', async () => {
-    deliver({ type: 'state', ...base, running: true })
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: /^fly$/i })).toBeDisabled(),
-    )
-    deliver({ type: 'running', running: false })
-    await waitFor(() => expect(screen.getByRole('button', { name: /^fly$/i })).toBeEnabled())
+  // The two directions do not arrive the same way, and the test says so because getting
+  // that backwards is how a passing test covers a message nobody sends: the game
+  // starting is one flag, because rebuilding a whole state walks every capture on disk
+  // for a bool - the game ending is a whole state, because it held the track database
+  // open while it ran. Nobody presses refresh to say they quit, so both have to land or
+  // Fly stays dead.
+  it('follows the game starting and ending', async () => {
+    const fly = () => screen.getByRole('button', { name: /^fly$/i })
+    // Wait for the first state to land before asserting anything. Fly is disabled while
+    // state is still null - no game path is known yet - so a "disabled" assertion made
+    // straight away passes on an empty window and tests nothing at all. This test read
+    // green with the merge deleted until that wait was added.
+    await waitFor(() => expect(fly()).toBeEnabled())
+    deliver({ type: 'running', running: true })
+    await waitFor(() => expect(fly()).toBeDisabled())
+    deliver({ type: 'state', ...base, running: false })
+    await waitFor(() => expect(fly()).toBeEnabled())
   })
 
   it('keeps the log', async () => {
