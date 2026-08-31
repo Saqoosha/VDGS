@@ -70,9 +70,15 @@ namespace VDGSCompanion
         /// <summary>
         /// Running is one bool, and building a whole state walks every capture on disk -
         /// so the game starting is sent on its own. Quitting is not the same: the game
-        /// owns the track database while it is up, so what is on disk afterwards may not
-        /// be what this window is showing. That one earns a fresh state, and it happens
-        /// with nobody touching the window.
+        /// owns the track database while it is up, and the browser UI can bind a capture
+        /// while someone is flying, so what is on disk afterwards may not be what this
+        /// window is showing. That one earns a fresh state, and it happens with nobody
+        /// touching the window.
+        ///
+        /// Which is exactly why it does not run here. That walk is the reason busy and
+        /// progress are separate messages at all; on the UI thread it would freeze the
+        /// window for seconds with nothing clicked and no hint anything was happening -
+        /// at the moment someone is looking back at it after closing the game.
         /// </summary>
         private void WatchGame()
         {
@@ -80,7 +86,7 @@ namespace VDGSCompanion
             if (now == _running) return;
             _running = now;
             if (now) Post(new { type = "running", running = true });
-            else Push();
+            else ThreadPool.QueueUserWorkItem(_ => Push());
         }
 
         private async System.Threading.Tasks.Task Start()

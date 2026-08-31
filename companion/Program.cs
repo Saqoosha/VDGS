@@ -64,7 +64,10 @@ namespace VDGSCompanion
                 // More than one can match: an --export-track run from a shell is this same
                 // exe, and it has no window at all.
                 if (p.Id == me.Id || p.MainWindowHandle == IntPtr.Zero) continue;
-                ShowWindow(p.MainWindowHandle, SW_RESTORE);
+                // Only when it is minimised. SW_RESTORE on a maximised window un-maximises
+                // it, so an unconditional call shrinks the very window it was asked to
+                // bring forward.
+                if (IsIconic(p.MainWindowHandle)) ShowWindow(p.MainWindowHandle, SW_RESTORE);
                 SetForegroundWindow(p.MainWindowHandle);
                 return;
             }
@@ -186,6 +189,9 @@ namespace VDGSCompanion
 
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         private static extern bool ShowWindow(IntPtr window, int command);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool IsIconic(IntPtr window);
 
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         private static extern bool SetForegroundWindow(IntPtr window);
