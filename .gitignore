@@ -2,13 +2,17 @@
 bin/
 obj/
 build/
+web/dist/
+web/node_modules/
 
 # prebuilt shader bundle staged for packaging; tools/package.sh fetches it
 # from the Windows box, and released zips live on GitHub Releases
 dist/payload/
 
-# reference assemblies pulled off the game install
-lib/
+# reference assemblies pulled off the game install. Anchored: an unanchored `lib/`
+# also swallows web/src/lib/, which is where shadcn puts the `cn` helper that every
+# generated component imports.
+/lib/
 
 # machine-specific SSH target for deploy / bake / launch
 tools/local.env
@@ -33,3 +37,14 @@ unity/*/Assets/GaussianAssets/
 
 *.user
 .DS_Store
+
+# Companion app build output
+companion/bin/
+companion/obj/
+companion/tests/bin/
+companion/tests/obj/
+
+# Worker dependencies and wrangler's own cache, which names the account it is signed
+# into - machine state, not the project's
+worker/node_modules/
+.wrangler/

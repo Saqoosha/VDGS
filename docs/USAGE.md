@@ -37,6 +37,21 @@ you want a smaller file on disk or a faster load.
 
 ## 2. Installing
 
+**The companion app is the short way.** Start `VDGS.exe`, press **Install mod**, and the
+DLL, the baked shader bundle and the control UI all go in - it carries them, so there is
+no zip to find. **02 get** downloads a capture, imports its track and binds the two, and
+**Fly** starts the game with `-force-d3d12`. **BepInEx still has to be installed first**
+(2-1).
+
+By hand from a release: `vdgs-mod-<version>.zip` already contains the DLL,
+a baked shader bundle and the control UI, so nothing has to be built:
+
+1. Install BepInEx (2-1)
+2. Unzip `vdgs-mod-*.zip` and copy its `BepInEx/` and `vdgs/` folders over the game's `app/`
+3. Add a capture — unzip `vdgs-scene-*.zip` over the same `app/` (§4-7)
+
+2-2 and 2-3 below are for building it yourself.
+
 ### 2-1. BepInEx
 
 Unpack [BepInEx 5.4.23.5 win_x64](https://github.com/BepInEx/BepInEx/releases) into the
@@ -281,6 +296,8 @@ the file needs a reload, not a checkbox toggle.
 
 You can write it by hand, but doing it from the UI is faster (§5).
 
+**Laying your own course over a capture and publishing it** is [TRACKS.md](TRACKS.md).
+
 - **An unbound track shows nothing.** That is safer than showing the wrong capture
 - one track may bind several captures
 - binding is **per track, not per scenery**, because many tracks share one scenery
@@ -290,28 +307,44 @@ entirely.
 
 ---
 
+### 4-7. Installing a capture somebody sent you
+
+Unzip `vdgs-scene-*.zip` and copy its `vdgs/` folder over the game's `app/`. Inside is a
+converted scene directory plus, where they exist, `collision.bin` and `placement.json`.
+
+**The one thing that trips people up: a binding is by track NAME.** The bundled
+`bindings.sample.json` assumes the track still carries the name it shipped with. If you
+renamed it after downloading it in Track Manager, bind it under **your** name instead —
+the browser UI in §5 is the quickest way.
+
+`placement.json` positions the capture **for that track**. Building your own course means
+adjusting it in the browser UI, which saves as you go.
+
 ## 5. Operating it from a browser
 
 Once the game is running the mod serves a control UI at **`http://<host>:8777/`**. Open it
 from any machine on the LAN. Watching the game on one screen and driving the mod from a
-browser on another is the intended setup.
+browser on another is the intended setup. After a UI-only change, `bash tools/deploy.sh --ui`
+copies `web/dist/` to `<game>/vdgs/ui/` without rebuilding the plugin.
 
 ```
-┌─ VDGS Control ──────────────────────────────────┐
-│  Current track                                  │
+┌ VDGS · local · 01 control / 02 library ─────────┐
+│  01 current track                               │
 │  Empty Scene Day                                │
-│  bound to myscene                               │
-├─────────────────────────────────────────────────┤
-│  Splat scenes on this machine                   │
-│  [shown]  myscene   1,916,379 splats            │
-│  [show ]  other        14,526 splats            │
-│                                                 │
-│  [Bind shown splat to this track]               │
-│  [Unbind this track]  [Hide all]                │
-├─────────────────────────────────────────────────┤
-│  Bindings                                       │
+│  bound → myscene                                │
+│  [Bind shown]  [Unbind]  [Hide all]             │
+│  02 on screen                                   │
+│  myscene   1,916,379 splats                     │
+│  [x] box  [x] solid  [hide mesh]                │
+│  Scale  ────│────  1.00×                        │
+│  Height ────│────  0.00m                        │
+│  03 bindings                                    │
 │  <track name>  →  myscene       [remove]        │
 └─────────────────────────────────────────────────┘
+
+Library is a numbered index of every capture on the machine (search, splat
+count, format, size, collision). Show loads it. Transform sliders stay on
+Control.
 ```
 
 **No game key is taken.** The track editor's arrow keys and F7 keep working. The UI

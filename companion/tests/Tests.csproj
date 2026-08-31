@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <AssemblyName>VDGSTests</AssemblyName>
+    <LangVersion>latest</LangVersion>
+    <!-- No RuntimeIdentifier here on purpose: the tests run on whatever machine is doing
+         the developing, so they need that machine's native SQLite. The app pins win-x64
+         because it only ever runs on Windows. -->
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The same sources the app ships, so the test cannot drift from what runs. -->
+    <Compile Include="../TrackStore.cs" />
+    <Compile Include="../Json.cs" />
+    <Compile Include="../GameInstall.cs" />
+    <Compile Include="../Catalog.cs" />
+    <Compile Include="../BepInEx.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- GameInstall unpacks release archives; the framework's zip support is not in the
+         default reference set. -->
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.Data.Sqlite.Core" Version="8.0.10" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.10" />
+    <PackageReference Include="System.Text.Json" Version="8.0.5" />
+  </ItemGroup>
+</Project>

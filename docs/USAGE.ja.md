@@ -35,6 +35,21 @@ mod は `.ply` を直接読むので、**変換は必須ではない**。ディ�
 
 ## 2. インストール
 
+**いちばん簡単なのは companion アプリ。** `VDGS.exe` を起動して `INSTALL MOD` を押すと、
+DLL・焼き済みシェーダーバンドル・操作 UI が入る（**アプリが中に持っている**ので、zip を
+探す必要はない）。キャプチャは `02 GET` から落とせて、トラックの登録と紐付けまで一度に済む。
+`FLY` は `-force-d3d12` を必ず付けて起動する。**BepInEx だけは先に自分で入れる**（2-1）。
+
+以下は zip から手で入れる場合。リリースの `vdgs-mod-<version>.zip` は
+DLL・焼き済みシェーダーバンドル・操作 UI の 3 つを入れてあるので、自分でビルドする
+必要はない：
+
+1. BepInEx を入れる（2-1）
+2. `vdgs-mod-*.zip` を展開して、中の `BepInEx/` と `vdgs/` をゲームの `app/` に重ねる
+3. キャプチャを入れる（`vdgs-scene-*.zip` を同じく `app/` に重ねる。§4-7）
+
+以降の 2-2 と 2-3 は**自分でビルドする場合**の手順。
+
 ### 2-1. BepInEx
 
 [BepInEx 5.4.23.5 win_x64](https://github.com/BepInEx/BepInEx/releases) をゲームフォルダに展開する。
@@ -267,6 +282,8 @@ UI では `solid` がドローンを止める。`show wire` / `show solid` が�
 
 手で書いてもいいが、ゲーム内から作るほうが早い（§5）。
 
+**自分でコースを組んで配るなら** [TRACKS.ja.md](TRACKS.ja.md) — 名前・シーナリー・書き出し・公開の通し。
+
 - **紐付けの無いトラックでは何も表示されない。** 間違った GS を出すより無害だから
 - 1 つのトラックに複数の GS を紐付けられる
 - シーナリー（Empty Scene Day など）単位ではなく**トラック単位**。同じシーナリー上に
@@ -276,28 +293,42 @@ UI では `solid` がドローンを止める。`show wire` / `show solid` が�
 
 ---
 
+### 4-7. 配布されたキャプチャを受け取る
+
+`vdgs-scene-*.zip` は展開して中の `vdgs/` をゲームの `app/` に重ねるだけ。中身は変換済み
+ディレクトリ一式と、あれば `collision.bin` と `placement.json`。
+
+**つまずくのはここだけ — 紐付けはトラック「名」で決まる。** 同梱の
+`bindings.sample.json` はトラックが配布時の名前のままであることを前提にしている。
+Track Manager で落としたあとに名前を変えたなら、**自分の名前で** 紐付け直す（§5 のブラウザ UI が早い）。
+
+`placement.json` は**そのトラックに合わせた位置**なので、自分でコースを組むなら
+ブラウザ UI で調整する（変更は自動保存される）。
+
 ## 5. 操作（ブラウザ）
 
 ゲームが起動すると、mod が **`http://<ホスト>:8777/`** で操作用の Web UI を出す。
 LAN 上の任意のマシンから開ける。Parsec でゲーム画面を見ながら、手元のブラウザで
-操作するのが想定運用。
+操作するのが想定運用。UI だけ変えたあとは `bash tools/deploy.sh --ui` で
+`web/dist/` を `<game>/vdgs/ui/` に置く。プラグインの再ビルドは不要。
 
 ```
-┌─ VDGS Control ──────────────────────────────────┐
-│  Current track                                  │
+┌ VDGS · local · 01 control / 02 library ─────────┐
+│  01 current track                               │
 │  Empty Scene Day                                │
-│  bound to myscene                               │
-├─────────────────────────────────────────────────┤
-│  Splat scenes on this machine                   │
-│  [shown]  myscene   1,916,379 splats            │
-│  [show ]  other        14,526 splats            │
-│                                                 │
-│  [Bind shown splat to this track]               │
-│  [Unbind this track]  [Hide all]                │
-├─────────────────────────────────────────────────┤
-│  Bindings                                       │
+│  bound → myscene                                │
+│  [Bind shown]  [Unbind]  [Hide all]             │
+│  02 on screen                                   │
+│  myscene   1,916,379 splats                     │
+│  [x] box  [x] solid  [hide mesh]                │
+│  Scale  ────│────  1.00×                        │
+│  Height ────│────  0.00m                        │
+│  03 bindings                                    │
 │  <track名>  →  myscene          [remove]        │
 └─────────────────────────────────────────────────┘
+
+Library はこのマシン上のキャプチャの番号付き目録（検索、splat 数、フォーマット、
+サイズ、コリジョン）。Show で表示する。スライダーは Control 側。
 ```
 
 **ゲームのキーは一切奪わない。** トラックエディタの矢印キーも F7（シーン保存）も

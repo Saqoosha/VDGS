@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VDGS Companion</title>
+    <style>
+      /* The window is a window, not a page: text selection and the caret belong to the
+         log alone, and nothing here is meant to be dragged out. */
+      body { user-select: none; cursor: default; }
+      /* The host draws no scrollbar of its own, so the page's is the only one - and the
+         default light one is the brightest thing on a near-black window. */
+      html { scrollbar-width: thin; scrollbar-color: #3a4152 transparent; }
+      ol[class*='font-mono'] li { user-select: text; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/companion.tsx"></script>
+  </body>
+</html>

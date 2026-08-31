@@ -367,3 +367,22 @@ The log **survives a relaunch** — each run appends under a `=== session <date>
 It used to truncate on startup, which destroyed the only thing it is for: comparing a
 change against the run before it. Any A/B that needs quitting the game between halves —
 which is most of them — was silently losing its baseline.
+
+Two traps when reading it:
+
+- **The splat count does not identify the scene.** A `--- shown: <name>` line marks each
+  change of displayed scene; use that. `drjohnson-high` and `drjohnson-shc` are **both
+  3,177,554**, and the run comparing exactly those two turned out to be unreadable
+  afterwards.
+- **A number pinned to a ceiling means "not measured", not "fast".** "Exactly 16.67 ms,
+  exactly 60.0 fps" was recorded as a VSync ceiling for a long time.
+  **It was Parsec in the way.**
+  Measured locally it is **119 fps / 8.40 ms** on a 120 Hz display.
+  The first data not hidden under a ceiling:
+
+```
+utlida-full-s5   4,001,829 splats   12.04 ms   p90 13.99
+utlida-lod1-s5   2,000,640 splats    9.13 ms   p90 13.39
+```
+
+**Twice the splats for 2.91 ms.** While both were pinned, that difference was invisible.

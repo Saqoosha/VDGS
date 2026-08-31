@@ -27,6 +27,8 @@ namespace VDGS
         private TrackBindings m_Bindings;
         private string m_CurrentTrack;
         private float m_TrackPollTimer;
+        private bool m_WasFlyable = true;
+        private string m_QuietScene;
         private string m_TrackLogPath;
         private WebControl m_Web;
 
@@ -49,6 +51,7 @@ namespace VDGS
 
             LoadShaders();
             StartWebControl();
+            EvalCam.Init(Paths.GameRootPath);
 
             SceneManager.sceneLoaded += OnSceneLoaded;
         }
@@ -66,6 +69,7 @@ namespace VDGS
             {
                 m_Web = new WebControl
                 {
+                    UiRoot = Path.Combine(Paths.GameRootPath, "vdgs", VdgsPaths.UiDirName),
                     StatusProvider = BuildStatus,
                     LoadSplat = ShowOnly,
                     BindCurrent = BindTo,
@@ -105,7 +109,14 @@ namespace VDGS
                 available.Add(new System.Collections.Generic.Dictionary<string, object>
                 {
                     { "name", s.Name },
+                    { "source", s.Source },
+                    { "kind", s.Kind },
                     { "splats", s.SplatCount },
+                    { "posFormat", s.PosFormat },
+                    { "scaleFormat", s.ScaleFormat },
+                    { "colorFormat", s.ColorFormat },
+                    { "shFormat", s.ShFormat },
+                    { "bytes", s.Bytes },
                     { "shown", s.Spawned },
                     { "scale", s.Scale },
                     { "y", s.YOffset },
@@ -336,6 +347,27 @@ namespace VDGS
         }
 
         /// <summary>
+        /// A <game>/vdgs/menuspawn flag file lets a capture spawn in the menus, so a remote
+        /// diagnostic can drive the renderer without flying a track.
+        /// </summary>
+        private static bool MenuSpawnAllowed()
+        {
+            try { return File.Exists(Path.Combine(Paths.GameRootPath, "vdgs", "menuspawn")); }
+            catch { return false; }
+        }
+
+        /// <summary>True when a track scene is loaded, whether or not it is the active one.</summary>
+        private static bool AnyFlyableSceneLoaded()
+        {
+            for (int i = 0; i < SceneManager.sceneCount; i++)
+            {
+                var s = SceneManager.GetSceneAt(i);
+                if (s.isLoaded && IsFlyableScene(s.name)) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
         /// Scenes with no world to place splats into. MainMenu is excluded too: splats
         /// showed up floating behind the menu drone, which looks broken rather than useful.
         /// </summary>
@@ -349,6 +381,7 @@ namespace VDGS
 
         private void Update()
         {
+            EvalCam.Poll(Time.unscaledDeltaTime);
             // Manual probe while flying - the interesting camera stack only exists mid-flight.
             if (Input.GetKeyDown(KeyCode.F9))
             {
@@ -415,6 +448,58 @@ namespace VDGS
             string name;
             try { name = TrackName.Current(log); }
             catch (Exception e) { log.AppendLine("track read failed: " + e.Message); name = null; }
+
+            // The menus host no track, and TrackName's last resort is the flight HUD label,
+            // which is not cleared when a flight ends - so leaving a track and walking back
+            // to the menu keeps reporting the track just flown. That stale name reaches the
+            // browser UI and, with a binding, spawns a capture behind the menu drone.
+            // This is not the per-track filter ProbeNextFrame argues against: that one asks
+            // which capture to show, and must stay keyed on the track. This asks whether
+            // there is a world at all.
+            //
+            // Every loaded scene is checked, not the active one: a track is loaded alongside
+            // the menu and does not necessarily become active, so asking
+            // SceneManager.GetActiveScene() alone reports "menu" for the whole flight and
+            // suppresses the capture that is the entire point of the mod. The active scene's
+            // name is still worth logging - it is what a reader will recognise.
+            var sceneName = SceneManager.GetActiveScene().name;
+            // A <game>/vdgs/menuspawn flag file skips the gate, so a remote diagnostic can
+            // probe the renderer without entering a track.
+            var flyable = AnyFlyableSceneLoaded() || MenuSpawnAllowed();
+            if (!flyable && name != null)
+            {
+                // Once per scene, not once per second: the stale label survives for as long
+                // as the menus are up, and a line every poll buries the log it shares with
+                // the track-change history that is actually worth reading.
+                if (!string.Equals(sceneName, m_QuietScene, StringComparison.Ordinal))
+                {
+                    log.AppendLine("  '" + name + "' ignored: scene '" + sceneName + "' holds no track");
+                    m_QuietScene = sceneName;
+                }
+                name = null;
+            }
+            else if (flyable)
+            {
+                m_QuietScene = null;
+            }
+
+            // Clearing the name is not enough to clear the picture. ApplyTrackBinding
+            // returns early for an unbound track and says so - it leaves whatever is on
+            // screen alone, because the browser can spawn a capture by hand and a poll
+            // running every second would otherwise fight the button. That mercy is for
+            // tracks, not for the menus, where a capture hangs behind the menu drone.
+            // Only on the way out: a spawn made deliberately while already in the menus
+            // is the operator's call, and this does not undo it.
+            if (m_WasFlyable && !flyable)
+            {
+                foreach (var s in m_Scenes)
+                {
+                    if (!s.Spawned) continue;
+                    s.Despawn();
+                    log.AppendLine("  " + s.Name + ": despawned, '" + sceneName + "' has no world");
+                }
+            }
+            m_WasFlyable = flyable;
 
             if (!string.Equals(name, m_CurrentTrack, StringComparison.Ordinal))
             {

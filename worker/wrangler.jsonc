@@ -1,0 +1,26 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "vdgs",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  // build/release/site is what tools/make-catalog.sh produces: the page, its assets and
+  // catalog.json. The captures are not in there - they are far too big for a deployment
+  // and go to R2 instead.
+  "assets": {
+    "directory": "../build/release/site",
+    "binding": "ASSETS"
+  },
+  "r2_buckets": [
+    {
+      "binding": "CAPTURES",
+      "bucket_name": "vdgs"
+    }
+  ],
+  "routes": [
+    {
+      "pattern": "vdgs.saqoo.sh",
+      "custom_domain": true
+    }
+  ],
+  "observability": { "enabled": true }
+}
