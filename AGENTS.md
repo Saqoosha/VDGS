@@ -556,16 +556,12 @@ docs/superpowers/specs/2026-08-18-splat-collision-design.md。
   孤立ブロック 1 個（1 splat）だけ残す。floater だけ落として 8.73M → 45 万三角形。
   `nelson-full.collision.bin`（lod2 も同一座標なので同じファイルをコピー済み）。
   `--reverse` は未確認。Web UI の show solid で中から壁が見えるか見てから決める
-- **JDL-2026-R5 は変換済みで実機投入待ち。** `build/splats/JDL-2026-R5-airvis/`
-  （2,521,003 splats / 212 MB ＋ `collision.bin` 999,654 三角形 / 18 MB）。プレビューと
-  落下テストは通っている。飛んで見るのはベール、地面の穴、コリジョンの当たり。
-  **ゲーム機 `w` が起きたら送るだけ**
-- **屋外用の掃除スクリプトはセッション用ディレクトリにしか無い。** 手順と数式は
-  docs/cleanup.ja.md に書いたが、`groundsquash.py` / `deelong.py` / `groundfill.py` /
-  `inflate.py` / `topcover.py` / `checkframe.py` / `glb2ply.py` 本体は `tools/` に
-  入れていない。**次に屋外シーンを作るなら移す価値がある**
-- **FDF の AirVis 版が未着手。** 写真 774 枚が win4090 の `C:\Users\saqoosha\fdf-photos\`
-  に置いてある
+- **JDL-2026-R5 は地面近くの霞がまだ少し残る。** 実機で飛んで確認済み（2026-08-31）。
+  掃除の側はやり切っていて、**残りは撮影密度の問題に見える** —— FDF と比べて写真が
+  4.6 分の 1（0.015 対 0.070 枚/m²）、地面の被覆が 6.5 分の 1（p50 0.26 対 1.68）。
+  Saqoosha が学習パラメータを変えて再挑戦する予定だが、**回した結果を `topcover.py` で
+  測れば決着する** —— 被覆 p50 が 0.26 のままなら撮影の問題、上がればパラメータの問題。
+  使っていない素材として **Insta360 の地上 1,420 枚**がある（AirVis は 360 映像を受け付ける）
 
 ## 参考
 
