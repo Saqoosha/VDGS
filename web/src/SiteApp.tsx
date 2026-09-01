@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Frame, Masthead } from './chrome'
 import Browse from './pages/Browse'
 import { initialLang, rememberLang, type Lang } from './i18n'
@@ -14,10 +14,10 @@ export default function SiteApp() {
   // Held here and passed down rather than put in a context: there is one consumer.
   const [lang, setLang] = useState<Lang>(initialLang)
 
-  // For readers and for search, which both take the page's word for what language it is.
-  useEffect(() => {
-    document.documentElement.lang = lang
-  }, [lang])
+  // The document's own lang stays English. Only the instructions are translated, so
+  // declaring the whole page Japanese would hand a speech synthesizer the scan names,
+  // the licence ids and the deliberately-English button names to read as Japanese. The
+  // lang attribute goes on the section that actually changes.
 
   function choose(next: Lang) {
     setLang(next)

@@ -59,13 +59,17 @@ export function Section({
   children,
   className = '',
   flush = false,
+  lang,
 }: {
   n: string
-  label: string
+  /** A node, not a string, so a label in a script that wants different spacing can say so. */
+  label: ReactNode
   children: ReactNode
   className?: string
   /** No rule or gap above. For a section that already follows one - the masthead's. */
   flush?: boolean
+  /** Set when this section alone is in another language, so readers and search know. */
+  lang?: string
 }) {
   // Built by swapping the base rather than appending an override: which of two
   // conflicting utilities wins depends on their order in the stylesheet, not here.
@@ -73,7 +77,7 @@ export function Section({
     ? ''
     : 'mt-9 border-t border-rule pt-4 first:mt-0 first:border-t-0 first:pt-0'
   return (
-    <section className={base + ' ' + className}>
+    <section className={base + ' ' + className} lang={lang}>
       <div className="mb-3 flex items-baseline gap-3 font-mono text-[10px] tracking-[0.22em] text-muted-foreground uppercase">
         <span className="text-signal">{n}</span>
         <span>{label}</span>

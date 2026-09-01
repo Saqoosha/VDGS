@@ -35,6 +35,11 @@ type Published = {
 
 export default function Browse({ lang }: { lang: Lang }) {
   const t = how[lang]
+  const ja = lang === 'ja'
+  // Japanese runs a step larger in the small ranks, for the same reason.
+  const note = ja
+    ? 'font-mono text-[12px] leading-relaxed text-muted-foreground'
+    : 'font-mono text-[11px] leading-relaxed text-muted-foreground'
   const [scenes, setScenes] = useState<Published[] | null>(null)
   const [app, setApp] = useState<App | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -89,8 +94,19 @@ export default function Browse({ lang }: { lang: Lang }) {
         )}
       </Section>
 
-      <Section n="02" label={t.label}>
-        <ol className="space-y-3 text-[14px] leading-relaxed text-muted-foreground">
+      {/* lang on this section only - it is the one part that changes. Japanese gets its
+          own spacing here: the micro-caps tracking that suits Latin small text pulls
+          kanji strokes into each other, and there is no CJK webfont to load (a face
+          would be megabytes), so the system's own is what has to stay legible. */}
+      <Section
+        n="02"
+        lang={lang}
+        label={ja ? <span className="text-[11px] tracking-normal">{t.label}</span> : t.label}
+      >
+        <ol className={
+          (ja ? 'text-[15px] ' : 'text-[14px] ') +
+          'space-y-3 leading-relaxed text-muted-foreground'
+        }>
           <Step n="01">{t.step1}</Step>
           {/* The button names stay in English in both languages, because the app is. */}
           <Step n="02">
@@ -127,12 +143,12 @@ export default function Browse({ lang }: { lang: Lang }) {
           ) : null}
         </div>
 
-        <p className="mt-5 font-mono text-[11px] leading-relaxed text-muted-foreground">
+        <p className={'mt-5 ' + note}>
           {t.d3d12}
         </p>
         {/* The app fetches this itself; the link is for anyone who would rather see what
             they are installing, or who is doing it by hand. */}
-        <p className="mt-2 font-mono text-[11px] leading-relaxed text-muted-foreground">
+        <p className={'mt-2 ' + note}>
           {t.loaderA}
           <a
             href="https://github.com/BepInEx/BepInEx/releases/tag/v5.4.23.5"

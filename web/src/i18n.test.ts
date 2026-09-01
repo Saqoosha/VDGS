@@ -58,7 +58,9 @@ describe('the dictionary', () => {
     for (const lang of ['en', 'ja'] as Lang[])
       for (const [key, value] of Object.entries(how[lang]))
         // The lead-ins around a button name are deliberately empty in Japanese, where the
-        // particle follows the name instead of preceding it.
-        if (!/^step[234]a$/.test(key)) expect(value, `${lang}.${key}`).not.toBe('')
+        // particle follows the name instead of preceding it. English has no such case -
+        // exempting it there would let "Press Install mod" ship as "Install mod".
+        if (!(lang === 'ja' && /^step[234]a$/.test(key)))
+          expect(value, `${lang}.${key}`).not.toBe('')
   })
 })
