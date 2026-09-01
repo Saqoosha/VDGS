@@ -131,6 +131,22 @@ APP_DIR="$ROOT/companion/bin/Release/net48"
 [ -f "$APP_DIR/ui/companion.html" ] || {
   echo "the app was built without its interface" >&2; exit 1; }
 
+# Both interface folders are copies of web/dist, file for file. Vite fingerprints every
+# asset, so a copy step that does not delete first leaves each build's assets beside the
+# last one's - which happened twice, once in the payload and once in the window's own ui,
+# and shipped 94 asset files where 38 were current. Nothing broke either time: the html
+# names only the live chunks. Counting is the only thing that notices.
+SRC_N=$(find "$ROOT/web/dist/assets" -type f | wc -l | tr -d ' ')
+for d in ui mod/vdgs/ui; do
+  [ -d "$APP_DIR/$d/assets" ] || continue
+  GOT_N=$(find "$APP_DIR/$d/assets" -type f | wc -l | tr -d ' ')
+  [ "$GOT_N" = "$SRC_N" ] || {
+    echo "$d/assets has $GOT_N files, web/dist/assets has $SRC_N - stale assets are piling up" >&2
+    echo "       (the Copy targets in companion/VDGSCompanion.csproj must empty first)" >&2
+    exit 1; }
+done
+echo "   assets ok: $SRC_N in web/dist, same in both copies"
+
 APP_ZIP="$OUT/vdgs-companion-$VERSION.zip"
 rm -f "$APP_ZIP"
 ( cd "$APP_DIR" && zip -qr "$APP_ZIP" . )

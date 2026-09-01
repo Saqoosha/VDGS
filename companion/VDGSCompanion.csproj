@@ -47,12 +47,22 @@
        by bun. It is copied in rather than referenced so the shipped app is one folder,
        and the copy is conditional so a C#-only build does not fail on a missing dist. -->
   <Target Name="CopyUi" AfterTargets="Build" Condition="Exists('$(MSBuildProjectDirectory)/../web/dist/companion.html')">
+    <!-- Emptied first, for the same reason CopyMod is: a bare Copy never removes, and
+         every asset carries a per-build content hash, so each rebuild left the previous
+         build's scripts beside the new ones. Measured before the fix: 62 js/css in the
+         window's own ui against 6 in the source, 94 asset files in total, all of them
+         shipped in the companion zip. companion.html names only the current chunks, so
+         nothing broke and nothing said anything. -->
+    <ItemGroup>
+      <StaleUi Include="$(OutDir)ui/**/*" />
+    </ItemGroup>
+    <Delete Files="@(StaleUi)" />
+    <RemoveDir Directories="$(OutDir)ui" />
     <ItemGroup>
       <UiFiles Include="$(MSBuildProjectDirectory)/../web/dist/**/*" />
     </ItemGroup>
     <Copy SourceFiles="@(UiFiles)"
-          DestinationFiles="@(UiFiles->'$(OutDir)ui/%(RecursiveDir)%(Filename)%(Extension)')"
-          SkipUnchangedFiles="true" />
+          DestinationFiles="@(UiFiles->'$(OutDir)ui/%(RecursiveDir)%(Filename)%(Extension)')" />
   </Target>
 
   <!-- The mod this app hands out, staged by tools/make-release.sh. Conditional so a
