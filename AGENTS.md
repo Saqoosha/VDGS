@@ -560,6 +560,24 @@ bash tools/publish.sh
 **`publish.sh` は R2 に上げてから deploy する。** 逆にすると、**まだ無いファイルを指す
 リストを必ず一度公開する**。
 
+**上げるのは `rclone`。`wrangler` では 300 MiB を超えると必ず落ちる**
+（`Wrangler only supports uploading files up to 300 MiB in size`、multipart のオプションが
+無い）。FDF 2026-08-22 は 375 MB でここに当たった。鍵は 1Password の `VDGS` 環境を
+`~/.claude/1p-mounts/vdgs.env` にマウントして読む（`VDGS_R2_ENV` で上書き可）。
+
+**`--s3-no-check-bucket` は必須。** トークンは `vdgs` バケットだけの Object Read & Write に
+絞ってあり、`rclone` は既定でバケットの存在を `CreateBucket` で確かめようとして 403 になる。
+**直すのは呼ぶ側で、トークンを広げるほうではない。**
+
+**同じ名前で中身を差し替えない。** 公開ファイルは `immutable, max-age=31536000` で配るので、
+上書きするとエッジは古い中身を 1 年出し続け、カタログは新しい digest を名乗る。
+**ダウンロードは完走して、そのあと展開が拒否される。** 版を上げて別名にする。
+2026-09-01 に `vdgs-companion-2026.09.01.zip` でこれをやりかけた。`publish.sh` が
+R2 の既存サイズと突き合わせて止めるようになっている。
+
+**`make-catalog.sh` は companion を mtime で選ぶ。** 名前順だと `2026.09.01.1` が
+`2026.09.01` より前に並ぶ（`1` < `z`）ので、同じ日の 2 回目のビルドが 1 回目に負ける。
+
 **公開していいのはライセンスが再配布を許すものだけ。** 表記の不在は許諾ではない。
 判断は「splat データは配布できない。同梱もしない」節。
 
