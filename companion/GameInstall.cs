@@ -40,6 +40,21 @@ namespace VDGSCompanion
         /// </summary>
         internal static string FindGame()
         {
+            foreach (var root in CandidateRoots())
+            {
+                if (IsGameFolder(root)) return root;
+                var app = Path.Combine(root, "app");
+                if (IsGameFolder(app)) return app;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// The guesses themselves, apart from the looking, so a test can read the list
+        /// rather than infer it from whether a search happened to succeed.
+        /// </summary>
+        internal static List<string> CandidateRoots()
+        {
             var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             var roots = new List<string>
             {
@@ -49,16 +64,13 @@ namespace VDGSCompanion
                 Path.Combine(home, "Downloads", "VelociDrone"),
                 Path.Combine(home, "Downloads", "Velocidrone Windows Launcher"),
             };
-            foreach (var drive in DriveInfo.GetDrives().Where(d => d.IsReady && d.DriveType == DriveType.Fixed))
+            // Every ready drive, not only the fixed ones. "Another drive" is one of the
+            // guide's own suggestions, and it does not say the drive has to be internal -
+            // an external disk is where a large sim often ends up.
+            foreach (var drive in DriveInfo.GetDrives().Where(d => d.IsReady))
                 roots.Add(Path.Combine(drive.RootDirectory.FullName, "VelociDrone"));
 
-            foreach (var root in roots)
-            {
-                if (IsGameFolder(root)) return root;
-                var app = Path.Combine(root, "app");
-                if (IsGameFolder(app)) return app;
-            }
-            return null;
+            return roots;
         }
 
         /// <summary>

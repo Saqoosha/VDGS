@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Microsoft.Data.Sqlite;
 using VDGSCompanion;
 
@@ -533,6 +534,20 @@ internal static class Harness
     {
         Console.WriteLine();
         Console.WriteLine("where the game is looked for");
+
+        // The list itself, not a stand-in for it. Reading FindGame's own candidates is
+        // what makes re-adding a Steam path or dropping the launcher folder fail here;
+        // exercising ScanRoots instead pins nothing, which is what the first version of
+        // this test did while claiming otherwise.
+        var guesses = GameInstall.CandidateRoots();
+        Check(guesses.Any(g => g.IndexOf("Velocidrone Windows Launcher", StringComparison.OrdinalIgnoreCase) >= 0),
+              "the launcher folder as unpacked is one of the guesses");
+        Check(guesses.Any(g => g.EndsWith(@"C:\VelociDrone", StringComparison.OrdinalIgnoreCase)),
+              "so is the location the guide names first");
+        Check(!guesses.Any(g => g.IndexOf("Steam", StringComparison.OrdinalIgnoreCase) >= 0),
+              "and no Steam path, for a game that is not sold through Steam");
+        Check(!guesses.Any(g => g.IndexOf("Program Files", StringComparison.OrdinalIgnoreCase) >= 0),
+              "nor Program Files, which the guide tells people to stay out of");
 
         var root = Path.Combine(Path.GetTempPath(), "vdgs-find-" + Guid.NewGuid().ToString("N"));
         try
