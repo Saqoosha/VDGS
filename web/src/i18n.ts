@@ -21,7 +21,10 @@ export const how = {
     step1: 'Download the companion below and run it.',
     step2a: 'Press ',
     step2b:
-      '. It finds VelociDrone, fetches BepInEx if you do not have it, and puts the mod in place.',
+      '. It looks for VelociDrone in the usual places, fetches BepInEx if you do not have ' +
+      'it, and puts the mod in place. VelociDrone has no installer - it lives wherever its ' +
+      'zip was unpacked - so if it is somewhere unusual the guess misses and you point at ' +
+      'the folder yourself with Change.',
     step3a: 'Open ',
     step3b: ' and take a scan. It downloads the scene, adds the track and binds the two.',
     step4a: 'Press ',
@@ -38,7 +41,9 @@ export const how = {
     step1: '下から companion を落として起動する。',
     step2a: '',
     step2b:
-      ' を押す。VelociDrone を自分で見つけ、BepInEx が無ければ取ってきて、mod を置く。',
+      ' を押す。companion が VelociDrone をよくある場所から探し、BepInEx が無ければ取ってきて、' +
+      'mod を置く。VelociDrone にはインストーラが無く、zip を解凍した場所がそのまま置き場所に' +
+      'なるので、変わった場所にあると見つからない。そのときは Change で自分でフォルダを指す。',
     step3a: '',
     step3b: ' からスキャンを取る。シーンを落とし、コースを追加し、両者を結びつける。',
     step4a: '',

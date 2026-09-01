@@ -48,7 +48,7 @@ compute 'SplatUtilities'                   supported=True
 
 | 項目 | 値 |
 |---|---|
-| ゲームパス | ランチャー既定は `%USERPROFILE%\Downloads\Velocidrone Windows Launcher\app`。上書きは `VDGS_GAME` |
+| ゲームパス | この機械では `%USERPROFILE%\Downloads\Velocidrone Windows Launcher\app`。上書きは `VDGS_GAME`。**これは既定ではない**（下） |
 | ユーザーデータ | `%USERPROFILE%\AppData\LocalLow\velocidrone\velocidrone` |
 | Velocidrone | 1.16.0 で確認 |
 | Unity | 2021.3.45f2 (88f88f591b2e) |
@@ -57,6 +57,19 @@ compute 'SplatUtilities'                   supported=True
 | GPU | RTX 3060 12GB で測定 |
 | 描画 API | **Direct3D 11** ← 3DGS には不足。D3D12/Vulkan が必要 |
 | exe | x64 |
+
+**VelociDrone に既定のインストール先は無い。** インストーラが存在せず、zip を解凍した場所に
+`Launcher.exe` がゲームを落とすので、置き場所を決めるのは利用者。PatchKit はそれをどこにも
+記録しない（`%LOCALAPPDATA%\PatchKit` は 32 バイトの `sender_id` 1 個だけ）。
+
+公式ガイドが名指しする推奨先は `C:\VelociDrone`、Desktop、Documents、別ドライブ。
+**`Program Files` は公式が避けろと言っている** — ランチャーが自分のフォルダに書き込むので
+UAC に止められ、更新が失敗したりログインで固まる。**Steam 配信ではない。**
+
+この表の `Downloads\Velocidrone Windows Launcher\app` は、この機械で zip を解凍した場所で
+あって、それ以上の意味は無い。`GameInstall.FindGame` はかつて Steam 3 種と `Program Files` を
+候補にしていた — **4 つのうち 3 つは存在しえず、1 つは公式が避けろと言う場所**。何も壊れず、
+ただ一度も当たらず、走査が黙って全部を拾っていた。2026-09-01 に一次情報を当てて直した。
 
 ### Mac（解析用）
 

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Microsoft.Data.Sqlite;
 using VDGSCompanion;
 
@@ -516,6 +517,75 @@ internal static class Harness
               "a binding written under the stored spelling does not count - the mod cannot find it");
     }
 
+    /// <summary>
+    /// Where the app guesses the game might be.
+    ///
+    /// There is no default to look up: VelociDrone ships as a zip with no installer, so
+    /// wherever Launcher.exe was extracted is where the game lives, and nothing records
+    /// it. These are the locations VelociDrone's own guide recommends - which is the only
+    /// thing that makes them better than any other guess.
+    ///
+    /// Pinned because the list was wrong for a release. Three of its four entries were
+    /// Steam paths for a game that is not on Steam, and the fourth was Program Files,
+    /// which the guide tells people to stay out of. Nothing failed; the guesses simply
+    /// never matched, and the disk scan carried every install quietly.
+    /// </summary>
+    private static void TheGuessesAreTheOnesTheGuideNames()
+    {
+        Console.WriteLine();
+        Console.WriteLine("where the game is looked for");
+
+        // The list itself, not a stand-in for it. Reading FindGame's own candidates is
+        // what makes re-adding a Steam path or dropping the launcher folder fail here;
+        // exercising ScanRoots instead pins nothing, which is what the first version of
+        // this test did while claiming otherwise.
+        // Only the written-down entries. The drive-derived ones are named after whatever
+        // volumes are mounted, so a disk called "Steam" would otherwise fail this with
+        // nothing in the code having changed - and telling the two apart by comparing
+        // against the live drive list only works on the machine that has that disk.
+        var written = GameInstall.NamedRoots();
+        Check(written.Any(g => g.IndexOf("Velocidrone Windows Launcher", StringComparison.OrdinalIgnoreCase) >= 0),
+              "the launcher folder as unpacked is one of the guesses");
+        Check(written.Any(g => g.EndsWith(@"C:\VelociDrone", StringComparison.OrdinalIgnoreCase)),
+              "so is the location the guide names first");
+        Check(GameInstall.CandidateRoots().Count > written.Count,
+              "and each mounted drive adds one, for the guide's \"another drive\"");
+        Check(!written.Any(g => g.IndexOf("Steam", StringComparison.OrdinalIgnoreCase) >= 0),
+              "and no Steam path, for a game that is not sold through Steam");
+        Check(!written.Any(g => g.IndexOf("Program Files", StringComparison.OrdinalIgnoreCase) >= 0),
+              "nor Program Files, which the guide tells people to stay out of");
+
+        var root = Path.Combine(Path.GetTempPath(), "vdgs-find-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            // The launcher creates app/ beside itself, so a recommended root has to be
+            // checked both ways round.
+            var withApp = Path.Combine(root, "VelociDrone", "app");
+            Directory.CreateDirectory(withApp);
+            File.WriteAllText(Path.Combine(withApp, "velocidrone.exe"), "");
+            Check(GameInstall.IsGameFolder(withApp), "a folder holding velocidrone.exe is the game");
+            Check(!GameInstall.IsGameFolder(Path.Combine(root, "VelociDrone")),
+                  "and its parent, which only holds the launcher, is not");
+
+            var found = GameInstall.ScanRoots(new[] { root }, maxDepth: 5, log: _ => { });
+            Check(found == withApp, "the scan finds it under a recommended-looking root");
+        }
+        finally { try { Directory.Delete(root, true); } catch { } }
+
+        // The scan is bounded, and the bound is the thing worth knowing: past it, the
+        // answer is "ask the person", not "search harder".
+        var deep = Path.Combine(Path.GetTempPath(), "vdgs-deep-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var buried = Path.Combine(deep, "a", "b", "c", "d", "e", "f", "game");
+            Directory.CreateDirectory(buried);
+            File.WriteAllText(Path.Combine(buried, "velocidrone.exe"), "");
+            Check(GameInstall.ScanRoots(new[] { deep }, maxDepth: 5, log: _ => { }) == null,
+                  "past the depth limit it gives up rather than pretending");
+        }
+        finally { try { Directory.Delete(deep, true); } catch { } }
+    }
+
     private static int Main()
     {
         var db = MakeDb();
@@ -625,6 +695,7 @@ internal static class Harness
         TheLoaderIsFetchedAndPinned();
         AHalfDoneInstallIsNotInstalled();
         OneCourseTwoSpellings();
+        TheGuessesAreTheOnesTheGuideNames();
 
         Console.WriteLine(_fail == 0 ? "\nALL PASS" : "\n" + _fail + " FAILED");
         return _fail == 0 ? 0 : 1;

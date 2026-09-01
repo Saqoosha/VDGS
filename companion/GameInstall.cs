@@ -20,22 +20,71 @@ namespace VDGSCompanion
     {
         internal const string LaunchArgs = "-force-d3d12";
 
-        /// <summary>Where the PatchKit launcher unpacks the game, and the usual alternatives.</summary>
+        /// <summary>
+        /// The places VelociDrone is commonly unzipped to.
+        ///
+        /// There is no default to look up. VelociDrone ships as a zip with no installer:
+        /// wherever Launcher.exe is extracted to is where it downloads the game, and
+        /// PatchKit records that nowhere - %LOCALAPPDATA%\PatchKit holds a 32-byte
+        /// sender_id and nothing else. So this is a list of guesses, and a guess that
+        /// misses is ordinary rather than exceptional.
+        ///
+        /// The guesses are the locations VelociDrone's own guide recommends: C:\VelociDrone,
+        /// a second drive, the desktop, documents. Program Files is deliberately absent -
+        /// the guide tells people to stay out of it, because the launcher writes into its
+        /// own folder and UAC stops it. Steam paths were here and are gone: the game is
+        /// not distributed through Steam, so they could never have matched.
+        ///
+        /// Each is checked twice, once as given and once with the app subfolder the
+        /// launcher creates beside itself.
+        /// </summary>
         internal static string FindGame()
         {
-            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            var candidates = new List<string>
+            foreach (var root in CandidateRoots())
             {
-                Path.Combine(home, "Downloads", "Velocidrone Windows Launcher", "app"),
-                @"C:\Program Files (x86)\Steam\steamapps\common\VelociDrone",
-                @"C:\Program Files\VelociDrone",
-            };
-            foreach (var drive in DriveInfo.GetDrives().Where(d => d.IsReady))
-                candidates.Add(Path.Combine(drive.RootDirectory.FullName,
-                                            "SteamLibrary", "steamapps", "common", "VelociDrone"));
-
-            return candidates.FirstOrDefault(IsGameFolder);
+                if (IsGameFolder(root)) return root;
+                var app = Path.Combine(root, "app");
+                if (IsGameFolder(app)) return app;
+            }
+            return null;
         }
+
+        /// <summary>
+        /// The guesses themselves, apart from the looking, so a test can read the list
+        /// rather than infer it from whether a search happened to succeed.
+        /// </summary>
+        internal static List<string> CandidateRoots() =>
+            NamedRoots().Concat(DriveRoots()).ToList();
+
+        /// <summary>
+        /// The guesses written down here, apart from the ones derived from whatever
+        /// drives happen to be mounted. Kept separate so a test can hold this list to
+        /// what the guide says without a volume's name deciding the outcome.
+        /// </summary>
+        internal static List<string> NamedRoots()
+        {
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            var roots = new List<string>
+            {
+                @"C:\VelociDrone",
+                Path.Combine(home, "Desktop", "VelociDrone"),
+                Path.Combine(home, "Documents", "VelociDrone"),
+                Path.Combine(home, "Downloads", "VelociDrone"),
+                Path.Combine(home, "Downloads", "Velocidrone Windows Launcher"),
+            };
+            return roots;
+        }
+
+        /// <summary>
+        /// One guess per mounted drive. "Another drive" is one of the guide's own
+        /// suggestions, and it does not say the drive has to be internal - an external
+        /// disk is where a large sim often ends up.
+        /// </summary>
+        internal static List<string> DriveRoots() =>
+            DriveInfo.GetDrives()
+                .Where(d => d.IsReady)
+                .Select(d => Path.Combine(d.RootDirectory.FullName, "VelociDrone"))
+                .ToList();
 
         /// <summary>
         /// Looks for velocidrone.exe across the disks, for when the known locations miss.
@@ -54,8 +103,11 @@ namespace VDGSCompanion
             {
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             };
+            // Every ready drive, matching the guesses above. Fixed-only meant a game on
+            // an external disk was missed twice over: the guess did not name the drive
+            // and the walk did not visit it.
             foreach (var d in DriveInfo.GetDrives())
-                if (d.IsReady && d.DriveType == DriveType.Fixed)
+                if (d.IsReady)
                     roots.Add(d.RootDirectory.FullName);
 
             return ScanRoots(roots, maxDepth: 5, log: log);
