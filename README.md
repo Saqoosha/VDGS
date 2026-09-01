@@ -25,8 +25,9 @@ here — they are hundreds of megabytes each. Step-by-step: [docs/USAGE.md](docs
 
 | | |
 |---|---|
-| Largest capture flown | **3,177,554 splats** (drjohnson), or 1.17M across three scenes at once |
-| Frame time | **9.0 ms** at 3.18M splats — RTX 3060, drone's eye view, 120° field of view |
+| Largest capture flown | **4,508,391 splats** (FDF-2026-08-22). Three scenes at once, 1.17M in total, is also fine |
+| Frame time | **9.0 ms** at 3.18M splats (drjohnson) — RTX 3060, drone's eye view, 120° field of view |
+| Collision | You can hit the scene — 2,197,134 triangles baked from FDF-2026-08-22. Physics runs at 400 Hz, so a wall thinner than 10 cm is passed through at 150 km/h |
 | Depth | Correct against gates and the aircraft; alpha blending holds up |
 
 Palette-free SH packing and frustum culling took that from 13.3 ms to 9.0 ms, **neither of
@@ -82,17 +83,21 @@ macOS cannot compile D3D shaders. Adding a capture needs nothing: drop the `.ply
 `ACTk.Runtime.dll` (Anti-Cheat Toolkit), and submitting times from a modified client is
 against its terms. Local flying only.
 
-## Scene data is not included
+## Captures
 
-**The mod ships no captures.** The only splat data in this repository is what
-`tools/make_test_ply.py` generates — a synthetic scene for checking axes, colour and
-scale. Everything flown during development belongs to someone else: the academic datasets
-state no licence at all (which means all rights reserved, not "free"), the INRIA 3DGS
-licence is research-only and carries that restriction to derivative works, and the rest
-are third-party captures published on SuperSplat.
+**One is published, and the companion installs it**: FDF-2026-08-22, an FPV practice field
+in Funabashi, Chiba — scanned for this project and released under CC0. 4,508,391 splats,
+with a collision mesh.
 
-Bring your own `.ply` and drop it in `<game>/vdgs/`. Collision meshes are optional and
-baked locally — [docs/SCENES.md](docs/SCENES.md).
+**Nothing else flown during development can be redistributed, and none of it is here.**
+The academic datasets state no licence at all, which means all rights reserved rather than
+"free"; the INRIA 3DGS licence is research-only and carries that restriction into
+derivative works; the rest are other people's captures published on SuperSplat under
+whatever their author chose. The only splat data in this repository is what
+`tools/make_test_ply.py` generates — a synthetic scene for checking axes, colour and scale.
+
+Bring your own `.ply` and drop it in `<game>/vdgs/`. Collision meshes are baked locally —
+[docs/SCENES.md](docs/SCENES.md).
 
 ## Licence
 
