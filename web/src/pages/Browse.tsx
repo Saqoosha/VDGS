@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Section } from '../chrome'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { formatBytes } from '../format'
+import { how, type Lang } from '../i18n'
 
 /**
  * The public list of captures, on the web rather than in the app.
@@ -10,6 +11,13 @@ import { formatBytes } from '../format'
  * A browser cannot install anything into a game, so this does not pretend to: it says
  * what exists, what it costs and what it is licensed as, hands over the files, and points
  * at the app for the part a page cannot do.
+ *
+ * "Scans" rather than "captures": the second is the word this project uses among itself
+ * and says nothing to someone arriving from outside. Only the wording changes - the
+ * catalog still calls them scenes, because that is the shape of the published data.
+ *
+ * Only the instructions below carry a translation. The list is names, numbers and
+ * licences, and "4,508,391 splats" reads the same in either language.
  */
 type App = { version: string; url: string; bytes: number }
 
@@ -25,7 +33,8 @@ type Published = {
   track?: { url: string; bytes: number; name: string } | null
 }
 
-export default function Browse() {
+export default function Browse({ lang }: { lang: Lang }) {
+  const t = how[lang]
   const [scenes, setScenes] = useState<Published[] | null>(null)
   const [app, setApp] = useState<App | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -47,7 +56,7 @@ export default function Browse() {
 
   return (
     <div>
-      <Section n="01" label="captures" flush>
+      <Section n="01" label="scans" flush>
         <label className="flex items-end gap-4 border-b border-rule pb-1.5">
           <span className="font-mono text-[10px] tracking-[0.22em] text-muted-foreground uppercase">
             find
@@ -56,7 +65,7 @@ export default function Browse() {
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="name…"
-            aria-label="Search captures"
+            aria-label="Search scans"
             className="h-8 border-0 bg-transparent px-0 font-serif text-xl shadow-none focus-visible:ring-0"
           />
         </label>
@@ -80,32 +89,31 @@ export default function Browse() {
         )}
       </Section>
 
-      <Section n="02" label="how">
+      <Section n="02" label={t.label}>
         <ol className="space-y-3 text-[14px] leading-relaxed text-muted-foreground">
-          <li>
-            <span className="mr-3 font-mono text-[11px] text-signal">01</span>
-            Download the companion below and run it.
-          </li>
-          <li>
-            <span className="mr-3 font-mono text-[11px] text-signal">02</span>
-            Press <b className="text-foreground">Install mod</b>. It finds VelociDrone, fetches
-            BepInEx if you do not have it, and puts the mod in place.
-          </li>
-          <li>
-            <span className="mr-3 font-mono text-[11px] text-signal">03</span>
-            Open <b className="text-foreground">02 get</b> and take a capture. It downloads the
-            scene, adds the track and binds the two.
-          </li>
-          <li>
-            <span className="mr-3 font-mono text-[11px] text-signal">04</span>
-            Press <b className="text-foreground">Fly</b>.
-          </li>
+          <Step n="01">{t.step1}</Step>
+          {/* The button names stay in English in both languages, because the app is. */}
+          <Step n="02">
+            {t.step2a}
+            <b className="text-foreground">Install mod</b>
+            {t.step2b}
+          </Step>
+          <Step n="03">
+            {t.step3a}
+            <b className="text-foreground">02 get</b>
+            {t.step3b}
+          </Step>
+          <Step n="04">
+            {t.step4a}
+            <b className="text-foreground">Fly</b>
+            {t.step4b}
+          </Step>
         </ol>
 
         <div className="mt-6 flex flex-wrap items-center gap-4">
           {app ? (
             <Button size="lg" className="font-mono tracking-[0.2em] uppercase" asChild>
-              <a href={app.url}>Download the companion</a>
+              <a href={app.url}>{t.download}</a>
             </Button>
           ) : null}
           {app ? (
@@ -120,23 +128,31 @@ export default function Browse() {
         </div>
 
         <p className="mt-5 font-mono text-[11px] leading-relaxed text-muted-foreground">
-          the game must be started with -force-d3d12, which the companion always does.
-          without it the captures do not draw at all, and nothing says why.
+          {t.d3d12}
         </p>
         {/* The app fetches this itself; the link is for anyone who would rather see what
             they are installing, or who is doing it by hand. */}
         <p className="mt-2 font-mono text-[11px] leading-relaxed text-muted-foreground">
-          the loader is{' '}
+          {t.loaderA}
           <a
             href="https://github.com/BepInEx/BepInEx/releases/tag/v5.4.23.5"
             className="text-foreground underline underline-offset-4 hover:text-signal"
           >
             BepInEx 5.4.23.5 (win_x64)
           </a>
-          , fetched from its own release and checked against a pinned digest.
+          {t.loaderB}
         </p>
       </Section>
     </div>
+  )
+}
+
+function Step({ n, children }: { n: string; children: ReactNode }) {
+  return (
+    <li>
+      <span className="mr-3 font-mono text-[11px] text-signal">{n}</span>
+      {children}
+    </li>
   )
 }
 
