@@ -1,6 +1,6 @@
 # 配布は companion アプリ（`companion/`）
 
-*[← AGENTS.md](../AGENTS.md)*
+*[English](distribution.md)*
 
 **mod をどうやって人に届けるか。** companion アプリの中身、リリースを組んで上げる通し、
 置き場所の Cloudflare 構成、そして通し確認に使える実測値。**日常の開発では要らない** —

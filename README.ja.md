@@ -44,6 +44,8 @@ SH のパッキングと視錐台カリングで、どちらも**画質を落と
 |---|---|
 | [docs/USAGE.ja.md](docs/USAGE.ja.md) | 導入・起動・操作 |
 | [docs/SCENES.ja.md](docs/SCENES.ja.md) | `.ply` の用意、向き合わせ、コリジョンの焼き方 |
+| [docs/TRACKS.ja.md](docs/TRACKS.ja.md) | キャプチャの上にコースを組んで配れる形にする |
+| [docs/distribution.ja.md](docs/distribution.ja.md) | companion アプリ、リリースの通し、ホスティング |
 | [docs/ARCHITECTURE.ja.md](docs/ARCHITECTURE.ja.md) | 内部構造と設計判断の理由 |
 | [docs/ply-loading.ja.md](docs/ply-loading.ja.md) | .ply を実行時に読む仕組みと罠 |
 | [docs/performance.ja.md](docs/performance.ja.md) | 描画コストの内訳と、削るための手 |

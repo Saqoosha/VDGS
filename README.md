@@ -45,6 +45,8 @@ an injected plugin.
 |---|---|
 | [docs/USAGE.md](docs/USAGE.md) | Install, launch, control it |
 | [docs/SCENES.md](docs/SCENES.md) | Bring a `.ply`, orient it, bake a collision mesh |
+| [docs/TRACKS.md](docs/TRACKS.md) | Lay a course over a capture and get it shippable |
+| [docs/distribution.md](docs/distribution.md) | The companion app, the release run, the hosting |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Internals, and why the design is what it is |
 | [docs/ply-loading.md](docs/ply-loading.md) | Reading .ply at load time, and its traps |
 | [docs/performance.md](docs/performance.md) | Where the frame time goes, and what moves it |
