@@ -126,7 +126,6 @@ const devState: SetupState = {
         splats: 1497617,
         bytes: 123_657_212,
         installed: true,
-        needsMod: null,
       },
       {
         id: 'jdl-2026-r5',
@@ -137,7 +136,6 @@ const devState: SetupState = {
         splats: 3_900_000,
         bytes: 402_000_000,
         installed: false,
-        needsMod: '2026.09.01',
       },
     ],
   },

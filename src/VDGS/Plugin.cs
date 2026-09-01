@@ -24,8 +24,8 @@ namespace VDGS
 
         /// <summary>
         /// What this build actually is: the release version make-release.sh stamps into
-        /// the assembly, which is also the number the companion reads off the DLL and
-        /// compares against a catalog's minModVersion.
+        /// the assembly, which is also the number the companion reads off the DLL to tell
+        /// an update from a reinstall.
         ///
         /// Reported instead of PluginVersion anywhere a person or another tool reads it,
         /// so one build does not answer the same question with two numbers. A dev build

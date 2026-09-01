@@ -26,9 +26,7 @@
         "name": "VDGS FDF",
         "sceneId": 16,
         "gates": 15
-      },
-
-      "minModVersion": "2026.08.24"
+      }
     }
   ]
 }
