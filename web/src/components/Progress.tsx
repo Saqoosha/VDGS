@@ -41,8 +41,7 @@ export function Progress({ what, percent }: { what: string; percent: number | nu
         ) : (
           // A third of the track, sliding from just off one end to just off the other:
           // it says the app is alive without claiming to know how much is left. The
-          // travel is 200% rather than 300% - a third of the width moving three widths
-          // spends most of its time outside the track, where nobody can see it.
+          // travel has to be 300%, which is exactly edge to edge - see the keyframes.
           <div className="h-full w-1/3 animate-[progress-sweep_1.4s_ease-in-out_infinite] bg-signal" />
         )}
       </div>
