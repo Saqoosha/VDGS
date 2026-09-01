@@ -444,8 +444,8 @@ docs/ARCHITECTURE.ja.md の「トラック名の取得は総当たりで見つ�
 
 ### 罠
 
-- **`JsonUtility` は使えない。** 辞書をシリアライズできず、入れ子型を**例外も警告もなく
-  `{}` にする**。ファイルは正常に書けたように見えて中身だけ空になる。
+- **`JsonUtility` は使えない。** 辞書をシリアライズできず、入れ子型を
+  **例外も警告もなく `{}` にする**。ファイルは正常に書けたように見えて中身だけ空になる。
   bindings はゲーム同梱の **Newtonsoft.Json 13**（`Managed/Newtonsoft.Json.dll`）を使う
 - **`HttpListener` はボディの無い POST を `411 Length Required` で弾く。**
   ハンドラまで届かないので、`curl -X POST .../api/unload` は失敗する。`-d '{}'` を付ける
@@ -586,37 +586,27 @@ sha256 を固定して。**「先に BepInEx を入れて」は全インスト�
 ### 配布の通し
 
 **キャプチャは mod に同梱しない**（数百 MB）。アプリの `02 GET` からカタログ経由で落とす。
+**4 手順（トラック書き出し → 固める → カタログ → 上げる）は catalog/README.md。**
+サイズと digest を実物から測る理由は docs/TRACKS.ja.md。
 
-```bash
-# 1. コースを DB から出す（Windows 側。公式サーバー由来のトラックは拒否される）
-VDGS.exe --export-track "VDGS FDF" VDGS-FDF.track.json   # → catalog/tracks/
-VDGS.exe --check-catalog https://vdgs.saqoo.sh/catalog.json   # 読めるか確かめる
+アプリ側の防具は 3 つ。
 
-# 2〜4. 固めて、カタログを組んで、上げる
-bash tools/make-release.sh --scene <name> --scene-dir <path>
-bash tools/make-catalog.sh --base-url https://vdgs.saqoo.sh
-bash tools/publish.sh
-```
+- https 以外を拒否する（loopback だけ例外）
+- digest が合わなければ展開しない
+- 知らない `formatVersion` は読まない
 
-**サイズと sha256 は測って書く、手で書かない。** ダウンロードが途中で切れたか差し替えられたか
-を見るのは digest だけで、手写しの digest はいつか必ず狂う。アプリは **https 以外を拒否**
-（loopback だけ例外、テスト用）、**digest が合わなければ展開しない**、**知らない
-`formatVersion` は読まない**。欠けたフィールドを「トラック無し」と誤読して、
-**公開物の半分だけ入れる**のが最悪なので。
+**欠けたフィールドを「トラック無し」と誤読して、公開物の半分だけ入れるのが最悪**なので。
 
 **mod の版はリリースの日付で、`make-release.sh` だけが刻む**（`-p:Version=$VERSION`）。
 `src/VDGS/VDGS.csproj` の `<Version>0.1.0</Version>` は置き場所で、そのまま出るのは
 **dev ビルド**。companion の mod ボタンは導入済みの版と同梱の版を比べるので、
-**全ビルドが同じ 0.1.0.0 を名乗っている間は「Reinstall mod」しか出せなかった** —
-更新を更新だと知る手段が無かった。
+**全ビルドが同じ 0.1.0.0 を名乗っている間は「Reinstall mod」しか出せない**。
 
-**カタログ側にバージョン要件は無い。** `minModVersion` を一度足して、同じ日に外した。
-まだ 1 本もリリースしていない時点では、**存在しない問題への防具**だった
-（[#4](https://github.com/Saqoosha/VDGS/issues/4)）。要るのは、古い mod では描けない
-キャプチャを実際に公開したときで、そのときに設計する。
+**カタログ側にバージョン要件は置かない。** 要るのは古い mod では描けないキャプチャを
+実際に公開したときで、そのときに設計する（[#4](https://github.com/Saqoosha/VDGS/issues/4)）。
 
-**`publish.sh` は R2 に上げてから deploy する。** 逆にすると、**まだ無いファイルを指す
-リストを必ず一度公開する**。
+**`publish.sh` は R2 に上げてから deploy する。**
+逆にすると、**まだ無いファイルを指すリストを必ず一度公開する**ことになる。
 
 **上げるのは `rclone`。`wrangler` では 300 MiB を超えると必ず落ちる**
 （`Wrangler only supports uploading files up to 300 MiB in size`、multipart のオプションが
@@ -670,11 +660,19 @@ R2 は Range 対応で streaming（回線が切れても再開できる）、`im
 | 測るもの | 値 |
 |---|---|
 | まっさらなゲームフォルダに `INSTALL MOD` | 133 ファイル / 5.2 MB、約 1 秒 |
-| ＋ FDF を `02 GET` | 142 ファイル / 134.0 MB |
 | `vdgs-shaders` | 1,538,627 バイト（1MB 未満は失敗版） |
-| FDF のキャプチャ zip | 123,654,552 バイト / 1,497,617 splats |
 | companion の zip | 約 6.0 MB |
-| FDF のダウンロード | コールド 54 秒、エッジキャッシュ後 5 秒 |
+| キャプチャのダウンロード | コールド 54 秒、エッジキャッシュ後 5 秒（134 MB 時の実測） |
+
+配備中の 2 シーン（どちらも実機で飛行確認済み。掃除とコリジョンの設定は docs/cleanup.ja.md）：
+
+| | splats | サイズ | コリジョン |
+|---|---|---|---|
+| `JDL-2026-R5-airvis` | 2,521,003 | 212 MB | 1,597,643 三角形 / 27 MB / 辺 0.137 m |
+| `FDF-2026-08-22` | 4,508,391 | 362 MB | 2,197,134 三角形 / 39 MB / 辺 0.213 m |
+
+`FDF-2026-08-22` の配布 zip は 375,693,606 バイト
+（sha256 `be0527f827d67e4e6a3e6bced0b2809c90dcdf2fdbd88cc4b1e5abfda397fe7c`）。
 
 **GUI は実機でしか確かめられない。** セッション 0 には窓が無いので、起動も撮影も
 クリックもスケジュールタスク（`New-ScheduledTaskPrincipal -LogonType Interactive`）経由。
@@ -805,10 +803,9 @@ docs/superpowers/specs/2026-08-18-splat-collision-design.md。
   無い。追うなら Norm8x4 の色デコードから
 - **完全な High パッキングは未実装。** 焼いた版との差は 7% で、**差に見合うかは疑問**
   （数字は docs/ply-loading.ja.md）
-- **空を学習から除くマスクは未実施。** FDF の巨大 splat は色まで測ると空と雲そのもの
-  （高度 15m 超・2m 超の 1,694 個が平均 RGB 0.79/0.82/0.85、不透明度 0.77）で、
-  `--max-sigma` はそれを後から削っているだけ。**マスクは空側を削る方向に膨張させる** —
-  細い前景（電線・旗のポール・枝）を食うので。詳細は docs/alignment.ja.md
+- **空マスクは実施済みで、道具は `tools/sky_person_mask.py`。** 空・雲・人を SegFormer で
+  切って AirVis の自動マスク（自撮り棒とマウント）と論理積する。閾値と根拠は
+  docs/airvis.ja.md。**まだ効果を出しきれていないのは 360 単独の走行だけ**（下）
 - **FDF の芝の平坦化は不要だった可能性が高い。** 平坦化前でも地面は破綻せず、むしろ芝目が
   残る（「over flattened で眠い」の原因）。一方**ゴミ除去は本当に必要**で、生データは空が
   白く埋まる
@@ -822,13 +819,16 @@ docs/superpowers/specs/2026-08-18-splat-collision-design.md。
   孤立ブロック 1 個（1 splat）だけ残す。floater だけ落として 8.73M → 45 万三角形。
   `nelson-full.collision.bin`（lod2 も同一座標なので同じファイルをコピー済み）。
   `--reverse` は未確認。Web UI の show solid で中から壁が見えるか見てから決める
-- **JDL-2026-R5 は地面近くの霞がまだ少し残る。** 実機で飛んで確認済み（2026-08-31）。
-  掃除の側はやり切っていて、**残りは撮影密度の問題に見える** —— FDF と比べて写真が
-  4.6 分の 1（0.015 対 0.070 枚/m²）、地面の被覆が 6.5 分の 1（p50 0.26 対 1.68）。
-  Saqoosha が学習パラメータを変えて再挑戦する予定だが、**回した結果を `topcover.py` で
-  測れば決着する** —— 被覆 p50 が 0.26 のままなら撮影の問題、上がればパラメータの問題。
-  使っていない素材として **Insta360 の地上 1,420 枚**がある（AirVis は 360 映像を受け付ける）
-
+- **JDL-2026-R5 は地面近くの霞がまだ少し残る。** 実機で飛んで確認済み。掃除の側はやり切って
+  いて、**残りは撮影密度の問題に見える** —— FDF と比べて写真が 4.6 分の 1（0.015 対
+  0.070 枚/m²）、地面の被覆が 4 分の 1（p50 0.40 対 1.68）。**学習を厚くしても埋まらない**
+  ことは確認済み（5M / 10 万反復にしても被覆は 0.40 → 0.35 で、細部だけが良くなった）
+- **Insta360 の地上映像は単独では使えない。** マスクと cap を合わせて生存 52.9% まで戻したが、
+  健全な走行の 89〜97% には届かない（詳細と残る容疑者は docs/airvis.ja.md）。
+  **次に試す価値があるのは合成のほう** —— AirVis の `Super User` が image と mixed フォルダの
+  静止画を全部使うので、**DJI 456 枚と 360 の動画を 1 つの再構成に入れられる可能性がある**
+  （未検証）。そのとき総当たり照合も戻す。**マスク 9,088 枚は win4090 に残っていて、
+  `Prepare Images` をやり直さない限り使い回せる**
 ## 参考
 
 - [aras-p/UnityGaussianSplatting](https://github.com/aras-p/UnityGaussianSplatting) — Mac M1 Max で 46FPS の実測あり
