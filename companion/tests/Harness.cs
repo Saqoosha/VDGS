@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using Microsoft.Data.Sqlite;
 using VDGSCompanion;
@@ -356,6 +357,53 @@ internal static class Harness
         return path;
     }
 
+    /// <summary>
+    /// What the catalog page is allowed to call installed.
+    ///
+    /// This is the test the bug did not have. "Installed" used to mean the capture folder
+    /// existed, so a run that downloaded the capture and then failed to import the track -
+    /// the ordinary outcome on a machine the game has never been started on - left the
+    /// entry claiming to be installed and its Get button greyed out for good. The capture
+    /// was on disk, nothing in the game reached it, and the app insisted it was done.
+    /// </summary>
+    private static void AHalfDoneInstallIsNotInstalled()
+    {
+        Console.WriteLine();
+        Console.WriteLine("what counts as installed");
+
+        var withTrack = new Catalog.Entry
+        {
+            Id = "fdf", Name = "FDF", InstallAs = "FDF-2026-08-24",
+            Scene = new Catalog.File_ { Url = "https://x/s.zip" },
+            Track = new Catalog.File_ { Url = "https://x/t.json" },
+            TrackName = "VDGS FDF",
+        };
+        var captureOnly = new Catalog.Entry
+        {
+            Id = "bare", Name = "Bare", InstallAs = "bare",
+            Scene = new Catalog.File_ { Url = "https://x/s.zip" },
+        };
+
+        var inGame = new Dictionary<string, bool>(StringComparer.Ordinal) { { "VDGS FDF", false } };
+        var bound = new Dictionary<string, List<string>>(StringComparer.Ordinal)
+            { { "VDGS FDF", new List<string> { "FDF-2026-08-24" } } };
+        var noTracks = new Dictionary<string, bool>(StringComparer.Ordinal);
+        var noBindings = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+
+        Check(captureOnly.TrackInPlace(null, null),
+              "a capture with no published track needs nothing else");
+        Check(withTrack.TrackInPlace(inGame, bound),
+              "imported and bound is done");
+        Check(!withTrack.TrackInPlace(noTracks, bound),
+              "bound to a track the game does not have is not done");
+        Check(!withTrack.TrackInPlace(inGame, noBindings),
+              "imported but never bound is not done");
+        // The first-run case that caused this: no database at all, so the import cannot
+        // have happened. Unknown must not read as finished, or Get dies with it.
+        Check(!withTrack.TrackInPlace(null, bound),
+              "an unreadable database does not count as finished");
+    }
+
     private static int Main()
     {
         var db = MakeDb();
@@ -431,6 +479,7 @@ internal static class Harness
         CatalogIsReadAndChecked();
         InstallingAndRemovingKeepWhatIsTheirs();
         TheLoaderIsFetchedAndPinned();
+        AHalfDoneInstallIsNotInstalled();
 
         Console.WriteLine(_fail == 0 ? "\nALL PASS" : "\n" + _fail + " FAILED");
         return _fail == 0 ? 0 : 1;

@@ -48,6 +48,36 @@ namespace VDGSCompanion
 
             /// <summary>Total bytes to fetch, for a size shown before a click.</summary>
             public long Bytes => (Scene != null ? Scene.Bytes : 0) + (Track != null ? Track.Bytes : 0);
+
+            /// <summary>
+            /// Whether the track half of this entry is really in place: the course in the
+            /// game's own database, and a binding aiming it at the capture.
+            ///
+            /// A capture sitting in a folder is not an install - nothing in the game
+            /// reaches it. Reporting one as installed is what turned a failed track import
+            /// into a dead end: the page greyed out the only button that could have
+            /// finished the job, and running the game did not bring it back, because what
+            /// disabled it never looked at the database.
+            ///
+            /// Not knowing counts as not done. When the database cannot be read there is
+            /// no honest way to call this complete, and leaving Get alive costs a click,
+            /// where claiming completion costs the only route to a working install.
+            /// </summary>
+            /// <param name="inGame">Track names the game knows, or null if unreadable.</param>
+            /// <param name="bound">vdgs/bindings.json, keyed by track name.</param>
+            internal bool TrackInPlace(Dictionary<string, bool> inGame,
+                                       Dictionary<string, List<string>> bound)
+            {
+                // Nothing published to import: the capture on its own is the whole entry,
+                // and whoever wants it bound does that themselves once flying.
+                if (Track == null || TrackName == null) return true;
+
+                // Ordinal throughout, like the bindings file and the mod that reads it -
+                // these are the game's own track names, matched the way the game matches
+                // them.
+                return inGame != null && inGame.ContainsKey(TrackName)
+                    && bound != null && bound.ContainsKey(TrackName);
+            }
         }
 
         // ------------------------------------------------------------------ fetching
