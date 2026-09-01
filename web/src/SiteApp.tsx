@@ -1,5 +1,7 @@
+import { useState } from 'react'
 import { Frame, Masthead } from './chrome'
 import Browse from './pages/Browse'
+import { initialLang, rememberLang, type Lang } from './i18n'
 
 /**
  * The public page. Same shell as the app and the in-game UI - a visitor who later runs
@@ -9,23 +11,64 @@ import Browse from './pages/Browse'
  * case-insensitive disk, and writing both silently left only the second.
  */
 export default function SiteApp() {
+  // Held here and passed down rather than put in a context: there is one consumer.
+  const [lang, setLang] = useState<Lang>(initialLang)
+
+  // The document's own lang stays English. Only the instructions are translated, so
+  // declaring the whole page Japanese would hand a speech synthesizer the scan names,
+  // the licence ids and the deliberately-English button names to read as Japanese. The
+  // lang attribute goes on the section that actually changes.
+
+  function choose(next: Lang) {
+    setLang(next)
+    rememberLang(next)
+  }
+
   return (
     <div className="min-h-svh text-foreground">
       <Frame>
         <Masthead
           eyebrow="3d gaussian splatting / velocidrone"
-          meta="captures, tracks and the mod"
+          meta="scans, tracks and the mod"
           status={
-            <a
-              href="https://github.com/Saqoosha/VDGS"
-              className="text-muted-foreground hover:text-foreground"
-            >
-              source
-            </a>
+            <span className="flex items-baseline gap-3">
+              <LangPick now={lang} onPick={choose} />
+              <span className="text-rule">/</span>
+              <a
+                href="https://github.com/Saqoosha/VDGS"
+                className="text-muted-foreground hover:text-foreground"
+              >
+                source
+              </a>
+            </span>
           }
         />
-        <Browse />
+        <Browse lang={lang} />
       </Frame>
     </div>
+  )
+}
+
+/**
+ * Both languages are always on screen rather than one toggle that says the other name.
+ * A reader who cannot read the current language cannot read a button labelled in it.
+ */
+function LangPick({ now, onPick }: { now: Lang; onPick: (l: Lang) => void }) {
+  return (
+    <span className="flex items-baseline gap-2">
+      {(['en', 'ja'] as Lang[]).map((l) => (
+        <button
+          key={l}
+          type="button"
+          onClick={() => onPick(l)}
+          aria-pressed={now === l}
+          className={
+            now === l ? 'text-signal' : 'text-muted-foreground hover:text-foreground'
+          }
+        >
+          {l}
+        </button>
+      ))}
+    </span>
   )
 }
