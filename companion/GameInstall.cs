@@ -20,21 +20,45 @@ namespace VDGSCompanion
     {
         internal const string LaunchArgs = "-force-d3d12";
 
-        /// <summary>Where the PatchKit launcher unpacks the game, and the usual alternatives.</summary>
+        /// <summary>
+        /// The places VelociDrone is commonly unzipped to.
+        ///
+        /// There is no default to look up. VelociDrone ships as a zip with no installer:
+        /// wherever Launcher.exe is extracted to is where it downloads the game, and
+        /// PatchKit records that nowhere - %LOCALAPPDATA%\PatchKit holds a 32-byte
+        /// sender_id and nothing else. So this is a list of guesses, and a guess that
+        /// misses is ordinary rather than exceptional.
+        ///
+        /// The guesses are the locations VelociDrone's own guide recommends: C:\VelociDrone,
+        /// a second drive, the desktop, documents. Program Files is deliberately absent -
+        /// the guide tells people to stay out of it, because the launcher writes into its
+        /// own folder and UAC stops it. Steam paths were here and are gone: the game is
+        /// not distributed through Steam, so they could never have matched.
+        ///
+        /// Each is checked twice, once as given and once with the app subfolder the
+        /// launcher creates beside itself.
+        /// </summary>
         internal static string FindGame()
         {
             var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            var candidates = new List<string>
+            var roots = new List<string>
             {
-                Path.Combine(home, "Downloads", "Velocidrone Windows Launcher", "app"),
-                @"C:\Program Files (x86)\Steam\steamapps\common\VelociDrone",
-                @"C:\Program Files\VelociDrone",
+                @"C:\VelociDrone",
+                Path.Combine(home, "Desktop", "VelociDrone"),
+                Path.Combine(home, "Documents", "VelociDrone"),
+                Path.Combine(home, "Downloads", "VelociDrone"),
+                Path.Combine(home, "Downloads", "Velocidrone Windows Launcher"),
             };
-            foreach (var drive in DriveInfo.GetDrives().Where(d => d.IsReady))
-                candidates.Add(Path.Combine(drive.RootDirectory.FullName,
-                                            "SteamLibrary", "steamapps", "common", "VelociDrone"));
+            foreach (var drive in DriveInfo.GetDrives().Where(d => d.IsReady && d.DriveType == DriveType.Fixed))
+                roots.Add(Path.Combine(drive.RootDirectory.FullName, "VelociDrone"));
 
-            return candidates.FirstOrDefault(IsGameFolder);
+            foreach (var root in roots)
+            {
+                if (IsGameFolder(root)) return root;
+                var app = Path.Combine(root, "app");
+                if (IsGameFolder(app)) return app;
+            }
+            return null;
         }
 
         /// <summary>
