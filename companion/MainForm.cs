@@ -483,9 +483,20 @@ namespace VDGSCompanion
                 // rather than an error, which is the worst way to find out.
                 var wants = entry.ModShortfall(GameInstall.InstalledModVersion(game));
                 if (wants != null)
+                {
+                    // Setup can only install what this app carries, so it is only worth
+                    // pointing at when what it carries is new enough. Otherwise the answer
+                    // is a newer companion, and saying so beats sending someone to a page
+                    // that cannot help them.
+                    var bundled = GameInstall.BundledModVersion();
+                    var canFix = bundled != null && entry.ModShortfall(bundled) == null;
                     throw new InvalidOperationException(
-                        entry.Name + " needs the mod from " + wants +
-                        " or newer. Update it on the setup page first.");
+                        entry.Name + " needs the mod from " + wants + " or newer." +
+                        (canFix
+                            ? " Update it on the setup page first."
+                            : " This companion carries " + (bundled ?? "no mod") +
+                              ", so a newer companion is needed first."));
+                }
 
                 // The database not being there yet is the ordinary state of a machine the
                 // game has never run on - which is exactly the machine this app is for.
@@ -493,6 +504,35 @@ namespace VDGSCompanion
                     throw new FileNotFoundException(
                         "VelociDrone's database is not there yet - run the game once.",
                         TrackStore.DatabasePath());
+
+                // The track file first, though it is used last. It is a few kilobytes
+                // against the capture's hundreds of megabytes, and what it can refuse -
+                // a catalog that disagrees with its own payload - it can refuse for
+                // nothing. Fetching it second meant that refusal arrived after the
+                // capture folder had already been overwritten, while claiming nothing
+                // had been changed.
+                string trackFile = null;
+                Json.TrackFile t = null;
+                if (entry.Track != null)
+                {
+                    trackFile = Catalog.Download(entry.Track, temp, p => Percent(p));
+                    Percent(null);
+                    t = Json.ParseTrackFile(File.ReadAllText(trackFile));
+
+                    // The binding is written under the name the game will know it by, and
+                    // the page looks for the name the catalog published. They agree only
+                    // because make-catalog.sh copies one from the other; if they ever
+                    // stop, the install works and reports as unfinished for good, each
+                    // retry costing the whole capture again.
+                    if (entry.TrackName != null && t.Name != entry.TrackName)
+                    {
+                        try { File.Delete(trackFile); } catch { }
+                        throw new InvalidOperationException(
+                            "The catalog calls this track \"" + entry.TrackName +
+                            "\" but the published file calls it \"" + t.Name +
+                            "\". Nothing was changed.");
+                    }
+                }
 
                 // The capture is fetched every time, including when a folder of that name
                 // is already here. Skipping that leg was tried and taken back out: what it
@@ -519,23 +559,8 @@ namespace VDGSCompanion
                     return;
                 }
 
-                var trackFile = Catalog.Download(entry.Track, temp, p => Percent(p));
                 try
                 {
-                    Percent(null);
-                    var t = Json.ParseTrackFile(File.ReadAllText(trackFile));
-
-                    // The binding is written under the name the game will know it by, and
-                    // the page looks for the name the catalog published. They agree only
-                    // because make-catalog.sh copies one from the other; if they ever
-                    // stop, the install works and reports as unfinished for good, each
-                    // retry costing the whole capture again. So a catalog that disagrees
-                    // with its own track file is refused rather than half-applied.
-                    if (entry.TrackName != null && t.Name != entry.TrackName)
-                        throw new InvalidOperationException(
-                            "The catalog calls this track \"" + entry.TrackName +
-                            "\" but the published file calls it \"" + t.Name +
-                            "\". Nothing was changed.");
                     var db = TrackStore.DatabasePath();
                     if (!File.Exists(db))
                         throw new FileNotFoundException(

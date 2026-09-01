@@ -30,6 +30,12 @@ namespace VDGS
         /// Reported instead of PluginVersion anywhere a person or another tool reads it,
         /// so one build does not answer the same question with two numbers. A dev build
         /// is unstamped and says 0.1.0.0 here too.
+        ///
+        /// The companion reads the DLL's FileVersion rather than this one, and the two
+        /// were measured against a -p:Version=2026.09.01 build rather than assumed: both
+        /// say 2026.9.1.0, because MSBuild derives them from the same property. Reading
+        /// FileVersion here instead was tried and taken back out - it changed nothing and
+        /// needed a try/catch around Assembly.Location, which is not always a path.
         /// </summary>
         internal static string ReleaseVersion =>
             typeof(VdgsPlugin).Assembly.GetName().Version.ToString();
