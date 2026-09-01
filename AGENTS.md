@@ -671,8 +671,13 @@ R2 は Range 対応で streaming（回線が切れても再開できる）、`im
 | `JDL-2026-R5-airvis` | 2,521,003 | 212 MB | 1,597,643 三角形 / 27 MB / 辺 0.137 m |
 | `FDF-2026-08-22` | 4,508,391 | 362 MB | 2,197,134 三角形 / 39 MB / 辺 0.213 m |
 
-`FDF-2026-08-22` の配布 zip は 375,693,606 バイト
-（sha256 `be0527f827d67e4e6a3e6bced0b2809c90dcdf2fdbd88cc4b1e5abfda397fe7c`）。
+`FDF-2026-08-22` の配布 zip は 375,693,617 バイト
+（sha256 `cecf661690560e42887422c794b4d81693201f188f3248b7b5d2ab18984eddb2`）。
+
+**この値は手元の zip ではなく公開カタログから引く。** 同じ splat を固め直すと 11 バイト
+違う別ファイルになり、**中身が同じでも digest は一致しない**。手元のビルドを基準値として
+書くと、公開物と照合したときに必ず外れる（実際に一度そうなっていた）。
+`curl -A VDGSCompanion https://vdgs.saqoo.sh/catalog.json` が正。
 
 **GUI は実機でしか確かめられない。** セッション 0 には窓が無いので、起動も撮影も
 クリックもスケジュールタスク（`New-ScheduledTaskPrincipal -LogonType Interactive`）経由。
