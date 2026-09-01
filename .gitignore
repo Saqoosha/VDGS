@@ -34,6 +34,9 @@ unity/*/obj/
 unity/*/*.sln
 unity/*/*.csproj
 unity/*/Assets/GaussianAssets/
+# Mono writes these next to the project when the editor dies. One was committed
+# once - 181 KB of stack frames nothing reads.
+unity/*/mono_crash.*.json
 
 *.user
 .DS_Store
