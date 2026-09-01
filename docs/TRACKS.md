@@ -60,7 +60,8 @@ By hand, `<game>/vdgs/bindings.json`:
 
 **An unbound track shows nothing**, which is less harmful than showing the wrong capture.
 
-Without `<game>/vdgs/autospawn` (an empty file) nothing spawns automatically at all.
+To fly a track without its capture, start the game from VelociDrone's own launcher: the
+splat shaders need `-force-d3d12`, which only the companion's Fly passes.
 
 ## 3. Get the placement right
 

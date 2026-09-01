@@ -55,7 +55,8 @@ VDGS.exe --export-track --list
 
 **紐付けの無いトラックでは何も出ない。** 間違ったキャプチャを出すより無害だから。
 
-`<game>/vdgs/autospawn`（空ファイル）が無いと自動表示そのものが効かない。
+キャプチャ抜きで飛びたいときは VelociDrone 自身のランチャーから起動する。splat シェーダーは
+`-force-d3d12` を要求し、それを付けるのは companion の Fly だけ。
 
 ## 3. 置き位置を合わせる
 

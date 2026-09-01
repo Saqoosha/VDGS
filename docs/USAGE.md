@@ -302,8 +302,8 @@ You can write it by hand, but doing it from the UI is faster (§5).
 - one track may bind several captures
 - binding is **per track, not per scenery**, because many tracks share one scenery
 
-Without `<VelociDrone>\app\vdgs\autospawn` (an empty file), automatic display is off
-entirely.
+To fly without a capture, start the game from VelociDrone's own launcher: the splat
+shaders need `-force-d3d12`, which only the companion's Fly passes.
 
 ---
 

@@ -123,9 +123,6 @@ Copy-Item $shaderSrc (Join-Path $vdgsDir 'vdgs-shaders') -Force
 Write-Ok "plugin  -> $pluginDir\VDGS.dll"
 Write-Ok "shaders -> $vdgsDir\vdgs-shaders"
 
-# Enable auto-spawn (splats appear when a bound track loads).
-New-Item -ItemType File -Force -Path (Join-Path $vdgsDir 'autospawn') | Out-Null
-
 # ---------------------------------------------------------------- BepInEx cfg
 
 Write-Step 'Configuring logging'

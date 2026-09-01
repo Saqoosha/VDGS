@@ -237,6 +237,21 @@ internal static class Harness
               "and the interface it already had is still there");
         File.Delete(evilUi);
 
+        // A payload that carries no web build must not sweep the one already installed.
+        // The csproj copies the mod on VDGS.dll alone, so this is reachable by building
+        // the app without running the web build first.
+        var noUi = Path.Combine(Path.GetTempPath(), "vdgs-noui-" + Guid.NewGuid().ToString("N") + ".zip");
+        using (var fs = new FileStream(noUi, FileMode.Create))
+        using (var z = new System.IO.Compression.ZipArchive(fs, System.IO.Compression.ZipArchiveMode.Create))
+        {
+            Write(z, "BepInEx/plugins/VDGS.dll", "plugin");
+            Write(z, "vdgs/ui/", "");
+        }
+        GameInstall.InstallArchive(game, noUi, log.Add);
+        Check(File.Exists(Path.Combine(game, "vdgs", "ui", "index.html")),
+              "a payload with no interface leaves the installed one alone");
+        File.Delete(noUi);
+
         // A capture archive carries no interface, and has no business sweeping one.
         var capture = Path.Combine(Path.GetTempPath(), "vdgs-cap-" + Guid.NewGuid().ToString("N") + ".zip");
         using (var fs = new FileStream(capture, FileMode.Create))

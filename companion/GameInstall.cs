@@ -430,7 +430,19 @@ namespace VDGSCompanion
         {
             var ui = Path.Combine(game, "vdgs", "ui");
             if (!Directory.Exists(ui)) return;
+
             var keep = new HashSet<string>(written, StringComparer.OrdinalIgnoreCase);
+
+            // Nothing was written here, so there is nothing to sweep against. A payload
+            // staged without the web build - the csproj copies the mod on VDGS.dll alone -
+            // would otherwise have every file dropped and the plugin left serving its
+            // placeholder page, with no error to explain it.
+            var uiRoot = Path.GetFullPath(ui) + Path.DirectorySeparatorChar;
+            if (!keep.Any(k => k.StartsWith(uiRoot, StringComparison.OrdinalIgnoreCase)))
+            {
+                log("no interface in this payload - left the one already there");
+                return;
+            }
             var dropped = 0;
             foreach (var f in Directory.GetFiles(ui, "*", SearchOption.AllDirectories))
             {

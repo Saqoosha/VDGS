@@ -289,7 +289,8 @@ UI では `solid` がドローンを止める。`show wire` / `show solid` が�
 - シーナリー（Empty Scene Day など）単位ではなく**トラック単位**。同じシーナリー上に
   何本もトラックが載るため
 
-`<VelociDrone>\app\vdgs\autospawn`（空ファイル）が無いと自動表示そのものが無効になる。
+キャプチャ抜きで飛びたいときは VelociDrone 自身のランチャーから起動する。splat シェーダーは
+`-force-d3d12` を要求し、それを付けるのは companion の Fly だけ。
 
 ---
 
