@@ -13,9 +13,13 @@
 export function Progress({ what, percent }: { what: string; percent: number | null }) {
   const known = percent != null
   return (
-    <div aria-live="polite" className="mt-3">
+    <div className="mt-3">
       <div className="flex items-baseline justify-between gap-3 font-mono text-[11px] tracking-[0.14em] text-signal uppercase">
-        <span className="min-w-0 truncate">
+        {/* Only the job name is announced. Wrapping the percentage too meant a download
+            spoke about a hundred times on the way past - Catalog.Download reports every
+            distinct percent - which is a worse thing to do to someone than the corner of
+            the window they could not see. The bar's own value carries the number. */}
+        <span aria-live="polite" className="min-w-0 truncate">
           <span className="mr-2 animate-pulse">◐</span>
           {what}
         </span>

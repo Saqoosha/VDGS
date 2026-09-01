@@ -54,6 +54,9 @@ describe('Get', () => {
     )
     expect(screen.getByText(/downloading FDF/i)).toBeInTheDocument()
     expect(screen.getByText('42%')).toBeInTheDocument()
+    // The label is announced; the number is not, or a download speaks a hundred times.
+    expect(screen.getByText(/downloading FDF/i)).toHaveAttribute('aria-live', 'polite')
+    expect(screen.getByText('42%').closest('[aria-live]')).toBeNull()
     expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '42')
   })
 
@@ -70,7 +73,9 @@ describe('Get', () => {
       />,
     )
     expect(screen.getByRole('progressbar')).not.toHaveAttribute('aria-valuenow')
-    expect(screen.queryByText('%')).not.toBeInTheDocument()
+    // A regex, not the literal: the percentage renders as one run ("42%"), which an
+    // exact match never finds - so the assertion passed whether or not a number showed.
+    expect(screen.queryByText(/%/)).not.toBeInTheDocument()
   })
 
   it('says nothing when nothing is happening', () => {
