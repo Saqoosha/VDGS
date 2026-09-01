@@ -302,8 +302,9 @@ You can write it by hand, but doing it from the UI is faster (§5).
 - one track may bind several captures
 - binding is **per track, not per scenery**, because many tracks share one scenery
 
-To fly without a capture, start the game from VelociDrone's own launcher: the splat
-shaders need `-force-d3d12`, which only the companion's Fly passes.
+To fly without a capture, start the game without `-force-d3d12` - VelociDrone's own
+launcher does not pass it. The splat shaders bake as unsupported without D3D12, so no
+capture is read at all.
 
 ---
 

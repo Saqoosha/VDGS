@@ -60,8 +60,9 @@ By hand, `<game>/vdgs/bindings.json`:
 
 **An unbound track shows nothing**, which is less harmful than showing the wrong capture.
 
-To fly a track without its capture, start the game from VelociDrone's own launcher: the
-splat shaders need `-force-d3d12`, which only the companion's Fly passes.
+To fly a track without its capture, start the game without `-force-d3d12` - VelociDrone's
+own launcher does not pass it. The splat shaders bake as unsupported without D3D12, so no
+capture is read at all.
 
 ## 3. Get the placement right
 

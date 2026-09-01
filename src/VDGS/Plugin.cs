@@ -47,6 +47,7 @@ namespace VDGS
 
         private TrackBindings m_Bindings;
         private string m_CurrentTrack;
+        private bool m_SaidCannotDraw;
         private float m_TrackPollTimer;
         private bool m_WasFlyable = true;
         private string m_QuietScene;
@@ -537,6 +538,23 @@ namespace VDGS
         /// <summary>Spawns exactly the splats bound to this track; despawns the rest.</summary>
         private void ApplyTrackBinding(string track, StringBuilder log)
         {
+            // Nothing on this machine can draw a capture - the game was started without
+            // -force-d3d12, so the splat shader baked as unsupported. Spawning anyway
+            // reads the whole capture into memory and pins it, a hundred megabytes and a
+            // multi-second stall per track change, to show nothing. Said once rather than
+            // per track, because it will not change while the game is running.
+            if (!ShaderBundle.CanDraw)
+            {
+                if (!m_SaidCannotDraw)
+                {
+                    m_SaidCannotDraw = true;
+                    Log.LogInfo("splat shaders are unsupported here - captures stay unloaded. " +
+                                "Start the game with -force-d3d12 to see them.");
+                    log.AppendLine("  shaders unsupported - not loading any capture");
+                }
+                return;
+            }
+
             if (m_Scenes.Count == 0)
                 m_Scenes = SplatScene.Discover(Path.Combine(Paths.GameRootPath, "vdgs"), log);
 
