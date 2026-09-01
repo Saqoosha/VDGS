@@ -19,9 +19,13 @@ export const how = {
   en: {
     label: 'how',
     // Unzip is named because the download is a zip: "download and run it" is an
-    // instruction nobody can follow.
+    // instruction nobody can follow. So is the SmartScreen dialog, which is the first
+    // thing anyone meets and shows only "Don't run" until More info is pressed - the
+    // point at which most people give up.
     step1a: 'Download the companion, unzip it, and run ',
-    step1b: '.',
+    step1b: '. Windows will warn about an unrecognised app: press ',
+    step1c: ', then ',
+    step1d: '.',
     // What to do when the button will not press, rather than why it will not.
     step2a: 'Press ',
     step2b: '. If it is greyed out, use ',
@@ -43,7 +47,9 @@ export const how = {
   ja: {
     label: '使い方',
     step1a: 'companion をダウンロードして解凍し、',
-    step1b: ' を起動する。',
+    step1b: ' を起動する。Windows が警告を出したら ',
+    step1c: ' を押して ',
+    step1d: '。',
     step2a: '',
     step2b: ' を押す。押せないときは ',
     step2c: ' で VelociDrone のフォルダを指す。',
