@@ -18,17 +18,21 @@ export type Lang = 'en' | 'ja'
 export const how = {
   en: {
     label: 'how',
-    step1: 'Download the companion below and run it.',
+    // Unzip is named because the download is a zip: "download and run it" is an
+    // instruction nobody can follow.
+    step1a: 'Download the companion, unzip it, and run ',
+    step1b: '.',
+    // What to do when the button will not press, rather than why it will not.
     step2a: 'Press ',
-    step2b:
-      '. It looks for VelociDrone in the usual places, fetches BepInEx if you do not have ' +
-      'it, and puts the mod in place. VelociDrone has no installer - it lives wherever its ' +
-      'zip was unpacked - so if it is somewhere unusual the guess misses and you point at ' +
-      'the folder yourself with Change.',
+    step2b: '. If it is greyed out, use ',
+    step2c: ' to point at your VelociDrone folder.',
+    // The size is the reason to wait; how it installs is not the reader's problem.
     step3a: 'Open ',
-    step3b: ' and take a scan. It downloads the scene, adds the track and binds the two.',
+    step3b: ' and take a scan. A few hundred megabytes; it adds the track too.',
+    // Without this last half nothing appears and nothing says why: a scan is shown on
+    // the track it is bound to, so any other track is an empty sky.
     step4a: 'Press ',
-    step4b: '.',
+    step4b: ', then pick that track by name in VelociDrone.',
     download: 'Download the companion',
     d3d12:
       'the game must be started with -force-d3d12, which the companion always does. ' +
@@ -38,16 +42,15 @@ export const how = {
   },
   ja: {
     label: '使い方',
-    step1: '下から companion を落として起動する。',
+    step1a: 'companion をダウンロードして解凍し、',
+    step1b: ' を起動する。',
     step2a: '',
-    step2b:
-      ' を押す。companion が VelociDrone をよくある場所から探し、BepInEx が無ければ取ってきて、' +
-      'mod を置く。VelociDrone にはインストーラが無く、zip を解凍した場所がそのまま置き場所に' +
-      'なるので、変わった場所にあると見つからない。そのときは Change で自分でフォルダを指す。',
+    step2b: ' を押す。押せないときは ',
+    step2c: ' で VelociDrone のフォルダを指す。',
     step3a: '',
-    step3b: ' からスキャンを取る。シーンを落とし、コースを追加し、両者を結びつける。',
+    step3b: ' からスキャンを取る。数百 MB ある。コースも一緒に入る。',
     step4a: '',
-    step4b: ' を押す。',
+    step4b: ' を押し、VelociDrone でそのコースを名前で選ぶ。',
     download: 'companion をダウンロード',
     d3d12:
       'ゲームは -force-d3d12 で起動する必要がある。companion は必ずそうする。' +
