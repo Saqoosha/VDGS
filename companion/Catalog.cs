@@ -50,20 +50,6 @@ namespace VDGSCompanion
             public long Bytes => (Scene != null ? Scene.Bytes : 0) + (Track != null ? Track.Bytes : 0);
 
             /// <summary>
-            /// Whether the track half of this entry is really in place: the course in the
-            /// game's own database, and a binding aiming it at the capture.
-            ///
-            /// A capture sitting in a folder is not an install - nothing in the game
-            /// reaches it. Reporting one as installed is what turned a failed track import
-            /// into a dead end: the page greyed out the only button that could have
-            /// finished the job, and running the game did not bring it back, because what
-            /// disabled it never looked at the database.
-            ///
-            /// Not knowing counts as not done. When the database cannot be read there is
-            /// no honest way to call this complete, and leaving Get alive costs a click,
-            /// where claiming completion costs the only route to a working install.
-            /// </summary>
-            /// <summary>
             /// The version this entry needs when the installed mod does not meet it, or
             /// null when there is nothing to say.
             ///
@@ -86,6 +72,26 @@ namespace VDGSCompanion
                 return have >= want ? null : MinModVersion;
             }
 
+            /// <summary>
+            /// Whether the track half of this entry has been put in place: the course in
+            /// the game's own database, and a binding on that name naming some capture.
+            ///
+            /// A capture sitting in a folder is not an install - nothing in the game
+            /// reaches it. Reporting one as installed is what turned a failed track import
+            /// into a dead end: the page greyed out the only button that could have
+            /// finished the job, and running the game did not bring it back, because what
+            /// disabled it never looked at the database.
+            ///
+            /// It asks whether the step ran, not whether its result was kept. A binding
+            /// pointing somewhere else is a choice someone made after this, and offering
+            /// Get again would only tempt them into overwriting it - the last thing this
+            /// method does is call Bind. An empty one is not a choice, it is a binding
+            /// with nothing on the other end, so that does not count.
+            ///
+            /// Not knowing counts as not done. When the database cannot be read there is
+            /// no honest way to call this complete, and leaving Get alive costs a click,
+            /// where claiming completion costs the only route to a working install.
+            /// </summary>
             /// <param name="inGame">Track names the game knows, or null if unreadable.</param>
             /// <param name="bound">vdgs/bindings.json, keyed by track name.</param>
             internal bool TrackInPlace(Dictionary<string, bool> inGame,
@@ -98,8 +104,10 @@ namespace VDGSCompanion
                 // Ordinal throughout, like the bindings file and the mod that reads it -
                 // these are the game's own track names, matched the way the game matches
                 // them.
+                List<string> captures;
                 return inGame != null && inGame.ContainsKey(TrackName)
-                    && bound != null && bound.ContainsKey(TrackName);
+                    && bound != null && bound.TryGetValue(TrackName, out captures)
+                    && captures != null && captures.Count > 0;
             }
         }
 

@@ -464,39 +464,53 @@ namespace VDGSCompanion
             {
                 var temp = Path.Combine(Path.GetTempPath(), "vdgs-download");
 
-                // Before the download, not after. A capture is hundreds of megabytes and
-                // several minutes, and the database not being there yet is the ordinary
-                // state of a machine the game has never run on - which is exactly the
-                // machine this app exists for. Asking first turns a wasted download into
-                // a sentence.
+                // Everything that can refuse this, refusing before the download rather
+                // than after it. A capture is hundreds of megabytes and several minutes,
+                // and each of these is knowable up front - so what used to be a wasted
+                // wait ending in an error is now a sentence.
+
+                // The game holds both the capture folder and the track database open.
+                // InstallArchive says so too, but only once the bytes are already spent,
+                // and TrackStore.Import has no guard of its own - RemoveTrack and AddTrack
+                // both check before writing that file, and this is the third writer.
+                if (GameInstall.IsRunning())
+                    throw new InvalidOperationException(
+                        "VelociDrone is running. Close it first - files in use cannot be replaced.");
+
+                // Refused, not merely greyed out. The button is drawn from a state that
+                // can be a minute old, and the mod can be replaced while this window is
+                // open; a capture whose renderer is not here yet fails as a wrong picture
+                // rather than an error, which is the worst way to find out.
+                var wants = entry.ModShortfall(GameInstall.InstalledModVersion(game));
+                if (wants != null)
+                    throw new InvalidOperationException(
+                        entry.Name + " needs the mod from " + wants +
+                        " or newer. Update it on the setup page first.");
+
+                // The database not being there yet is the ordinary state of a machine the
+                // game has never run on - which is exactly the machine this app is for.
                 if (entry.Track != null && !File.Exists(TrackStore.DatabasePath()))
                     throw new FileNotFoundException(
                         "VelociDrone's database is not there yet - run the game once.",
                         TrackStore.DatabasePath());
 
-                // The capture may already be here, from a run that got this far and then
-                // stopped on the track. Fetching hundreds of megabytes again to arrive at
-                // the same folder is not how a half-done install should be finished, so
-                // this leg is skipped when it is already done and only the rest runs.
-                var here = entry.InstallAs != null && GameInstall.SceneDetails(game).Exists(
-                    s => string.Equals(s.Name, entry.InstallAs, StringComparison.OrdinalIgnoreCase));
-                if (here)
+                // The capture is fetched every time, including when a folder of that name
+                // is already here. Skipping that leg was tried and taken back out: what it
+                // could see was a readable meta.json, which an extraction cut short by a
+                // closed window or a full disk also leaves behind - so a half-written
+                // capture would have been called finished for good, with no way back to it
+                // from inside the app. Overwriting is what repairs one. A hand-dropped
+                // .ply of the same name fooled it the same way.
+                var zip = Catalog.Download(entry.Scene, temp, p => Percent(p));
+                try
                 {
-                    log("the capture is already here as \"" + entry.InstallAs + "\" - finishing the rest");
+                    Percent(null);
+                    SetBusy("installing " + entry.Name);
+                    GameInstall.InstallArchive(game, zip, log, entry.InstallAs ?? entry.Name);
                 }
-                else
+                finally
                 {
-                    var zip = Catalog.Download(entry.Scene, temp, p => Percent(p));
-                    try
-                    {
-                        Percent(null);
-                        SetBusy("installing " + entry.Name);
-                        GameInstall.InstallArchive(game, zip, log, entry.InstallAs ?? entry.Name);
-                    }
-                    finally
-                    {
-                        try { File.Delete(zip); } catch { }
-                    }
+                    try { File.Delete(zip); } catch { }
                 }
 
                 if (entry.Track == null)

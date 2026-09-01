@@ -402,6 +402,20 @@ internal static class Harness
         // have happened. Unknown must not read as finished, or Get dies with it.
         Check(!withTrack.TrackInPlace(null, bound),
               "an unreadable database does not count as finished");
+
+        var emptyBinding = new Dictionary<string, List<string>>(StringComparer.Ordinal)
+            { { "VDGS FDF", new List<string>() } };
+        Check(!withTrack.TrackInPlace(inGame, emptyBinding),
+              "a binding with nothing on the other end is not a binding");
+
+        // The other direction, and the reason this asks whether the step ran rather than
+        // whether its result survived: someone who aimed the track at a different capture
+        // meant it, and Get ends by calling Bind. Offering it again is offering to undo
+        // their choice under a button labelled download.
+        var rebound = new Dictionary<string, List<string>>(StringComparer.Ordinal)
+            { { "VDGS FDF", new List<string> { "some-other-capture" } } };
+        Check(withTrack.TrackInPlace(inGame, rebound),
+              "a track aimed somewhere else on purpose is left alone");
     }
 
     /// <summary>
