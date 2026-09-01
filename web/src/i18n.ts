@@ -27,8 +27,8 @@ export const how = {
     step2b: '. If it is greyed out, use ',
     step2c: ' to point at your VelociDrone folder.',
     // The size is the reason to wait; how it installs is not the reader's problem.
-    step3a: 'Open ',
-    step3b: ' and take a scan. A few hundred megabytes; it adds the track too.',
+    step3a: 'Download the scan and its track from ',
+    step3b: '. A few hundred megabytes, so give it a moment.',
     // Without this last half nothing appears and nothing says why: a scan is shown on
     // the track it is bound to, so any other track is an empty sky.
     step4a: 'Press ',
@@ -48,7 +48,7 @@ export const how = {
     step2b: ' を押す。押せないときは ',
     step2c: ' で VelociDrone のフォルダを指す。',
     step3a: '',
-    step3b: ' からスキャンを取る。数百 MB ある。コースも一緒に入る。',
+    step3b: ' からスキャンとトラックデータをダウンロードする。数百 MB あるのでしばし待つ。',
     step4a: '',
     step4b: ' を押し、VelociDrone でそのコースを名前で選ぶ。',
     download: 'companion をダウンロード',
