@@ -38,7 +38,6 @@ namespace VDGSCompanion
             public string Author;
             public string Licence;
             public long Splats;
-            public string MinModVersion;
 
             public File_ Scene;
             public string InstallAs;      // the folder name under vdgs/
@@ -48,32 +47,6 @@ namespace VDGSCompanion
 
             /// <summary>Total bytes to fetch, for a size shown before a click.</summary>
             public long Bytes => (Scene != null ? Scene.Bytes : 0) + (Track != null ? Track.Bytes : 0);
-
-            /// <summary>
-            /// The version this entry needs when the installed mod does not meet it, or
-            /// null when there is nothing to say.
-            ///
-            /// A requirement is only held against a version that can be compared with it.
-            /// Every catalog requirement is a release date, and the mod reported a fixed
-            /// 0.1.0.0 until releases began stamping the date they were cut - so an older
-            /// build's version says nothing at all about whether it meets one. Unknown is
-            /// not "too old": treating it that way would stop every install already out
-            /// there from taking the only capture published so far, a combination that in
-            /// fact works. They are gated the first time they update, which is the point
-            /// at which the answer becomes knowable.
-            /// </summary>
-            internal string ModShortfall(string installedMod)
-            {
-                Version want, have;
-                if (string.IsNullOrEmpty(MinModVersion)) return null;
-                // An unreadable requirement is a broken catalog, not a satisfied one. It
-                // cannot be enforced here - there is nothing to compare - so the guard is
-                // on the publishing side, in make-catalog.sh, where it can still be fixed.
-                if (!Version.TryParse(MinModVersion, out want)) return null;
-                if (!Version.TryParse(installedMod, out have)) return null;
-                if (have.Major < 2000) return null;     // not a date: nothing to compare
-                return have >= want ? null : MinModVersion;
-            }
 
             /// <summary>
             /// Whether the track half of this entry has been put in place: the course in
@@ -173,7 +146,6 @@ namespace VDGSCompanion
                         Author = Str(e, "author"),
                         Licence = Str(e, "licence"),
                         Splats = Num(e, "splats"),
-                        MinModVersion = Str(e, "minModVersion"),
                     };
 
                     JsonElement scene;

@@ -104,18 +104,10 @@ function EntryRow({
             </>
           ) : null}
         </p>
-        {/* Said, not merely enforced: a button that is off for a reason nobody can see
-            is the same as a broken one, and the fix - update the mod on 01 setup - is
-            not guessable from a greyed-out Get. */}
-        {entry.needsMod ? (
-          <p className="mt-1.5 font-mono text-[11px] tracking-[0.04em] text-signal">
-            needs mod {entry.needsMod} or newer
-          </p>
-        ) : null}
       </div>
       <Button
         variant={entry.installed ? 'ghost' : 'default'}
-        disabled={disabled || entry.installed || !!entry.needsMod}
+        disabled={disabled || entry.installed}
         onClick={() => send('get', entry.id)}
       >
         {entry.installed ? 'Installed' : 'Get'}

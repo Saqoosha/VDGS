@@ -17,7 +17,6 @@ function entry(over: Partial<CatalogEntry> = {}): CatalogEntry {
     splats: 1497617,
     bytes: 123_657_212,
     installed: false,
-    needsMod: null,
     ...over,
   }
 }
@@ -51,20 +50,6 @@ describe('Get', () => {
   it('names the licence, which nobody can work out by looking', () => {
     render(<Get state={state({ catalog: { url: 'u', error: null, entries: [entry()] } })} />)
     expect(screen.getByText(/CC0-1\.0/)).toBeInTheDocument()
-  })
-
-  // Refusing without saying why is the same as being broken: the fix is on the setup
-  // page, and nothing about a greyed-out Get points there.
-  it('says which mod a capture needs before refusing to fetch it', () => {
-    render(
-      <Get
-        state={state({
-          catalog: { url: 'u', error: null, entries: [entry({ needsMod: '2026.09.01' })] },
-        })}
-      />,
-    )
-    expect(screen.getByText(/needs mod 2026\.09\.01 or newer/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^get$/i })).toBeDisabled()
   })
 
   it('will not offer to fetch what is already here', () => {

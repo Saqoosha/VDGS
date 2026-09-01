@@ -223,7 +223,7 @@ namespace VDGSCompanion
                 bundledMod = GameInstall.BundledModVersion(),
                 busy = _busy,
                 busyPercent = _busyPercent,
-                catalog = CatalogState(scenes, mod, inGame, bound),
+                catalog = CatalogState(scenes, inGame, bound),
                 stateMs = (int)clock.ElapsedMilliseconds,
                 ready = _game != null && missing.Count == 0,
                 running = _running = GameInstall.IsRunning(),
@@ -237,7 +237,6 @@ namespace VDGSCompanion
         /// can be called the same thing and only the folder is the identity.
         /// </summary>
         private object CatalogState(List<GameInstall.SceneInfo> scenes,
-                                    string mod,
                                     Dictionary<string, bool> inGame,
                                     Dictionary<string, List<string>> bound)
         {
@@ -258,9 +257,6 @@ namespace VDGSCompanion
                     splats = e.Splats,
                     bytes = e.Bytes,
                     installed = haveCapture && e.TrackInPlace(inGame, bound),
-                    // Said rather than merely enforced. A button that is off for a reason
-                    // nobody can see is the same as a broken one.
-                    needsMod = e.ModShortfall(mod),
                 });
             }
 
@@ -477,33 +473,26 @@ namespace VDGSCompanion
                     throw new InvalidOperationException(
                         "VelociDrone is running. Close it first - files in use cannot be replaced.");
 
-                // Refused, not merely greyed out. The button is drawn from a state that
-                // can be a minute old, and the mod can be replaced while this window is
-                // open; a capture whose renderer is not here yet fails as a wrong picture
-                // rather than an error, which is the worst way to find out.
-                var wants = entry.ModShortfall(GameInstall.InstalledModVersion(game));
-                if (wants != null)
+                // There, and readable. The page reports every entry unfinished when the
+                // database cannot be read - honest, it does not know - and asking only
+                // whether the file existed made the price of that not-knowing the whole
+                // capture rather than a click. A schema the game changes under us would
+                // put every install in that state at once, so the read is attempted here
+                // and its own reason is what comes back.
+                if (entry.Track != null)
                 {
-                    // Setup can only install what this app carries, so it is only worth
-                    // pointing at when what it carries is new enough. Otherwise the answer
-                    // is a newer companion, and saying so beats sending someone to a page
-                    // that cannot help them.
-                    var bundled = GameInstall.BundledModVersion();
-                    var canFix = bundled != null && entry.ModShortfall(bundled) == null;
-                    throw new InvalidOperationException(
-                        entry.Name + " needs the mod from " + wants + " or newer." +
-                        (canFix
-                            ? " Update it on the setup page first."
-                            : " This companion carries " + (bundled ?? "no mod") +
-                              ", so a newer companion is needed first."));
+                    var db0 = TrackStore.DatabasePath();
+                    if (!File.Exists(db0))
+                        throw new FileNotFoundException(
+                            "VelociDrone's database is not there yet - run the game once.", db0);
+                    try { TrackStore.List(db0); }
+                    catch (Exception ex)
+                    {
+                        throw new InvalidOperationException(
+                            "VelociDrone's track database is there but could not be read: " +
+                            ex.Message, ex);
+                    }
                 }
-
-                // The database not being there yet is the ordinary state of a machine the
-                // game has never run on - which is exactly the machine this app is for.
-                if (entry.Track != null && !File.Exists(TrackStore.DatabasePath()))
-                    throw new FileNotFoundException(
-                        "VelociDrone's database is not there yet - run the game once.",
-                        TrackStore.DatabasePath());
 
                 // The track file first, though it is used last. It is a few kilobytes
                 // against the capture's hundreds of megabytes, and what it can refuse -
@@ -512,59 +501,60 @@ namespace VDGSCompanion
                 // capture folder had already been overwritten, while claiming nothing
                 // had been changed.
                 string trackFile = null;
-                Json.TrackFile t = null;
                 if (entry.Track != null)
                 {
                     trackFile = Catalog.Download(entry.Track, temp, p => Percent(p));
                     Percent(null);
-                    t = Json.ParseTrackFile(File.ReadAllText(trackFile));
+                }
 
-                    // The binding is written under the name the game will know it by, and
-                    // the page looks for the name the catalog published. They agree only
-                    // because make-catalog.sh copies one from the other; if they ever
-                    // stop, the install works and reports as unfinished for good, each
-                    // retry costing the whole capture again.
-                    if (entry.TrackName != null && t.Name != entry.TrackName)
+                // One finally from here, covering both downloads. The refusals below and
+                // the capture install between them can all throw, and every one of those
+                // paths used to leave the track file behind in %TEMP% - one per attempt.
+                try
+                {
+                    Json.TrackFile t = null;
+                    if (trackFile != null)
                     {
-                        try { File.Delete(trackFile); } catch { }
-                        throw new InvalidOperationException(
-                            "The catalog calls this track \"" + entry.TrackName +
-                            "\" but the published file calls it \"" + t.Name +
-                            "\". Nothing was changed.");
+                        t = Json.ParseTrackFile(File.ReadAllText(trackFile));
+
+                        // The binding is written under the name the game will know it by,
+                        // and the page looks for the name the catalog published. They
+                        // agree only because make-catalog.sh copies one from the other; if
+                        // they ever stop, the install works and reports as unfinished for
+                        // good, each retry costing the whole capture again.
+                        if (entry.TrackName != null && t.Name != entry.TrackName)
+                            throw new InvalidOperationException(
+                                "The catalog calls this track \"" + entry.TrackName +
+                                "\" but the published file calls it \"" + t.Name +
+                                "\". Nothing was changed.");
                     }
-                }
 
-                // The capture is fetched every time, including when a folder of that name
-                // is already here. Skipping that leg was tried and taken back out: what it
-                // could see was a readable meta.json, which an extraction cut short by a
-                // closed window or a full disk also leaves behind - so a half-written
-                // capture would have been called finished for good, with no way back to it
-                // from inside the app. Overwriting is what repairs one. A hand-dropped
-                // .ply of the same name fooled it the same way.
-                var zip = Catalog.Download(entry.Scene, temp, p => Percent(p));
-                try
-                {
-                    Percent(null);
-                    SetBusy("installing " + entry.Name);
-                    GameInstall.InstallArchive(game, zip, log, entry.InstallAs ?? entry.Name);
-                }
-                finally
-                {
-                    try { File.Delete(zip); } catch { }
-                }
+                    // The capture is fetched every time, including when a folder of that
+                    // name is already here. Skipping that leg was tried and taken back
+                    // out: what it could see was a readable meta.json, which an extraction
+                    // cut short by a closed window or a full disk also leaves behind - so
+                    // a half-written capture would have been called finished for good,
+                    // with no way back to it from inside the app. Overwriting is what
+                    // repairs one. A hand-dropped .ply of the same name fooled it too.
+                    var zip = Catalog.Download(entry.Scene, temp, p => Percent(p));
+                    try
+                    {
+                        Percent(null);
+                        SetBusy("installing " + entry.Name);
+                        GameInstall.InstallArchive(game, zip, log, entry.InstallAs ?? entry.Name);
+                    }
+                    finally
+                    {
+                        try { File.Delete(zip); } catch { }
+                    }
 
-                if (entry.Track == null)
-                {
-                    log("no track published for this capture - bind it yourself once flying");
-                    return;
-                }
+                    if (t == null)
+                    {
+                        log("no track published for this capture - bind it yourself once flying");
+                        return;
+                    }
 
-                try
-                {
                     var db = TrackStore.DatabasePath();
-                    if (!File.Exists(db))
-                        throw new FileNotFoundException(
-                            "VelociDrone's database is not there yet - run the game once.", db);
 
                     string backup;
                     switch (TrackStore.Import(db, t.Name, t.SceneId, t.Type, t.Value, out backup))
@@ -590,7 +580,7 @@ namespace VDGSCompanion
                 }
                 finally
                 {
-                    try { File.Delete(trackFile); } catch { }
+                    if (trackFile != null) { try { File.Delete(trackFile); } catch { } }
                 }
             });
         }

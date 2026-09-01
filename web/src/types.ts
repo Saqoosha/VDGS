@@ -83,12 +83,6 @@ export type CatalogEntry = {
   splats: number
   bytes: number
   installed: boolean
-  /**
-   * The mod version this capture needs, when the installed mod does not meet it. Null
-   * when there is nothing to say - including when the two versions cannot be compared,
-   * which is every build made before releases started stamping their date.
-   */
-  needsMod: string | null
 }
 
 export type CatalogState = {
