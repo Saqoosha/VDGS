@@ -126,17 +126,23 @@ for name in sorted(os.listdir(entries_dir)):
 
 # The app itself is published alongside the captures: a page that lists things to install
 # and does not offer the thing that installs them is a dead end.
+# Newest by mtime, not by name. Sorting by name reads "2026.09.01.1" as older than
+# "2026.09.01", because '1' sorts before the 'z' of ".zip" - so a second build of the same
+# day silently published the first one. Whichever was built last is the one that was meant,
+# and only that one is copied: hashing every build to keep one was pure waste.
+builds = [n for n in os.listdir(release)
+          if n.startswith("vdgs-companion-") and n.endswith(".zip")]
 app = None
-for name in sorted(os.listdir(release)):
-    if name.startswith("vdgs-companion-") and name.endswith(".zip"):
-        path = os.path.join(release, name)
-        shutil.copy2(path, os.path.join(out, "app", name))
-        app = {
-            "version": name[len("vdgs-companion-"):-len(".zip")],
-            "url": "%s/app/%s" % (base, name),
-            "bytes": os.path.getsize(path),
-            "sha256": digest(path),
-        }
+if builds:
+    name = max(builds, key=lambda n: os.path.getmtime(os.path.join(release, n)))
+    path = os.path.join(release, name)
+    shutil.copy2(path, os.path.join(out, "app", name))
+    app = {
+        "version": name[len("vdgs-companion-"):-len(".zip")],
+        "url": "%s/app/%s" % (base, name),
+        "bytes": os.path.getsize(path),
+        "sha256": digest(path),
+    }
 
 catalog = {
     "formatVersion": 1,
