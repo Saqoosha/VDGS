@@ -46,12 +46,19 @@ CAT=(cat); command -v timeout >/dev/null && CAT=(timeout 15 cat)
 CREDS="$("${CAT[@]}" "$MOUNT" 2>/dev/null || true)"
 [ -n "$CREDS" ] || {
   echo "$MOUNT did not produce anything - is 1Password running and unlocked?" >&2; exit 1; }
-RCLONE_CONFIG_R2_ACCESS_KEY_ID="$(printf '%s\n' "$CREDS" | sed -n 's/^R2_ACCESS_KEY_ID=//p' | head -1)"
-RCLONE_CONFIG_R2_SECRET_ACCESS_KEY="$(printf '%s\n' "$CREDS" | sed -n 's/^R2_SECRET_ACCESS_KEY=//p' | head -1)"
+AK="$(printf '%s\n' "$CREDS" | sed -n 's/^R2_ACCESS_KEY_ID=//p' | head -1)"
+SK="$(printf '%s\n' "$CREDS" | sed -n 's/^R2_SECRET_ACCESS_KEY=//p' | head -1)"
 unset CREDS
-[ -n "$RCLONE_CONFIG_R2_ACCESS_KEY_ID" ] && [ -n "$RCLONE_CONFIG_R2_SECRET_ACCESS_KEY" ] || {
+[ -n "$AK" ] && [ -n "$SK" ] || {
   echo "$MOUNT has no R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY" >&2; exit 1; }
-export RCLONE_CONFIG_R2_ACCESS_KEY_ID RCLONE_CONFIG_R2_SECRET_ACCESS_KEY
+# rclone keys per-remote config on the uppercased remote name, so these have to follow
+# VDGS_R2_REMOTE. Hardcoding R2 meant any other remote silently ignored these and fell
+# back to whatever rclone.conf held - a 403, or worse, the wrong identity.
+UC="$(printf '%s' "$REMOTE" | tr '[:lower:]-' '[:upper:]_')"
+AK_VAR="RCLONE_CONFIG_${UC}_ACCESS_KEY_ID"
+SK_VAR="RCLONE_CONFIG_${UC}_SECRET_ACCESS_KEY"
+export "$AK_VAR=$AK" "$SK_VAR=$SK"
+unset AK SK
 
 # The token is scoped to Object Read & Write on this one bucket, which is what it should
 # be - so rclone's habit of confirming a bucket exists by trying to create it comes back
@@ -125,9 +132,10 @@ for line in open(sys.argv[2]):
     elif there_size != int(size):
         print("%s\tSPENT\t%s\tpublished with %d bytes, not %s" % (key, sha, there_size, size))
     else:
-        # Uploaded before this script recorded digests. The length agrees, which is all
-        # there is to go on, so it is left alone and said out loud rather than assumed.
-        print("%s\tskip-unverified\t%s\t" % (key, sha))
+        # Uploaded before this script recorded digests, so the only evidence is a length
+        # that agrees - and two different builds landing on one length is ordinary. Sent
+        # again rather than trusted, which also tags it so the next run can be sure.
+        print("%s\tsend\t%s\tuntagged, re-sending to record its digest" % (key, sha))
 PY
 
 spent=0
@@ -135,8 +143,7 @@ while IFS=$'\t' read -r key verdict sha why; do
   case "$verdict" in
     SPENT)           echo "   $key: $why" >&2; spent=1 ;;
     skip)            echo "   already published, same content: $key" ;;
-    skip-unverified) echo "   already published, length agrees but predates digest tagging: $key" ;;
-    send)            echo "   to send: $key" ;;
+    send)            echo "   to send: $key${why:+  ($why)}" ;;
   esac
 done < "$TMP/plan.tsv"
 [ "$spent" = 0 ] || {
@@ -184,13 +191,19 @@ for line in open(sys.argv[2]):
         print("   %s is not in the bucket" % key, file=sys.stderr); bad = 1
     elif got[0] != int(size):
         print("   %s is %d bytes in the bucket, not %s" % (key, got[0], size), file=sys.stderr); bad = 1
-    elif got[1] is not None and got[1] != sha:
-        print("   %s carries a different sha256 in the bucket" % key, file=sys.stderr); bad = 1
+    elif got[1] != sha:
+        # Not "is not None and": an object with no digest is one this run was supposed to
+        # have tagged, and letting that through is how a catalog and a bucket drift apart.
+        print("   %s does not carry the published sha256 in the bucket" % key,
+              file=sys.stderr); bad = 1
 sys.exit(bad)
 PY
 echo "   all present"
 
 say "site and catalog"
+# The R2 keys go no further. wrangler authenticates as its own OAuth session and has no
+# use for a bucket write token, and neither does anything npx drags in behind it.
+unset "$AK_VAR" "$SK_VAR"
 ( cd "$ROOT/worker" && npx wrangler deploy )
 
 say "done"

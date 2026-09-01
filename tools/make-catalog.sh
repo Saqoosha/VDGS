@@ -128,9 +128,6 @@ for name in sorted(os.listdir(entries_dir)):
 # and does not offer the thing that installs them is a dead end.
 # Newest by mtime, not by name. Sorting by name reads "2026.09.01.1" as older than
 # "2026.09.01", because '1' sorts before the 'z' of ".zip" - so a second build of the same
-# day silently published the first one. Whichever was built last is the one that was meant.
-# Newest by mtime, not by name. Sorting by name reads "2026.09.01.1" as older than
-# "2026.09.01", because '1' sorts before the 'z' of ".zip" - so a second build of the same
 # day silently published the first one. Whichever was built last is the one that was meant,
 # and only that one is copied: hashing every build to keep one was pure waste.
 builds = [n for n in os.listdir(release)
