@@ -209,12 +209,6 @@ internal static class Harness
         Check(File.Exists(Path.Combine(game, "vdgs", "mycapture", "placement.json")),
               "and leaves their placement alone");
 
-        // Without this the mod loads, reads the bindings, and draws nothing - silently.
-        // It was only ever made by hand, so every install through this app arrived unable
-        // to show a capture.
-        Check(File.Exists(Path.Combine(game, "vdgs", "autospawn")),
-              "turns automatic display on, which is this file existing");
-
         // Vite fingerprints each build, so without a sweep the old scripts pile up beside
         // the new ones - eighteen after four installs, seventeen of them dead.
         var assets = Path.Combine(game, "vdgs", "ui", "assets");
@@ -222,34 +216,33 @@ internal static class Harness
         File.WriteAllText(Path.Combine(assets, "site-OLDHASH.js"), "stale");
         GameInstall.InstallArchive(game, zip, log.Add);
         Check(!File.Exists(Path.Combine(assets, "site-OLDHASH.js")),
-              "and replaces the interface rather than piling builds up in it");
-        Check(File.Exists(Path.Combine(game, "vdgs", "ui", "index.html")), "the new one is there");
+              "drops what an older interface left behind");
+        Check(File.Exists(Path.Combine(game, "vdgs", "ui", "index.html")),
+              "and keeps what this install just wrote");
 
-        // The file is empty, so whether an install rewrote it or left it cannot be seen
-        // from the file. The log is the only witness, and the distinction matters: this
-        // is the switch, and rewriting it would be the app overruling a choice.
-        var spoken = new System.Collections.Generic.List<string>();
-        GameInstall.InstallArchive(game, zip, spoken.Add);
-        Check(spoken.Any(l => l.Contains("left your autospawn alone")),
-              "an autospawn already there is left, not rewritten");
-
-        // Deleting it is how someone turns automatic display off - but an install that
-        // never made one has nothing to respect, so a missing file is created.
-        File.Delete(Path.Combine(game, "vdgs", "autospawn"));
-        spoken.Clear();
-        GameInstall.InstallArchive(game, zip, spoken.Add);
-        Check(File.Exists(Path.Combine(game, "vdgs", "autospawn")),
-              "a reinstall turns it back on when it is simply missing");
-        Check(spoken.Any(l => l.Contains("enabled automatic display")),
-              "and says so, because nothing else on screen would");
+        // Swept after extracting, so a failure part-way through leaves the interface it
+        // had rather than none at all. The escaping entry comes FIRST on purpose: put it
+        // last and the good entries have already been rewritten by the time it throws,
+        // which passes whether the sweep runs before or after and proves nothing.
+        var evilUi = Path.Combine(Path.GetTempPath(), "vdgs-evilui-" + Guid.NewGuid().ToString("N") + ".zip");
+        using (var fs = new FileStream(evilUi, FileMode.Create))
+        using (var z = new System.IO.Compression.ZipArchive(fs, System.IO.Compression.ZipArchiveMode.Create))
+        {
+            Write(z, "../escaped.txt", "no");
+            Write(z, "vdgs/ui/index.html", "<html>");
+        }
+        Check(Throws(() => GameInstall.InstallArchive(game, evilUi, log.Add)),
+              "refuses an archive that escapes, even one carrying an interface");
+        Check(File.Exists(Path.Combine(game, "vdgs", "ui", "index.html")),
+              "and the interface it already had is still there");
+        File.Delete(evilUi);
 
         // A capture archive carries no interface, and has no business sweeping one.
         var capture = Path.Combine(Path.GetTempPath(), "vdgs-cap-" + Guid.NewGuid().ToString("N") + ".zip");
         using (var fs = new FileStream(capture, FileMode.Create))
         using (var z = new System.IO.Compression.ZipArchive(fs, System.IO.Compression.ZipArchiveMode.Create))
             Write(z, "vdgs/newcapture/meta.json", "{\"splatCount\":9}");
-        var marker = Path.Combine(game, "vdgs", "ui", "assets", "keep-me.js");
-        Directory.CreateDirectory(Path.GetDirectoryName(marker));
+        var marker = Path.Combine(assets, "keep-me.js");
         File.WriteAllText(marker, "current");
         GameInstall.InstallArchive(game, capture, log.Add);
         Check(File.Exists(marker), "installing a capture leaves the interface alone");

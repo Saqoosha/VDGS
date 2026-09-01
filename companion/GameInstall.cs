@@ -304,7 +304,7 @@ namespace VDGSCompanion
             using (var probe = ZipFile.OpenRead(zipPath))
                 carriesMod = probe.Entries.Any(e =>
                     e.FullName.Replace('\\', '/').StartsWith("vdgs/ui/", StringComparison.OrdinalIgnoreCase));
-            if (carriesMod) ClearInterface(game, log);
+            var written = new List<string>();
 
             using (var zip = ZipFile.OpenRead(zipPath))
             {
@@ -329,10 +329,11 @@ namespace VDGSCompanion
                     if (KeepExisting(target, log)) continue;
 
                     e.ExtractToFile(target, overwrite: true);
+                    written.Add(target);
                 }
             }
+            if (carriesMod) SweepInterface(game, written, log);
             log("installed " + (label ?? Path.GetFileName(zipPath)));
-            if (carriesMod) EnableAutoSpawn(game, log);
         }
 
         /// <summary>
@@ -387,10 +388,9 @@ namespace VDGSCompanion
                 throw new InvalidOperationException(
                     "VelociDrone is running. Close it first - files in use cannot be replaced.");
 
-            ClearInterface(game, log);
-
             var root = Path.GetFullPath(src) + Path.DirectorySeparatorChar;
             var copied = 0;
+            var written = new List<string>();
             foreach (var file in Directory.GetFiles(src, "*", SearchOption.AllDirectories))
             {
                 // README.txt sits at the top of the payload and is for a person reading the
@@ -402,55 +402,46 @@ namespace VDGSCompanion
                 if (KeepExisting(target, log)) continue;
                 Directory.CreateDirectory(Path.GetDirectoryName(target));
                 File.Copy(file, target, overwrite: true);
+                written.Add(Path.GetFullPath(target));
                 copied++;
             }
+            SweepInterface(game, written, log);
             log("installed mod " + (BundledModVersion() ?? "?") + " (" + copied + " files)");
-            EnableAutoSpawn(game, log);
         }
 
         /// <summary>
-        /// Replaces the interface rather than merging into it.
+        /// Drops whatever is left in the interface folder that this install did not put
+        /// there.
         ///
         /// Vite fingerprints every asset, so each build lands beside the last one instead
         /// of over it. Four installs left eighteen scripts in vdgs/ui/assets, seventeen of
         /// them dead - index.html only ever names the current pair, so the rest are weight
         /// nobody would notice.
         ///
+        /// Swept after extracting, not before. Clearing first means any failure on the way
+        /// through - an escaping entry, a full disk, a file still held open - leaves the
+        /// game with no interface at all, and the plugin quietly serving its placeholder
+        /// page instead.
+        ///
         /// Only the mod paths call this. A capture install goes through the same extractor
         /// and has no business touching the interface.
         /// </summary>
-        private static void ClearInterface(string game, Action<string> log)
+        private static void SweepInterface(string game, ICollection<string> written, Action<string> log)
         {
             var ui = Path.Combine(game, "vdgs", "ui");
             if (!Directory.Exists(ui)) return;
-            try { Directory.Delete(ui, recursive: true); log("cleared the old interface"); }
-            catch (Exception ex) { log("could not clear vdgs/ui: " + ex.Message); }
+            var keep = new HashSet<string>(written, StringComparer.OrdinalIgnoreCase);
+            var dropped = 0;
+            foreach (var f in Directory.GetFiles(ui, "*", SearchOption.AllDirectories))
+            {
+                if (keep.Contains(Path.GetFullPath(f))) continue;
+                try { File.Delete(f); dropped++; }
+                catch (Exception ex) { log("could not remove " + Path.GetFileName(f) + ": " + ex.Message); }
+            }
+            if (dropped > 0) log("dropped " + dropped + " file(s) from an older interface");
         }
 
-        /// <summary>
-        /// Turns automatic display on, which is a file existing and nothing else.
-        ///
-        /// Without it the mod loads, finds its shaders, reads the bindings - and shows
-        /// nothing, silently, because putting a capture on screen is gated on this. It was
-        /// only ever created by hand, so every install done through this app arrived
-        /// unable to draw anything, with no error to go on.
-        ///
-        /// Not part of the payload: deleting it is how someone turns automatic display
-        /// off, and a reinstall that put it back would take that choice away. So it is
-        /// written when absent and left alone when present.
-        /// </summary>
-        private static void EnableAutoSpawn(string game, Action<string> log)
-        {
-            var flag = Path.Combine(game, "vdgs", "autospawn");
-            if (File.Exists(flag)) { log("left your autospawn alone"); return; }
-            try
-            {
-                Directory.CreateDirectory(Path.GetDirectoryName(flag));
-                File.WriteAllBytes(flag, new byte[0]);
-                log("enabled automatic display (vdgs/autospawn)");
-            }
-            catch (Exception ex) { log("could not write vdgs/autospawn: " + ex.Message); }
-        }
+
 
         /// <summary>
         /// Removes what the mod installed, and only that.

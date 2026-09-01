@@ -360,13 +360,6 @@ namespace VDGS
             try { File.AppendAllText(Probe.LogPath, report.ToString()); } catch { }
         }
 
-        /// <summary>Delete &lt;game&gt;/vdgs/autospawn to require pressing F8 instead.</summary>
-        private bool AutoSpawnEnabled()
-        {
-            try { return File.Exists(Path.Combine(Paths.GameRootPath, "vdgs", "autospawn")); }
-            catch { return false; }
-        }
-
         /// <summary>
         /// A <game>/vdgs/menuspawn flag file lets a capture spawn in the menus, so a remote
         /// diagnostic can drive the renderer without flying a track.
@@ -544,8 +537,6 @@ namespace VDGS
         /// <summary>Spawns exactly the splats bound to this track; despawns the rest.</summary>
         private void ApplyTrackBinding(string track, StringBuilder log)
         {
-            if (!AutoSpawnEnabled()) return;
-
             if (m_Scenes.Count == 0)
                 m_Scenes = SplatScene.Discover(Path.Combine(Paths.GameRootPath, "vdgs"), log);
 
