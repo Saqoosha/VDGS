@@ -35,6 +35,7 @@ describe('Browse', () => {
     // The half that was missing: a scan only shows on the track it is bound to, so
     // without this the reader flies somewhere else and sees an empty sky.
     expect(screen.getByText(/VelociDrone でそのコースを名前で選ぶ/)).toBeInTheDocument()
+    expect(screen.getByText(/スキャンとトラックデータをダウンロード/)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'companion をダウンロード' })).toBeInTheDocument()
     // The app's own buttons are English in both languages, because the app is.
     expect(screen.getByText('Install mod')).toBeInTheDocument()
@@ -48,6 +49,7 @@ describe('Browse', () => {
       expect(screen.getByText(/Download the companion, unzip it/)).toBeInTheDocument(),
     )
     expect(screen.getByText(/pick that track by name/)).toBeInTheDocument()
+    expect(screen.getByText(/Download the scan and its track/)).toBeInTheDocument()
     expect(screen.queryByText(/使い方/)).not.toBeInTheDocument()
   })
 
