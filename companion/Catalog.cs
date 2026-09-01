@@ -38,7 +38,6 @@ namespace VDGSCompanion
             public string Author;
             public string Licence;
             public long Splats;
-            public string MinModVersion;
 
             public File_ Scene;
             public string InstallAs;      // the folder name under vdgs/
@@ -48,6 +47,53 @@ namespace VDGSCompanion
 
             /// <summary>Total bytes to fetch, for a size shown before a click.</summary>
             public long Bytes => (Scene != null ? Scene.Bytes : 0) + (Track != null ? Track.Bytes : 0);
+
+            /// <summary>
+            /// Whether the track half of this entry has been put in place: the course in
+            /// the game's own database, and a binding on that name naming some capture.
+            ///
+            /// A capture sitting in a folder is not an install - nothing in the game
+            /// reaches it. Reporting one as installed is what turned a failed track import
+            /// into a dead end: the page greyed out the only button that could have
+            /// finished the job, and running the game did not bring it back, because what
+            /// disabled it never looked at the database.
+            ///
+            /// It asks whether the step ran, not whether its result was kept. A binding
+            /// pointing somewhere else is a choice someone made after this, and offering
+            /// Get again would only tempt them into overwriting it - the last thing this
+            /// method does is call Bind. An empty one is not a choice, it is a binding
+            /// with nothing on the other end, so that does not count.
+            ///
+            /// Not knowing counts as not done. When the database cannot be read there is
+            /// no honest way to call this complete, and leaving Get alive costs a click,
+            /// where claiming completion costs the only route to a working install.
+            /// </summary>
+            /// <param name="inGame">Track names the game knows, or null if unreadable.</param>
+            /// <param name="bound">vdgs/bindings.json, keyed by track name.</param>
+            internal bool TrackInPlace(Dictionary<string, bool> inGame,
+                                       Dictionary<string, List<string>> bound)
+            {
+                // Nothing published to import: the capture on its own is the whole entry,
+                // and whoever wants it bound does that themselves once flying.
+                if (Track == null) return true;
+
+                // A track published without a name. Parse allows it, and there is then no
+                // name to look for - so this cannot be confirmed, and unconfirmed is not
+                // finished. Reading it as finished would grey out Get on exactly the
+                // broken entry this method exists to keep reachable.
+                if (TrackName == null) return false;
+
+                // Both maps are keyed by the name the game shows, so the catalog's name
+                // is converted to that form before either is asked. VelociDrone stores a
+                // space as '+', and a course made in its editor therefore answers to two
+                // spellings - see TrackStore.DisplayName. Comparing the wrong one here
+                // reports a working install as unfinished, forever.
+                var shown = TrackStore.DisplayName(TrackName);
+                List<string> captures;
+                return inGame != null && inGame.ContainsKey(shown)
+                    && bound != null && bound.TryGetValue(shown, out captures)
+                    && captures != null && captures.Count > 0;
+            }
         }
 
         // ------------------------------------------------------------------ fetching
@@ -103,7 +149,6 @@ namespace VDGSCompanion
                         Author = Str(e, "author"),
                         Licence = Str(e, "licence"),
                         Splats = Num(e, "splats"),
-                        MinModVersion = Str(e, "minModVersion"),
                     };
 
                     JsonElement scene;

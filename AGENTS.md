@@ -48,7 +48,7 @@ compute 'SplatUtilities'                   supported=True
 
 | 項目 | 値 |
 |---|---|
-| ゲームパス | ランチャー既定は `%USERPROFILE%\Downloads\Velocidrone Windows Launcher\app`。上書きは `VDGS_GAME` |
+| ゲームパス | この機械では `%USERPROFILE%\Downloads\Velocidrone Windows Launcher\app`。上書きは `VDGS_GAME`。**これは既定ではない**（下） |
 | ユーザーデータ | `%USERPROFILE%\AppData\LocalLow\velocidrone\velocidrone` |
 | Velocidrone | 1.16.0 で確認 |
 | Unity | 2021.3.45f2 (88f88f591b2e) |
@@ -57,6 +57,19 @@ compute 'SplatUtilities'                   supported=True
 | GPU | RTX 3060 12GB で測定 |
 | 描画 API | **Direct3D 11** ← 3DGS には不足。D3D12/Vulkan が必要 |
 | exe | x64 |
+
+**VelociDrone に既定のインストール先は無い。** インストーラが存在せず、zip を解凍した場所に
+`Launcher.exe` がゲームを落とすので、置き場所を決めるのは利用者。PatchKit はそれをどこにも
+記録しない（`%LOCALAPPDATA%\PatchKit` は 32 バイトの `sender_id` 1 個だけ）。
+
+公式ガイドが名指しする推奨先は `C:\VelociDrone`、Desktop、Documents、別ドライブ。
+**`Program Files` は公式が避けろと言っている** — ランチャーが自分のフォルダに書き込むので
+UAC に止められ、更新が失敗したりログインで固まる。**Steam 配信ではない。**
+
+この表の `Downloads\Velocidrone Windows Launcher\app` は、この機械で zip を解凍した場所で
+あって、それ以上の意味は無い。`GameInstall.FindGame` はかつて Steam 3 種と `Program Files` を
+候補にしていた — **4 つのうち 3 つは存在しえず、1 つは公式が避けろと言う場所**。何も壊れず、
+ただ一度も当たらず、走査が黙って全部を拾っていた。2026-09-01 に一次情報を当てて直した。
 
 ### Mac（解析用）
 
@@ -390,6 +403,31 @@ upstream から**削った**もの：編集機能・selection・cutouts・URP/HD
 外に出すとこれが全部消える上に、**別マシンのブラウザから操作できる**（Parsec でゲーム画面を
 見ながら、手元の Mac で操作する運用）。
 
+### トラック名は 2 通りに綴られる
+
+VelociDrone は自分で保存したトラック名をフォーム符号化する。空白が `+` になり、リテラルの
+`+` が `%2b` になる。だから 1 本のコースに綴りが 2 つある。
+
+| どこ | 例 |
+|---|---|
+| `user11.db` の保存名 | `VDGS+FDF+2026-08-22` |
+| 画面の表示名 | `VDGS FDF 2026-08-22` |
+| `%2b` を含む保存名 | `Sols%2bStreet%2bLeague%2b1` |
+| その表示名 | `Sols+Street+League+1` |
+
+復号は 2 段とも要り、順番も決まっている。`+` を空白に戻してから `%XX` を戻す。逆にすると
+`%2b` が `+` になり、次の段がそれを空白と読む。実機の 2,143 本のうち 31 本が `%2b` を
+含んでいて、`+` の段だけ戻すとその全部が外れる。
+
+mod は動いているゲームから名前を読むので、`bindings.json` の鍵は**必ず表示名**。companion は
+DB を読むので保存名を持つ。**照合する前に `TrackStore.DisplayName` で表示形に揃える。**
+
+間違えても何も起きない。トラックは入り、キャプチャは入り、紐付けも書かれ、splat だけが
+出ない。2026-09-01 に踏んだ。エラーは 1 行も出ない。
+
+**companion が取り込んだ名前は届いた綴りのまま入る**ので、DB には両方の規約が同居する。
+片側を再エンコードするのではなく表示形で比較しているのはそのため。
+
 ### トラック名の取得
 
 **多段フォールバック**（`TrackName.cs`）。難読化フィールド → `Current Track/Table Entry`
@@ -452,7 +490,18 @@ F5・F6・F7・F8 は**使っていない**。操作は Web UI から。
 
 紐付けの無いトラックでは**何も表示しない**。間違った GS を出すより無害。
 
-`<game>/vdgs/autospawn`（空ファイル）が無い場合は自動表示そのものが無効。
+**自動表示に切り替えは無い。** かつて `<game>/vdgs/autospawn` という空ファイルの有無で
+判定していたが、2026-09-01 に仕組みごと削除した。作る側のコードがどこにも無く、開発機に
+手で置いてあっただけだったので、**companion で新規導入した機械は全部これで無言のまま何も
+映らなかった** — キャプチャもトラックも紐付けも正しいのに。しかもコメントが指す代替手段
+（F8）は既に廃止済みで、消したら二度と出せない状態だった。
+
+出したくないときは **`-force-d3d12` を付けずに起動する**（VelociDrone 自身のランチャーは
+付けない）。D3D12 でないと splat シェーダーが unsupported になる。**そのときプラグインは
+キャプチャを読み込みもしない** — `ShaderBundle.CanDraw` を spawn の前に見ている。見なければ
+124 MB を読んで常駐させ、トラック切り替えごとに数秒止まって、画面には何も出ない。
+
+（遠隔診断用の `<game>/vdgs/menuspawn` は別物で、そのまま残っている。）
 
 設計の理由は [docs/ARCHITECTURE.ja.md](docs/ARCHITECTURE.ja.md) の「トラックと GS の対応」「操作面」、操作手順は [docs/USAGE.ja.md](docs/USAGE.ja.md)。
 
@@ -475,6 +524,12 @@ companion/
   Settings.cs     ゲームパスとカタログ URL を %LOCALAPPDATA% に記憶
   tests/          実データ寄りのテスト（Mac で走る）
 ```
+
+**payload は毎回空にしてから詰める。** csproj の `CopyMod` は `Copy` タスクで、消す働きが
+無い。web の資産はビルドごとに名前が変わるので、**入れ直すたびに前回のぶんが隣に残る** —
+2026-09-01 に数えたら payload が 23 本、元は 5 本だった。全部 zip に入り、利用者の
+`vdgs/ui` にも配られていた。`index.html` は現行の 2 本しか名指ししないので**何も壊れず**、
+5 リリース気づかれなかった。ハーネスが数を見張っている。
 
 **mod はアプリの中に同梱する**（`mod/` フォルダ、`make-release.sh` が組んだ木をビルド時に
 コピー）。ボタンは自分の仕事を名乗る — `INSTALL MOD` / `REINSTALL MOD` /
@@ -549,8 +604,43 @@ bash tools/publish.sh
 `formatVersion` は読まない**。欠けたフィールドを「トラック無し」と誤読して、
 **公開物の半分だけ入れる**のが最悪なので。
 
+**mod の版はリリースの日付で、`make-release.sh` だけが刻む**（`-p:Version=$VERSION`）。
+`src/VDGS/VDGS.csproj` の `<Version>0.1.0</Version>` は置き場所で、そのまま出るのは
+**dev ビルド**。companion の mod ボタンは導入済みの版と同梱の版を比べるので、
+**全ビルドが同じ 0.1.0.0 を名乗っている間は「Reinstall mod」しか出せなかった** —
+更新を更新だと知る手段が無かった。
+
+**カタログ側にバージョン要件は無い。** `minModVersion` を一度足して、同じ日に外した。
+まだ 1 本もリリースしていない時点では、**存在しない問題への防具**だった
+（[#4](https://github.com/Saqoosha/VDGS/issues/4)）。要るのは、古い mod では描けない
+キャプチャを実際に公開したときで、そのときに設計する。
+
 **`publish.sh` は R2 に上げてから deploy する。** 逆にすると、**まだ無いファイルを指す
 リストを必ず一度公開する**。
+
+**上げるのは `rclone`。`wrangler` では 300 MiB を超えると必ず落ちる**
+（`Wrangler only supports uploading files up to 300 MiB in size`、multipart のオプションが
+無い）。FDF 2026-08-22 は 375 MB でここに当たった。鍵は 1Password の `VDGS` 環境を
+`~/.claude/1p-mounts/vdgs.env` にマウントして読む（`VDGS_R2_ENV` で上書き可）。
+
+**`--s3-no-check-bucket` は必須。** トークンは `vdgs` バケットだけの Object Read & Write に
+絞ってあり、`rclone` は既定でバケットの存在を `CreateBucket` で確かめようとして 403 になる。
+**直すのは呼ぶ側で、トークンを広げるほうではない。**
+
+**同じ名前で中身を差し替えない。** 公開ファイルは `immutable, max-age=31536000` で配るので、
+上書きするとエッジは古い中身を 1 年出し続け、カタログは新しい digest を名乗る。
+**ダウンロードは完走して、そのあと展開が拒否される。** 版を上げて別名にする。
+2026-09-01 に `vdgs-companion-2026.09.01.zip` でこれをやりかけた。
+
+**見張りは digest で、サイズではない。** `publish.sh` は各オブジェクトに sha256 を user
+metadata として刻み、次回はそれと突き合わせる。同じ日の companion 3 版が
+6,607,301 / 6,607,540 / 6,607,546 バイトだったように、**別の中身が同じ長さになるのは普通**。
+
+**`rclone` は `--metadata-set` だけではメタデータを書かない。`-M` が要る。** フラグは受理
+されて何も起きず、次回の実行は比較材料が無いまま長さに落ちる。実測で判明した。
+
+**`make-catalog.sh` は companion を mtime で選ぶ。** 名前順だと `2026.09.01.1` が
+`2026.09.01` より前に並ぶ（`1` < `z`）ので、同じ日の 2 回目のビルドが 1 回目に負ける。
 
 **公開していいのはライセンスが再配布を許すものだけ。** 表記の不在は許諾ではない。
 判断は「splat データは配布できない。同梱もしない」節。
@@ -668,8 +758,17 @@ Crash!!!
 |---|---|---|---|
 | D3D12 | 有り | 約 5 分 | Crash + `_LightTexture0` |
 | D3D12 | **無し**（`plugins/` を空に） | 約 5 分 | **Crash + `_LightTexture0`（同一）** |
+| D3D12 | 有り（メニュー放置、2026-09-01） | **3 分 44 秒** | Crash + `_LightTexture0` |
 | D3D11 | 無し | 13 分以上 | 無傷 |
 | **D3D12** | **有り**（トラック内。メニュー滞在 5 秒） | **15.8 分** | **無傷** |
+
+**3 本目で下限が 5 分から 3 分 44 秒に下がった**（12:56:26 起動、13:00:10 が `Player.log`
+最終書き込み）。「約 5 分」は安全側の見積もりではない。**メニューに戻したら、放置しない。**
+
+**クラッシュハンドラは走るが、ダンプは残らない。** `Player.log` は
+`C:/Users/a/AppData/Local/Temp/velocidrone/velocidrone/Crashes` を名指しするが、
+**そのディレクトリは存在しない**（2026-09-01 に確認）。自然死を待てばダンプが手に入る、
+という筋は使えない。
 
 **プラグインを外しても直前の一行まで一致する。mod は無関係。** そして D3D11 では起きない。
 

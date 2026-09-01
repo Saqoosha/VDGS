@@ -42,7 +42,12 @@ say() { printf '\n== %s ==\n' "$1"; }
 # ---------------------------------------------------------------- mod
 if [ "$SCENE_ONLY" = 0 ]; then
 say "building the plugin"
-dotnet build "$ROOT/src/VDGS/VDGS.csproj" -c Release | tail -2
+# Stamped with the release version, not the placeholder in the csproj. The companion's
+# mod button compares the installed version with the one it carries, so while every
+# build reported the same 0.1.0.0 it could only ever offer "Reinstall mod" - it had no
+# way to know an update was an update. Only this path stamps it; a dev build keeps the
+# placeholder, which is what makes it recognisable as one.
+dotnet build "$ROOT/src/VDGS/VDGS.csproj" -c Release -p:Version="$VERSION" | tail -2
 DLL="$ROOT/src/VDGS/bin/Release/VDGS.dll"
 [ -f "$DLL" ] || { echo "no VDGS.dll produced" >&2; exit 1; }
 

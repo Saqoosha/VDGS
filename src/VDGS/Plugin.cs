@@ -17,7 +17,28 @@ namespace VDGS
     {
         public const string PluginGuid = "sh.saqoo.vdgs";
         public const string PluginName = "VDGS";
+        // BepInEx takes this through an attribute, so it has to be a compile-time
+        // constant and cannot follow the release. It is this plugin's identity to the
+        // loader, and stable is what that wants.
         public const string PluginVersion = "0.1.0";
+
+        /// <summary>
+        /// What this build actually is: the release version make-release.sh stamps into
+        /// the assembly, which is also the number the companion reads off the DLL to tell
+        /// an update from a reinstall.
+        ///
+        /// Reported instead of PluginVersion anywhere a person or another tool reads it,
+        /// so one build does not answer the same question with two numbers. A dev build
+        /// is unstamped and says 0.1.0.0 here too.
+        ///
+        /// The companion reads the DLL's FileVersion rather than this one, and the two
+        /// were measured against a -p:Version=2026.09.01 build rather than assumed: both
+        /// say 2026.9.1.0, because MSBuild derives them from the same property. Reading
+        /// FileVersion here instead was tried and taken back out - it changed nothing and
+        /// needed a try/catch around Assembly.Location, which is not always a path.
+        /// </summary>
+        internal static string ReleaseVersion =>
+            typeof(VdgsPlugin).Assembly.GetName().Version.ToString();
 
         internal static ManualLogSource Log;
 
@@ -26,6 +47,7 @@ namespace VDGS
 
         private TrackBindings m_Bindings;
         private string m_CurrentTrack;
+        private bool m_SaidCannotDraw;
         private float m_TrackPollTimer;
         private bool m_WasFlyable = true;
         private string m_QuietScene;
@@ -43,7 +65,7 @@ namespace VDGS
             m_Bindings = new TrackBindings(Path.Combine(Paths.GameRootPath, "vdgs", "bindings.json"));
             m_TrackLogPath = Path.Combine(Paths.GameRootPath, "vdgs-track.log");
             try { File.WriteAllText(m_TrackLogPath, "track watch started " + DateTime.Now + "\n"); } catch { }
-            try { File.WriteAllText(Probe.LogPath, "VDGS " + PluginVersion + " loaded " + DateTime.Now + "\n\n"); }
+            try { File.WriteAllText(Probe.LogPath, "VDGS " + ReleaseVersion + " loaded " + DateTime.Now + "\n\n"); }
             catch (Exception e) { Log.LogError("cannot open probe log: " + e.Message); }
 
             Log.LogInfo("VDGS injected. Probe log: " + Probe.LogPath);
@@ -339,13 +361,6 @@ namespace VDGS
             try { File.AppendAllText(Probe.LogPath, report.ToString()); } catch { }
         }
 
-        /// <summary>Delete &lt;game&gt;/vdgs/autospawn to require pressing F8 instead.</summary>
-        private bool AutoSpawnEnabled()
-        {
-            try { return File.Exists(Path.Combine(Paths.GameRootPath, "vdgs", "autospawn")); }
-            catch { return false; }
-        }
-
         /// <summary>
         /// A <game>/vdgs/menuspawn flag file lets a capture spawn in the menus, so a remote
         /// diagnostic can drive the renderer without flying a track.
@@ -523,7 +538,22 @@ namespace VDGS
         /// <summary>Spawns exactly the splats bound to this track; despawns the rest.</summary>
         private void ApplyTrackBinding(string track, StringBuilder log)
         {
-            if (!AutoSpawnEnabled()) return;
+            // Nothing on this machine can draw a capture - the game was started without
+            // -force-d3d12, so the splat shader baked as unsupported. Spawning anyway
+            // reads the whole capture into memory and pins it, a hundred megabytes and a
+            // multi-second stall per track change, to show nothing. Said once rather than
+            // per track, because it will not change while the game is running.
+            if (!ShaderBundle.CanDraw)
+            {
+                if (!m_SaidCannotDraw)
+                {
+                    m_SaidCannotDraw = true;
+                    Log.LogInfo("splat shaders are unsupported here - captures stay unloaded. " +
+                                "Start the game with -force-d3d12 to see them.");
+                    log.AppendLine("  shaders unsupported - not loading any capture");
+                }
+                return;
+            }
 
             if (m_Scenes.Count == 0)
                 m_Scenes = SplatScene.Discover(Path.Combine(Paths.GameRootPath, "vdgs"), log);

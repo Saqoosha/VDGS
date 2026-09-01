@@ -32,7 +32,7 @@ foreach ($p in $bindings.PSObject.Properties) {
 if ($kept.Count -eq 0) { throw "bindings.json names no captures - refusing to move everything" }
 
 # A capture is a directory holding meta.json, or a bare .ply. Everything else in vdgs/ -
-# the shader bundle, the built UI, bindings.json, the autospawn flag - belongs to the mod.
+# the shader bundle, the built UI, bindings.json - belongs to the mod.
 $moves = @()
 foreach ($d in Get-ChildItem $vdgs -Directory) {
     if (-not (Test-Path (Join-Path $d.FullName 'meta.json'))) { continue }

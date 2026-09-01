@@ -25,6 +25,8 @@ export default function CompanionApp() {
         setState((prev) => (prev ? { ...prev, busyPercent: m.percent } : prev))
       } else if (m.type === 'busy') {
         setState((prev) => (prev ? { ...prev, busy: m.what, busyPercent: null } : prev))
+      } else if (m.type === 'running') {
+        setState((prev) => (prev ? { ...prev, running: m.running } : prev))
       } else {
         // Long enough to see what happened, short enough that a session left open does
         // not grow without bound.

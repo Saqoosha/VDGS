@@ -1,0 +1,10 @@
+{
+  "id": "fdf-2026-08-22",
+  "name": "VDGS FDF 2026-08-22",
+  "description": "Funabashi Drone Field, an FPV practice field in Funabashi, Chiba, Japan.",
+  "author": "Saqoosha",
+  "licence": "CC0-1.0",
+  "captured": "2026-08-22",
+  "installAs": "FDF-2026-08-22",
+  "track": "VDGS-FDF-2026-08-22.track.json"
+}

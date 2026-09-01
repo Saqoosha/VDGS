@@ -20,22 +20,71 @@ namespace VDGSCompanion
     {
         internal const string LaunchArgs = "-force-d3d12";
 
-        /// <summary>Where the PatchKit launcher unpacks the game, and the usual alternatives.</summary>
+        /// <summary>
+        /// The places VelociDrone is commonly unzipped to.
+        ///
+        /// There is no default to look up. VelociDrone ships as a zip with no installer:
+        /// wherever Launcher.exe is extracted to is where it downloads the game, and
+        /// PatchKit records that nowhere - %LOCALAPPDATA%\PatchKit holds a 32-byte
+        /// sender_id and nothing else. So this is a list of guesses, and a guess that
+        /// misses is ordinary rather than exceptional.
+        ///
+        /// The guesses are the locations VelociDrone's own guide recommends: C:\VelociDrone,
+        /// a second drive, the desktop, documents. Program Files is deliberately absent -
+        /// the guide tells people to stay out of it, because the launcher writes into its
+        /// own folder and UAC stops it. Steam paths were here and are gone: the game is
+        /// not distributed through Steam, so they could never have matched.
+        ///
+        /// Each is checked twice, once as given and once with the app subfolder the
+        /// launcher creates beside itself.
+        /// </summary>
         internal static string FindGame()
         {
-            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            var candidates = new List<string>
+            foreach (var root in CandidateRoots())
             {
-                Path.Combine(home, "Downloads", "Velocidrone Windows Launcher", "app"),
-                @"C:\Program Files (x86)\Steam\steamapps\common\VelociDrone",
-                @"C:\Program Files\VelociDrone",
-            };
-            foreach (var drive in DriveInfo.GetDrives().Where(d => d.IsReady))
-                candidates.Add(Path.Combine(drive.RootDirectory.FullName,
-                                            "SteamLibrary", "steamapps", "common", "VelociDrone"));
-
-            return candidates.FirstOrDefault(IsGameFolder);
+                if (IsGameFolder(root)) return root;
+                var app = Path.Combine(root, "app");
+                if (IsGameFolder(app)) return app;
+            }
+            return null;
         }
+
+        /// <summary>
+        /// The guesses themselves, apart from the looking, so a test can read the list
+        /// rather than infer it from whether a search happened to succeed.
+        /// </summary>
+        internal static List<string> CandidateRoots() =>
+            NamedRoots().Concat(DriveRoots()).ToList();
+
+        /// <summary>
+        /// The guesses written down here, apart from the ones derived from whatever
+        /// drives happen to be mounted. Kept separate so a test can hold this list to
+        /// what the guide says without a volume's name deciding the outcome.
+        /// </summary>
+        internal static List<string> NamedRoots()
+        {
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            var roots = new List<string>
+            {
+                @"C:\VelociDrone",
+                Path.Combine(home, "Desktop", "VelociDrone"),
+                Path.Combine(home, "Documents", "VelociDrone"),
+                Path.Combine(home, "Downloads", "VelociDrone"),
+                Path.Combine(home, "Downloads", "Velocidrone Windows Launcher"),
+            };
+            return roots;
+        }
+
+        /// <summary>
+        /// One guess per mounted drive. "Another drive" is one of the guide's own
+        /// suggestions, and it does not say the drive has to be internal - an external
+        /// disk is where a large sim often ends up.
+        /// </summary>
+        internal static List<string> DriveRoots() =>
+            DriveInfo.GetDrives()
+                .Where(d => d.IsReady)
+                .Select(d => Path.Combine(d.RootDirectory.FullName, "VelociDrone"))
+                .ToList();
 
         /// <summary>
         /// Looks for velocidrone.exe across the disks, for when the known locations miss.
@@ -54,8 +103,11 @@ namespace VDGSCompanion
             {
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             };
+            // Every ready drive, matching the guesses above. Fixed-only meant a game on
+            // an external disk was missed twice over: the guess did not name the drive
+            // and the walk did not visit it.
             foreach (var d in DriveInfo.GetDrives())
-                if (d.IsReady && d.DriveType == DriveType.Fixed)
+                if (d.IsReady)
                     roots.Add(d.RootDirectory.FullName);
 
             return ScanRoots(roots, maxDepth: 5, log: log);
@@ -246,6 +298,14 @@ namespace VDGSCompanion
                 throw new InvalidOperationException(
                     "VelociDrone is running. Close it first - files in use cannot be replaced.");
 
+            // A mod archive carries the interface; a capture archive does not. Only the
+            // first should sweep vdgs/ui, so the archive is asked what it holds.
+            bool carriesMod;
+            using (var probe = ZipFile.OpenRead(zipPath))
+                carriesMod = probe.Entries.Any(e =>
+                    e.FullName.Replace('\\', '/').StartsWith("vdgs/ui/", StringComparison.OrdinalIgnoreCase));
+            var written = new List<string>();
+
             using (var zip = ZipFile.OpenRead(zipPath))
             {
                 foreach (var e in zip.Entries)
@@ -269,8 +329,10 @@ namespace VDGSCompanion
                     if (KeepExisting(target, log)) continue;
 
                     e.ExtractToFile(target, overwrite: true);
+                    written.Add(target);
                 }
             }
+            if (carriesMod) SweepInterface(game, written, log);
             log("installed " + (label ?? Path.GetFileName(zipPath)));
         }
 
@@ -328,6 +390,7 @@ namespace VDGSCompanion
 
             var root = Path.GetFullPath(src) + Path.DirectorySeparatorChar;
             var copied = 0;
+            var written = new List<string>();
             foreach (var file in Directory.GetFiles(src, "*", SearchOption.AllDirectories))
             {
                 // README.txt sits at the top of the payload and is for a person reading the
@@ -339,10 +402,58 @@ namespace VDGSCompanion
                 if (KeepExisting(target, log)) continue;
                 Directory.CreateDirectory(Path.GetDirectoryName(target));
                 File.Copy(file, target, overwrite: true);
+                written.Add(Path.GetFullPath(target));
                 copied++;
             }
+            SweepInterface(game, written, log);
             log("installed mod " + (BundledModVersion() ?? "?") + " (" + copied + " files)");
         }
+
+        /// <summary>
+        /// Drops whatever is left in the interface folder that this install did not put
+        /// there.
+        ///
+        /// Vite fingerprints every asset, so each build lands beside the last one instead
+        /// of over it. Four installs left eighteen scripts in vdgs/ui/assets, seventeen of
+        /// them dead - index.html only ever names the current pair, so the rest are weight
+        /// nobody would notice.
+        ///
+        /// Swept after extracting, not before. Clearing first means any failure on the way
+        /// through - an escaping entry, a full disk, a file still held open - leaves the
+        /// game with no interface at all, and the plugin quietly serving its placeholder
+        /// page instead.
+        ///
+        /// Only the mod paths call this. A capture install goes through the same extractor
+        /// and has no business touching the interface.
+        /// </summary>
+        private static void SweepInterface(string game, ICollection<string> written, Action<string> log)
+        {
+            var ui = Path.Combine(game, "vdgs", "ui");
+            if (!Directory.Exists(ui)) return;
+
+            var keep = new HashSet<string>(written, StringComparer.OrdinalIgnoreCase);
+
+            // Nothing was written here, so there is nothing to sweep against. A payload
+            // staged without the web build - the csproj copies the mod on VDGS.dll alone -
+            // would otherwise have every file dropped and the plugin left serving its
+            // placeholder page, with no error to explain it.
+            var uiRoot = Path.GetFullPath(ui) + Path.DirectorySeparatorChar;
+            if (!keep.Any(k => k.StartsWith(uiRoot, StringComparison.OrdinalIgnoreCase)))
+            {
+                log("no interface in this payload - left the one already there");
+                return;
+            }
+            var dropped = 0;
+            foreach (var f in Directory.GetFiles(ui, "*", SearchOption.AllDirectories))
+            {
+                if (keep.Contains(Path.GetFullPath(f))) continue;
+                try { File.Delete(f); dropped++; }
+                catch (Exception ex) { log("could not remove " + Path.GetFileName(f) + ": " + ex.Message); }
+            }
+            if (dropped > 0) log("dropped " + dropped + " file(s) from an older interface");
+        }
+
+
 
         /// <summary>
         /// Removes what the mod installed, and only that.

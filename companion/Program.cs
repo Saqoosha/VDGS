@@ -1,7 +1,9 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using System.Windows.Forms;
 
 namespace VDGSCompanion
@@ -28,9 +30,47 @@ namespace VDGSCompanion
                 return;
             }
 
-            Application.EnableVisualStyles();
-            Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new MainForm());
+            // One window, because two of them are two answers to the same questions.
+            // Both would scan for the game, both would offer to install over each other,
+            // and installing from one while the other is mid-download writes the same
+            // folder twice. The second launch is nearly always someone who lost the first
+            // window behind the game, so it hands that one back rather than saying no.
+            bool first;
+            using (var only = new Mutex(true, @"Local\VDGSCompanion.window", out first))
+            {
+                if (!first)
+                {
+                    FocusRunningWindow();
+                    return;
+                }
+
+                Application.EnableVisualStyles();
+                Application.SetCompatibleTextRenderingDefault(false);
+                Application.Run(new MainForm());
+                GC.KeepAlive(only);
+            }
+        }
+
+        /// <summary>
+        /// Raise the window that is already up. It may be minimised, so restore before
+        /// asking for the foreground - SetForegroundWindow on a minimised window flashes
+        /// the taskbar and leaves it minimised, which reads as the click doing nothing.
+        /// </summary>
+        private static void FocusRunningWindow()
+        {
+            var me = Process.GetCurrentProcess();
+            foreach (var p in Process.GetProcessesByName(me.ProcessName))
+            {
+                // More than one can match: an --export-track run from a shell is this same
+                // exe, and it has no window at all.
+                if (p.Id == me.Id || p.MainWindowHandle == IntPtr.Zero) continue;
+                // Only when it is minimised. SW_RESTORE on a maximised window un-maximises
+                // it, so an unconditional call shrinks the very window it was asked to
+                // bring forward.
+                if (IsIconic(p.MainWindowHandle)) ShowWindow(p.MainWindowHandle, SW_RESTORE);
+                SetForegroundWindow(p.MainWindowHandle);
+                return;
+            }
         }
 
         private static int CheckCatalog(string[] args)
@@ -144,5 +184,16 @@ namespace VDGSCompanion
 
         [System.Runtime.InteropServices.DllImport("kernel32.dll")]
         private static extern bool AttachConsole(int processId);
+
+        private const int SW_RESTORE = 9;
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool ShowWindow(IntPtr window, int command);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool IsIconic(IntPtr window);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr window);
     }
 }

@@ -59,11 +59,20 @@
        C#-only build still works; the app reports the payload as absent rather than
        pretending it can install one. -->
   <Target Name="CopyMod" AfterTargets="Build" Condition="Exists('$(MSBuildProjectDirectory)/../build/release/vdgs-mod/BepInEx/plugins/VDGS.dll')">
+    <!-- Emptied first. Copy never removes, and the interface is fingerprinted per build,
+         so every rebuild left the last one's scripts beside the new ones: twenty-three in
+         the payload against five in the source, all of them shipped in the zip and copied
+         into the game. Nothing broke - index.html names only the current pair - which is
+         why it went unnoticed until an install was counted. -->
+    <ItemGroup>
+      <StalePayload Include="$(OutDir)mod/**/*" />
+    </ItemGroup>
+    <Delete Files="@(StalePayload)" />
+    <RemoveDir Directories="$(OutDir)mod" />
     <ItemGroup>
       <ModFiles Include="$(MSBuildProjectDirectory)/../build/release/vdgs-mod/**/*" />
     </ItemGroup>
     <Copy SourceFiles="@(ModFiles)"
-          DestinationFiles="@(ModFiles->'$(OutDir)mod/%(RecursiveDir)%(Filename)%(Extension)')"
-          SkipUnchangedFiles="true" />
+          DestinationFiles="@(ModFiles->'$(OutDir)mod/%(RecursiveDir)%(Filename)%(Extension)')" />
   </Target>
 </Project>

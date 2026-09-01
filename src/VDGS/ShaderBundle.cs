@@ -28,6 +28,19 @@ namespace VDGS
 
         internal static bool Loaded => SplatShader != null && CompositeShader != null && SplatUtilities != null;
 
+        /// <summary>
+        /// Whether this machine can actually draw a capture, as opposed to having found
+        /// the shaders that would.
+        ///
+        /// The splat shader declares wave intrinsics, so it bakes as unsupported without
+        /// D3D12 - the bundle still loads and every asset still resolves, and only
+        /// isSupported says otherwise. Starting the game from VelociDrone's own launcher
+        /// lands exactly here, and it is the difference between reading a capture into
+        /// memory for nothing and not reading it at all.
+        /// </summary>
+        internal static bool CanDraw =>
+            Loaded && SplatShader.isSupported && CompositeShader.isSupported;
+
         /// <summary>Loads the bundle from &lt;game&gt;/vdgs/. Safe to call twice.</summary>
         internal static bool Load(string vdgsDir, StringBuilder report)
         {

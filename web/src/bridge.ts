@@ -17,6 +17,9 @@ type Push =
   // The word before the work: building a whole state means walking the disk, and the
   // button should not look dead while that happens.
   | { type: 'busy'; what: string | null }
+  // The game starting is one flag, and the host watches for it rather than waiting to be
+  // asked - nobody presses refresh to tell the app they quit VelociDrone.
+  | { type: 'running'; running: boolean }
 
 type WebViewHost = {
   postMessage: (message: unknown) => void
