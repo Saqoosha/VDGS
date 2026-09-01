@@ -298,6 +298,14 @@ namespace VDGSCompanion
                 throw new InvalidOperationException(
                     "VelociDrone is running. Close it first - files in use cannot be replaced.");
 
+            // A mod archive carries the interface; a capture archive does not. Only the
+            // first should sweep vdgs/ui, so the archive is asked what it holds.
+            bool carriesMod;
+            using (var probe = ZipFile.OpenRead(zipPath))
+                carriesMod = probe.Entries.Any(e =>
+                    e.FullName.Replace('\\', '/').StartsWith("vdgs/ui/", StringComparison.OrdinalIgnoreCase));
+            if (carriesMod) ClearInterface(game, log);
+
             using (var zip = ZipFile.OpenRead(zipPath))
             {
                 foreach (var e in zip.Entries)
@@ -324,6 +332,7 @@ namespace VDGSCompanion
                 }
             }
             log("installed " + (label ?? Path.GetFileName(zipPath)));
+            if (carriesMod) EnableAutoSpawn(game, log);
         }
 
         /// <summary>
@@ -378,6 +387,8 @@ namespace VDGSCompanion
                 throw new InvalidOperationException(
                     "VelociDrone is running. Close it first - files in use cannot be replaced.");
 
+            ClearInterface(game, log);
+
             var root = Path.GetFullPath(src) + Path.DirectorySeparatorChar;
             var copied = 0;
             foreach (var file in Directory.GetFiles(src, "*", SearchOption.AllDirectories))
@@ -394,6 +405,51 @@ namespace VDGSCompanion
                 copied++;
             }
             log("installed mod " + (BundledModVersion() ?? "?") + " (" + copied + " files)");
+            EnableAutoSpawn(game, log);
+        }
+
+        /// <summary>
+        /// Replaces the interface rather than merging into it.
+        ///
+        /// Vite fingerprints every asset, so each build lands beside the last one instead
+        /// of over it. Four installs left eighteen scripts in vdgs/ui/assets, seventeen of
+        /// them dead - index.html only ever names the current pair, so the rest are weight
+        /// nobody would notice.
+        ///
+        /// Only the mod paths call this. A capture install goes through the same extractor
+        /// and has no business touching the interface.
+        /// </summary>
+        private static void ClearInterface(string game, Action<string> log)
+        {
+            var ui = Path.Combine(game, "vdgs", "ui");
+            if (!Directory.Exists(ui)) return;
+            try { Directory.Delete(ui, recursive: true); log("cleared the old interface"); }
+            catch (Exception ex) { log("could not clear vdgs/ui: " + ex.Message); }
+        }
+
+        /// <summary>
+        /// Turns automatic display on, which is a file existing and nothing else.
+        ///
+        /// Without it the mod loads, finds its shaders, reads the bindings - and shows
+        /// nothing, silently, because putting a capture on screen is gated on this. It was
+        /// only ever created by hand, so every install done through this app arrived
+        /// unable to draw anything, with no error to go on.
+        ///
+        /// Not part of the payload: deleting it is how someone turns automatic display
+        /// off, and a reinstall that put it back would take that choice away. So it is
+        /// written when absent and left alone when present.
+        /// </summary>
+        private static void EnableAutoSpawn(string game, Action<string> log)
+        {
+            var flag = Path.Combine(game, "vdgs", "autospawn");
+            if (File.Exists(flag)) { log("left your autospawn alone"); return; }
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(flag));
+                File.WriteAllBytes(flag, new byte[0]);
+                log("enabled automatic display (vdgs/autospawn)");
+            }
+            catch (Exception ex) { log("could not write vdgs/autospawn: " + ex.Message); }
         }
 
         /// <summary>
