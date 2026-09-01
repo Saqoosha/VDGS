@@ -66,6 +66,9 @@ namespace VDGSCompanion
             {
                 Version want, have;
                 if (string.IsNullOrEmpty(MinModVersion)) return null;
+                // An unreadable requirement is a broken catalog, not a satisfied one. It
+                // cannot be enforced here - there is nothing to compare - so the guard is
+                // on the publishing side, in make-catalog.sh, where it can still be fixed.
                 if (!Version.TryParse(MinModVersion, out want)) return null;
                 if (!Version.TryParse(installedMod, out have)) return null;
                 if (have.Major < 2000) return null;     // not a date: nothing to compare
@@ -99,7 +102,13 @@ namespace VDGSCompanion
             {
                 // Nothing published to import: the capture on its own is the whole entry,
                 // and whoever wants it bound does that themselves once flying.
-                if (Track == null || TrackName == null) return true;
+                if (Track == null) return true;
+
+                // A track published without a name. Parse allows it, and there is then no
+                // name to look for - so this cannot be confirmed, and unconfirmed is not
+                // finished. Reading it as finished would grey out Get on exactly the
+                // broken entry this method exists to keep reachable.
+                if (TrackName == null) return false;
 
                 // Ordinal throughout, like the bindings file and the mod that reads it -
                 // these are the game's own track names, matched the way the game matches

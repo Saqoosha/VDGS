@@ -416,6 +416,18 @@ internal static class Harness
             { { "VDGS FDF", new List<string> { "some-other-capture" } } };
         Check(withTrack.TrackInPlace(inGame, rebound),
               "a track aimed somewhere else on purpose is left alone");
+
+        // Parse accepts a track object with no name, and there is then nothing to look
+        // for. Reading that as finished greys out Get on the one entry that most needs
+        // it - the same shape as the bug this whole method exists to stop.
+        var namelessTrack = new Catalog.Entry
+        {
+            Id = "odd", Name = "Odd", InstallAs = "odd",
+            Scene = new Catalog.File_ { Url = "https://x/s.zip" },
+            Track = new Catalog.File_ { Url = "https://x/t.json" },
+        };
+        Check(!namelessTrack.TrackInPlace(inGame, bound),
+              "a published track with no name cannot be confirmed, so it is not finished");
     }
 
     /// <summary>

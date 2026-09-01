@@ -51,7 +51,7 @@ cp -R "$ROOT/web/dist/assets" "$OUT/assets"
 # not a subdirectory of one.
 
 python3 - "$ROOT" "$FILES" "$BASE_URL" <<'PY'
-import hashlib, json, os, shutil, sys, datetime
+import hashlib, json, os, re, shutil, sys, datetime
 
 root, out, base = sys.argv[1], sys.argv[2], sys.argv[3]
 entries_dir = os.path.join(root, "catalog", "entries")
@@ -81,6 +81,18 @@ for name in sorted(os.listdir(entries_dir)):
         continue
     meta = json.load(open(os.path.join(entries_dir, name)))
     install_as = meta["installAs"]
+
+    # Checked here because it cannot be checked later. The app compares this with
+    # System.Version, and anything that will not parse - "2026-08-25", "v2026.08.25" -
+    # reads as no requirement at all rather than as an error, which is exactly how this
+    # field spent its first release doing nothing. Publishing is the last point at which
+    # it is still someone's to fix, so a capture with an unreadable one is left out
+    # rather than shipped with a requirement that quietly does not apply.
+    want = meta.get("minModVersion")
+    if want is not None and not re.match(r"^\d+(\.\d+){1,3}$", str(want)):
+        skipped.append((meta["id"], "minModVersion %r is not a version the app can read "
+                                    "(digits and dots, e.g. 2026.08.25)" % (want,)))
+        continue
 
     zip_path = os.path.join(release, "vdgs-scene-%s.zip" % install_as)
     if not os.path.exists(zip_path):
@@ -123,7 +135,7 @@ for name in sorted(os.listdir(entries_dir)):
         }
 
     if meta.get("minModVersion"):
-        entry["minModVersion"] = meta["minModVersion"]
+        entry["minModVersion"] = str(meta["minModVersion"])
     scenes.append(entry)
 
 # The app itself is published alongside the captures: a page that lists things to install

@@ -524,6 +524,18 @@ namespace VDGSCompanion
                 {
                     Percent(null);
                     var t = Json.ParseTrackFile(File.ReadAllText(trackFile));
+
+                    // The binding is written under the name the game will know it by, and
+                    // the page looks for the name the catalog published. They agree only
+                    // because make-catalog.sh copies one from the other; if they ever
+                    // stop, the install works and reports as unfinished for good, each
+                    // retry costing the whole capture again. So a catalog that disagrees
+                    // with its own track file is refused rather than half-applied.
+                    if (entry.TrackName != null && t.Name != entry.TrackName)
+                        throw new InvalidOperationException(
+                            "The catalog calls this track \"" + entry.TrackName +
+                            "\" but the published file calls it \"" + t.Name +
+                            "\". Nothing was changed.");
                     var db = TrackStore.DatabasePath();
                     if (!File.Exists(db))
                         throw new FileNotFoundException(
