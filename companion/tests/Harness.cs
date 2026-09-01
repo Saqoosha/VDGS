@@ -209,6 +209,61 @@ internal static class Harness
         Check(File.Exists(Path.Combine(game, "vdgs", "mycapture", "placement.json")),
               "and leaves their placement alone");
 
+        // Vite fingerprints each build, so without a sweep the old scripts pile up beside
+        // the new ones - eighteen after four installs, seventeen of them dead.
+        var assets = Path.Combine(game, "vdgs", "ui", "assets");
+        Directory.CreateDirectory(assets);
+        File.WriteAllText(Path.Combine(assets, "site-OLDHASH.js"), "stale");
+        GameInstall.InstallArchive(game, zip, log.Add);
+        Check(!File.Exists(Path.Combine(assets, "site-OLDHASH.js")),
+              "drops what an older interface left behind");
+        Check(File.Exists(Path.Combine(game, "vdgs", "ui", "index.html")),
+              "and keeps what this install just wrote");
+
+        // Swept after extracting, so a failure part-way through leaves the interface it
+        // had rather than none at all. The escaping entry comes FIRST on purpose: put it
+        // last and the good entries have already been rewritten by the time it throws,
+        // which passes whether the sweep runs before or after and proves nothing.
+        var evilUi = Path.Combine(Path.GetTempPath(), "vdgs-evilui-" + Guid.NewGuid().ToString("N") + ".zip");
+        using (var fs = new FileStream(evilUi, FileMode.Create))
+        using (var z = new System.IO.Compression.ZipArchive(fs, System.IO.Compression.ZipArchiveMode.Create))
+        {
+            Write(z, "../escaped.txt", "no");
+            Write(z, "vdgs/ui/index.html", "<html>");
+        }
+        Check(Throws(() => GameInstall.InstallArchive(game, evilUi, log.Add)),
+              "refuses an archive that escapes, even one carrying an interface");
+        Check(File.Exists(Path.Combine(game, "vdgs", "ui", "index.html")),
+              "and the interface it already had is still there");
+        File.Delete(evilUi);
+
+        // A payload that carries no web build must not sweep the one already installed.
+        // The csproj copies the mod on VDGS.dll alone, so this is reachable by building
+        // the app without running the web build first.
+        var noUi = Path.Combine(Path.GetTempPath(), "vdgs-noui-" + Guid.NewGuid().ToString("N") + ".zip");
+        using (var fs = new FileStream(noUi, FileMode.Create))
+        using (var z = new System.IO.Compression.ZipArchive(fs, System.IO.Compression.ZipArchiveMode.Create))
+        {
+            Write(z, "BepInEx/plugins/VDGS.dll", "plugin");
+            Write(z, "vdgs/ui/", "");
+        }
+        GameInstall.InstallArchive(game, noUi, log.Add);
+        Check(File.Exists(Path.Combine(game, "vdgs", "ui", "index.html")),
+              "a payload with no interface leaves the installed one alone");
+        File.Delete(noUi);
+
+        // A capture archive carries no interface, and has no business sweeping one.
+        var capture = Path.Combine(Path.GetTempPath(), "vdgs-cap-" + Guid.NewGuid().ToString("N") + ".zip");
+        using (var fs = new FileStream(capture, FileMode.Create))
+        using (var z = new System.IO.Compression.ZipArchive(fs, System.IO.Compression.ZipArchiveMode.Create))
+            Write(z, "vdgs/newcapture/meta.json", "{\"splatCount\":9}");
+        var marker = Path.Combine(assets, "keep-me.js");
+        File.WriteAllText(marker, "current");
+        GameInstall.InstallArchive(game, capture, log.Add);
+        Check(File.Exists(marker), "installing a capture leaves the interface alone");
+        Check(File.Exists(Path.Combine(game, "vdgs", "newcapture", "meta.json")), "and lands the capture");
+        File.Delete(capture);
+
         // An archive names its own destinations, so a crafted entry could otherwise write
         // anywhere on the disk.
         var evil = Path.Combine(Path.GetTempPath(), "vdgs-evil-" + Guid.NewGuid().ToString("N") + ".zip");

@@ -298,6 +298,14 @@ namespace VDGSCompanion
                 throw new InvalidOperationException(
                     "VelociDrone is running. Close it first - files in use cannot be replaced.");
 
+            // A mod archive carries the interface; a capture archive does not. Only the
+            // first should sweep vdgs/ui, so the archive is asked what it holds.
+            bool carriesMod;
+            using (var probe = ZipFile.OpenRead(zipPath))
+                carriesMod = probe.Entries.Any(e =>
+                    e.FullName.Replace('\\', '/').StartsWith("vdgs/ui/", StringComparison.OrdinalIgnoreCase));
+            var written = new List<string>();
+
             using (var zip = ZipFile.OpenRead(zipPath))
             {
                 foreach (var e in zip.Entries)
@@ -321,8 +329,10 @@ namespace VDGSCompanion
                     if (KeepExisting(target, log)) continue;
 
                     e.ExtractToFile(target, overwrite: true);
+                    written.Add(target);
                 }
             }
+            if (carriesMod) SweepInterface(game, written, log);
             log("installed " + (label ?? Path.GetFileName(zipPath)));
         }
 
@@ -380,6 +390,7 @@ namespace VDGSCompanion
 
             var root = Path.GetFullPath(src) + Path.DirectorySeparatorChar;
             var copied = 0;
+            var written = new List<string>();
             foreach (var file in Directory.GetFiles(src, "*", SearchOption.AllDirectories))
             {
                 // README.txt sits at the top of the payload and is for a person reading the
@@ -391,10 +402,58 @@ namespace VDGSCompanion
                 if (KeepExisting(target, log)) continue;
                 Directory.CreateDirectory(Path.GetDirectoryName(target));
                 File.Copy(file, target, overwrite: true);
+                written.Add(Path.GetFullPath(target));
                 copied++;
             }
+            SweepInterface(game, written, log);
             log("installed mod " + (BundledModVersion() ?? "?") + " (" + copied + " files)");
         }
+
+        /// <summary>
+        /// Drops whatever is left in the interface folder that this install did not put
+        /// there.
+        ///
+        /// Vite fingerprints every asset, so each build lands beside the last one instead
+        /// of over it. Four installs left eighteen scripts in vdgs/ui/assets, seventeen of
+        /// them dead - index.html only ever names the current pair, so the rest are weight
+        /// nobody would notice.
+        ///
+        /// Swept after extracting, not before. Clearing first means any failure on the way
+        /// through - an escaping entry, a full disk, a file still held open - leaves the
+        /// game with no interface at all, and the plugin quietly serving its placeholder
+        /// page instead.
+        ///
+        /// Only the mod paths call this. A capture install goes through the same extractor
+        /// and has no business touching the interface.
+        /// </summary>
+        private static void SweepInterface(string game, ICollection<string> written, Action<string> log)
+        {
+            var ui = Path.Combine(game, "vdgs", "ui");
+            if (!Directory.Exists(ui)) return;
+
+            var keep = new HashSet<string>(written, StringComparer.OrdinalIgnoreCase);
+
+            // Nothing was written here, so there is nothing to sweep against. A payload
+            // staged without the web build - the csproj copies the mod on VDGS.dll alone -
+            // would otherwise have every file dropped and the plugin left serving its
+            // placeholder page, with no error to explain it.
+            var uiRoot = Path.GetFullPath(ui) + Path.DirectorySeparatorChar;
+            if (!keep.Any(k => k.StartsWith(uiRoot, StringComparison.OrdinalIgnoreCase)))
+            {
+                log("no interface in this payload - left the one already there");
+                return;
+            }
+            var dropped = 0;
+            foreach (var f in Directory.GetFiles(ui, "*", SearchOption.AllDirectories))
+            {
+                if (keep.Contains(Path.GetFullPath(f))) continue;
+                try { File.Delete(f); dropped++; }
+                catch (Exception ex) { log("could not remove " + Path.GetFileName(f) + ": " + ex.Message); }
+            }
+            if (dropped > 0) log("dropped " + dropped + " file(s) from an older interface");
+        }
+
+
 
         /// <summary>
         /// Removes what the mod installed, and only that.
