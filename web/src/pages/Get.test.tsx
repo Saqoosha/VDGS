@@ -40,6 +40,59 @@ function state(over: Partial<SetupState> = {}): SetupState {
 }
 
 describe('Get', () => {
+  // The masthead has carried this since the beginning, at ten pixels in the corner of the
+  // window, and a capture takes the better part of a minute. Nobody watches the corner.
+  it('shows how far along a download is, where the button was pressed', () => {
+    render(
+      <Get
+        state={state({
+          busy: 'downloading FDF',
+          busyPercent: 42,
+          catalog: { url: 'u', error: null, entries: [entry()] },
+        })}
+      />,
+    )
+    expect(screen.getByText(/downloading FDF/i)).toBeInTheDocument()
+    expect(screen.getByText('42%')).toBeInTheDocument()
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '42')
+  })
+
+  // Unpacking and importing a track report nothing, and a made-up number would be worse
+  // than admitting that.
+  it('moves without claiming a number when there is none', () => {
+    render(
+      <Get
+        state={state({
+          busy: 'installing FDF',
+          busyPercent: null,
+          catalog: { url: 'u', error: null, entries: [entry()] },
+        })}
+      />,
+    )
+    expect(screen.getByRole('progressbar')).not.toHaveAttribute('aria-valuenow')
+    expect(screen.queryByText('%')).not.toBeInTheDocument()
+  })
+
+  it('says nothing when nothing is happening', () => {
+    render(<Get state={state({ catalog: { url: 'u', error: null, entries: [entry()] } })} />)
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
+  })
+
+  // A second press cannot start a second download - the host drops it - so the page does
+  // not offer one either.
+  it('will not offer another capture while one is arriving', () => {
+    render(
+      <Get
+        state={state({
+          busy: 'downloading FDF',
+          busyPercent: 10,
+          catalog: { url: 'u', error: null, entries: [entry({ id: 'other', name: 'Other' })] },
+        })}
+      />,
+    )
+    expect(screen.getByRole('button', { name: /^get$/i })).toBeDisabled()
+  })
+
   it('shows what a capture costs before it is fetched', () => {
     render(<Get state={state({ catalog: { url: 'u', error: null, entries: [entry()] } })} />)
     expect(screen.getByText('FDF')).toBeInTheDocument()

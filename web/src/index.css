@@ -147,3 +147,10 @@
     cursor: pointer;
   }
 }
+
+/* The indeterminate bar: a third of the track sliding across, for the jobs that cannot
+   report a percentage - unpacking a capture, importing a track. */
+@keyframes progress-sweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
+}

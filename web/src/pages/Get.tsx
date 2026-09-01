@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { Section } from '../chrome'
 import { Button } from '@/components/ui/button'
 import { formatBytes } from '../format'
+import { Progress } from '../components/Progress'
 import { send } from '../bridge'
 import type { CatalogEntry, SetupState } from '../types'
 
@@ -50,6 +51,11 @@ export default function Get({ state }: { state: SetupState | null }) {
             </ol>
           )}
         </div>
+
+        {/* At the foot of the list, not against the row that started it: the list
+            scrolls, and a capture takes the better part of a minute to arrive. Held
+            here so it cannot scroll out from under someone who is waiting on it. */}
+        {state?.busy ? <Progress what={state.busy} percent={state.busyPercent} /> : null}
 
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <Button variant="outline" disabled={busy} onClick={() => send('refreshCatalog')}>
