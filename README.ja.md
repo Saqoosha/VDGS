@@ -10,6 +10,18 @@ VelociDrone の中に 3D Gaussian Splatting シーンを表示する mod。
 
 [飛行映像](https://www.youtube.com/watch?v=MuDq_7X-4Mo)
 
+## 手に入れる
+
+[最新リリース](https://github.com/Saqoosha/VDGS/releases/latest)から
+**vdgs-companion** を落として起動する。VelociDrone を見つけ、mod を入れ、キャプチャと
+コースを取ってきて、シェーダーが要求するフラグ付きでゲームを起動する — **4 クリック**で、
+このリポジトリを clone する必要は無い。
+
+要るのは Windows の VelociDrone 1.16.0 と、D3D12 が動く GPU。mod は必ず
+`-force-d3d12` で起動する（ソートの compute が SM6 の wave intrinsics を使うので、
+無いとシェーダーが unsupported として焼かれる）。**キャプチャはここではなくアプリの中から**
+落とす — 1 本で数百 MB あるため。手順は [docs/USAGE.ja.md](docs/USAGE.ja.md)。
+
 ## 動作実績
 
 | | |

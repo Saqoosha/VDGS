@@ -9,6 +9,18 @@ real, scanned place in an FPV drone simulator.
 
 [Watch the flight](https://www.youtube.com/watch?v=MuDq_7X-4Mo)
 
+## Getting it
+
+Download **vdgs-companion** from the
+[latest release](https://github.com/Saqoosha/VDGS/releases/latest) and run it. It finds
+VelociDrone, installs the mod, fetches a capture and its course, and launches the game
+with the flag the shaders need — four clicks, no checkout of this repository.
+
+You need VelociDrone 1.16.0 on Windows and a GPU that can do D3D12; the mod always
+launches with `-force-d3d12`, because the sort compute uses SM6 wave intrinsics and the
+shaders bake as unsupported without it. Captures are fetched from inside the app, not from
+here — they are hundreds of megabytes each. Step-by-step: [docs/USAGE.md](docs/USAGE.md).
+
 ## What it does
 
 | | |
