@@ -47,6 +47,36 @@ describe('Browse', () => {
     expect(screen.queryByText(/使い方/)).not.toBeInTheDocument()
   })
 
+  // A section that declares itself Japanese hands everything inside it to a Japanese
+  // voice, including the English button names it deliberately did not translate.
+  it('marks the app\'s own button names as English inside the Japanese section', async () => {
+    serve({ formatVersion: 1, scenes: [scene], app: { version: '1', url: 'https://h/a.zip', bytes: 10 } })
+    const { container } = render(<Browse lang="ja" />)
+    await waitFor(() => expect(screen.getByText('使い方')).toBeInTheDocument())
+    for (const name of ['Install mod', '02 get', 'Fly'])
+      expect(screen.getByText(name).closest('[lang]')?.getAttribute('lang'), name).toBe('en')
+    expect(container.querySelectorAll('b[lang="en"]')).toHaveLength(3)
+  })
+
+  // Latin micro-caps tracking spaces kanji apart; this is the page's biggest button.
+  it('does not letter-space the Japanese download button', async () => {
+    serve({ formatVersion: 1, scenes: [scene], app: { version: '1', url: 'https://h/a.zip', bytes: 10 } })
+    const { rerender } = render(<Browse lang="ja" />)
+    await waitFor(() =>
+      expect(screen.getByRole('link', { name: 'companion をダウンロード' })).toBeInTheDocument(),
+    )
+    expect(screen.getByRole('link', { name: 'companion をダウンロード' }).className).not.toMatch(
+      /tracking-/,
+    )
+    rerender(<Browse lang="en" />)
+    await waitFor(() =>
+      expect(screen.getByRole('link', { name: 'Download the companion' })).toBeInTheDocument(),
+    )
+    expect(screen.getByRole('link', { name: 'Download the companion' }).className).toMatch(
+      /tracking-/,
+    )
+  })
+
   // "captures" is the word this project uses among itself and says nothing to a visitor.
   it('calls them scans, not captures', async () => {
     serve({ formatVersion: 1, scenes: [scene] })

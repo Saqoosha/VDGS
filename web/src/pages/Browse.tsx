@@ -108,27 +108,36 @@ export default function Browse({ lang }: { lang: Lang }) {
           'space-y-3 leading-relaxed text-muted-foreground'
         }>
           <Step n="01">{t.step1}</Step>
-          {/* The button names stay in English in both languages, because the app is. */}
+          {/* The button names stay in English in both languages, because the app is - and
+              they are marked as English, because a section that says it is Japanese hands
+              them to a Japanese voice otherwise. Same reason the document is not marked. */}
           <Step n="02">
             {t.step2a}
-            <b className="text-foreground">Install mod</b>
+            <Name>Install mod</Name>
             {t.step2b}
           </Step>
           <Step n="03">
             {t.step3a}
-            <b className="text-foreground">02 get</b>
+            <Name>02 get</Name>
             {t.step3b}
           </Step>
           <Step n="04">
             {t.step4a}
-            <b className="text-foreground">Fly</b>
+            <Name>Fly</Name>
             {t.step4b}
           </Step>
         </ol>
 
         <div className="mt-6 flex flex-wrap items-center gap-4">
           {app ? (
-            <Button size="lg" className="font-mono tracking-[0.2em] uppercase" asChild>
+            <Button
+              size="lg"
+              // Latin micro-caps tracking on a Japanese label spaces kanji apart the way
+              // the section heading did before it was fixed - and this is the page's
+              // biggest button.
+              className={ja ? 'font-mono' : 'font-mono tracking-[0.2em] uppercase'}
+              asChild
+            >
               <a href={app.url}>{t.download}</a>
             </Button>
           ) : null}
@@ -160,6 +169,18 @@ export default function Browse({ lang }: { lang: Lang }) {
         </p>
       </Section>
     </div>
+  )
+}
+
+/**
+ * A name the app itself uses, in English whatever the surrounding language is - so it is
+ * marked English, or a Japanese section reads it aloud in a Japanese voice.
+ */
+function Name({ children }: { children: ReactNode }) {
+  return (
+    <b lang="en" className="text-foreground">
+      {children}
+    </b>
   )
 }
 
