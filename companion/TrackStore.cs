@@ -81,10 +81,36 @@ namespace VDGSCompanion
             return found;
         }
 
+        /// <summary>
+        /// A track name as the game shows it, and as the mod therefore knows it.
+        ///
+        /// VelociDrone turns spaces into '+' when it saves a track of its own, and turns
+        /// them back for display. So one course has two spellings - "VDGS+FDF+2026-08-22"
+        /// in the database, "VDGS FDF 2026-08-22" on screen - and which one you are
+        /// holding depends on where you got it.
+        ///
+        /// The mod reads the name off the running game, so every binding is keyed by the
+        /// displayed form. This app reads the database, so everything it writes has to be
+        /// converted first. Getting that wrong is silent: the track imports, the capture
+        /// installs, the binding is written, and nothing appears - because the key the mod
+        /// looks up is not the key that was written.
+        ///
+        /// A name imported by this app keeps whatever spelling it arrived with, so the
+        /// database holds both conventions at once. Comparing on this form is what lets
+        /// the two live side by side.
+        /// </summary>
+        internal static string DisplayName(string stored) =>
+            stored == null ? null : stored.Replace('+', ' ');
+
+        /// <summary>
+        /// The track the game would call by this name, whichever way either side spells
+        /// it. Matched on the displayed form for the reason in <see cref="DisplayName"/>.
+        /// </summary>
         internal static Track Find(string dbPath, string name)
         {
+            var want = DisplayName(name);
             foreach (var t in List(dbPath))
-                if (string.Equals(t.Name, name, StringComparison.Ordinal))
+                if (string.Equals(DisplayName(t.Name), want, StringComparison.Ordinal))
                     return t;
             return null;
         }

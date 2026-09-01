@@ -430,6 +430,57 @@ internal static class Harness
               "a published track with no name cannot be confirmed, so it is not finished");
     }
 
+    /// <summary>
+    /// One course, two spellings.
+    ///
+    /// VelociDrone saves a track of its own with spaces turned into '+', and shows it with
+    /// them turned back. The mod reads the name off the running game, so every binding is
+    /// keyed by the displayed form; this app reads the database, so it holds the stored
+    /// form. Comparing the wrong one is silent all the way through - the track imports,
+    /// the capture installs, the binding is written, and nothing appears.
+    ///
+    /// A name this app imported keeps whatever spelling it arrived with, so both live in
+    /// the database at once. That is why matching is on the displayed form rather than
+    /// re-encoding one side.
+    /// </summary>
+    private static void OneCourseTwoSpellings()
+    {
+        Console.WriteLine();
+        Console.WriteLine("track names the game spells two ways");
+
+        Check(TrackStore.DisplayName("VDGS+FDF+2026-08-22") == "VDGS FDF 2026-08-22",
+              "the stored spelling converts to the one on screen");
+        Check(TrackStore.DisplayName("VDGS FDF") == "VDGS FDF",
+              "a name imported with real spaces is already the displayed one");
+        Check(TrackStore.DisplayName(null) == null,
+              "no name converts to no name");
+
+        // The entry as it is published: the catalog carries the stored spelling, because
+        // that is what came out of the database it was exported from.
+        var e = new Catalog.Entry
+        {
+            Id = "fdf", Name = "FDF", InstallAs = "FDF-2026-08-22",
+            Scene = new Catalog.File_ { Url = "https://x/s.zip" },
+            Track = new Catalog.File_ { Url = "https://x/t.json" },
+            TrackName = "VDGS+FDF+2026-08-22",
+        };
+        // Both maps as the window builds them: keyed by what the game shows.
+        var inGame = new Dictionary<string, bool>(StringComparer.Ordinal)
+            { { "VDGS FDF 2026-08-22", false } };
+        var bound = new Dictionary<string, List<string>>(StringComparer.Ordinal)
+            { { "VDGS FDF 2026-08-22", new List<string> { "FDF-2026-08-22" } } };
+
+        Check(e.TrackInPlace(inGame, bound),
+              "a course made in the editor is recognised as installed");
+
+        // What the bug looked like: everything keyed the stored way, which is the one
+        // spelling the mod never asks for.
+        var storedKeyed = new Dictionary<string, List<string>>(StringComparer.Ordinal)
+            { { "VDGS+FDF+2026-08-22", new List<string> { "FDF-2026-08-22" } } };
+        Check(!e.TrackInPlace(inGame, storedKeyed),
+              "a binding written under the stored spelling does not count - the mod cannot find it");
+    }
+
     private static int Main()
     {
         var db = MakeDb();
@@ -506,6 +557,7 @@ internal static class Harness
         InstallingAndRemovingKeepWhatIsTheirs();
         TheLoaderIsFetchedAndPinned();
         AHalfDoneInstallIsNotInstalled();
+        OneCourseTwoSpellings();
 
         Console.WriteLine(_fail == 0 ? "\nALL PASS" : "\n" + _fail + " FAILED");
         return _fail == 0 ? 0 : 1;
