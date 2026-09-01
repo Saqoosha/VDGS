@@ -189,7 +189,14 @@ if app:
     assert len(app["sha256"]) == 64, "app digest is not a sha256"
     assert app["bytes"] > 0, "app has no size"
 else:
-    print("   note: no companion build in this catalog")
+    # The comment above the app block says a page that lists things to install and does
+    # not offer the thing that installs them is a dead end. That was stated and not
+    # enforced, so `make-release.sh --scene-only` against an empty build/release wrote a
+    # catalog with no app at all - valid JSON, published without complaint, and the
+    # download button simply gone for everyone.
+    sys.exit("no companion build in build/release, so this catalog would publish a site\n"
+             "       with nothing to download. Run tools/make-release.sh without\n"
+             "       --scene-only, or leave the previous vdgs-companion-*.zip in place.")
 print("   catalog.json checks out")
 CHECK
 
