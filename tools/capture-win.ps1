@@ -6,8 +6,9 @@ $app    = if ($env:VDGS_GAME) { $env:VDGS_GAME } else { Join-Path $homeDir 'Down
 $exe    = Join-Path $app 'velocidrone.exe'
 $probe  = Join-Path $app 'vdgs-probe.log'
 $bepLog = Join-Path $app 'BepInEx\LogOutput.log'
-$shot   = Join-Path $homeDir 'vdgs-shot.png'
+$shot   = Join-Path (Join-Path $homeDir 'VDGS') 'vdgs-shot.png'
 $task   = 'VDGS-Capture'
+New-Item -ItemType Directory -Force -Path (Join-Path $homeDir 'VDGS') | Out-Null
 
 foreach ($f in @($probe, $bepLog, $shot)) { if (Test-Path $f) { Remove-Item $f -Force } }
 

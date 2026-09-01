@@ -19,8 +19,9 @@ $homeDir = $env:USERPROFILE
 $app   = if ($env:VDGS_GAME) { $env:VDGS_GAME } else { Join-Path $homeDir 'Downloads\Velocidrone Windows Launcher\app' }
 $exe   = Join-Path $app 'velocidrone.exe'
 $probe = Join-Path $app 'vdgs-probe.log'
-$shot  = Join-Path $homeDir 'vdgs-shot.png'
+$shot  = Join-Path (Join-Path $homeDir 'VDGS') 'vdgs-shot.png'
 $task  = 'VDGS-EvalShot'
+New-Item -ItemType Directory -Force -Path (Join-Path $homeDir 'VDGS') | Out-Null
 
 foreach ($f in @($shot)) { if (Test-Path $f) { Remove-Item $f -Force } }
 

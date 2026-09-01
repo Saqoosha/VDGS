@@ -36,12 +36,13 @@ tar -czf "$TAR" -C "$ROOT/unity/VDGSBundler" \
     Assets Packages ProjectSettings
 echo "   $(du -h "$TAR" | cut -f1)"
 
+remote_root_mkdir
 echo "== uploading =="
-scp -o BatchMode=yes -q "$TAR" "$HOST:vdgs-bench.tgz" 2>&1 | quiet
-scp -o BatchMode=yes -q "$ROOT/tools/bench-win.ps1" "$HOST:bench-win.ps1" 2>&1 | quiet
+scp -o BatchMode=yes -q "$TAR" "$HOST:$REMOTE_ROOT/vdgs-bench.tgz" 2>&1 | quiet
+scp -o BatchMode=yes -q "$ROOT/tools/bench-win.ps1" "$HOST:$REMOTE_ROOT/bench-win.ps1" 2>&1 | quiet
 rm -f "$TAR"
 
 echo "== benchmarking on $HOST =="
 ssh -o BatchMode=yes "$HOST" \
-  "${REMOTE_GAME}powershell -ExecutionPolicy Bypass -File (Join-Path \$env:USERPROFILE 'bench-win.ps1') -Scenes $SCENES -Size $SIZE -Frames $FRAMES -SortNth $SORTNTH -Inside $INSIDE -Cull $CULL -CullMargin $CULLMARGIN" \
+  "${REMOTE_GAME}powershell -ExecutionPolicy Bypass -File (Join-Path $REMOTE_ROOT_PS 'bench-win.ps1') -Scenes $SCENES -Size $SIZE -Frames $FRAMES -SortNth $SORTNTH -Inside $INSIDE -Cull $CULL -CullMargin $CULLMARGIN" \
   2>&1 | quiet

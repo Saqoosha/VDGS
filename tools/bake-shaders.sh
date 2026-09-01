@@ -27,9 +27,11 @@ ssh -o BatchMode=yes "$HOST" \
   'if (Get-Process velocidrone -EA SilentlyContinue) { Stop-Process -Name velocidrone -Force; "stopped" } else { "not running" }' \
   2>&1 | quiet
 
+remote_root_mkdir
+
 echo "== packaging =="
 TAR="$(mktemp -t vdgs-bundler).tgz"
-# build-shaders-win.ps1 untars into %USERPROFILE%, so the archive has to carry the project
+# build-shaders-win.ps1 untars into %USERPROFILE%\VDGS, so the archive has to carry the project
 # directory itself. Packing its *contents* instead fails with "unpack failed: VDGSBundler
 # missing" - which reads like a transfer problem rather than a layout one.
 tar -czf "$TAR" -C "$ROOT/unity" \
@@ -37,13 +39,13 @@ tar -czf "$TAR" -C "$ROOT/unity" \
     VDGSBundler/Assets VDGSBundler/Packages VDGSBundler/ProjectSettings
 echo "   $(du -h "$TAR" | cut -f1)"
 
-scp -o BatchMode=yes -q "$TAR" "$HOST:vdgs-bundler.tgz" 2>&1 | quiet
-scp -o BatchMode=yes -q "$ROOT/tools/build-shaders-win.ps1" "$HOST:build-shaders-win.ps1" 2>&1 | quiet
+scp -o BatchMode=yes -q "$TAR" "$HOST:$REMOTE_ROOT/vdgs-bundler.tgz" 2>&1 | quiet
+scp -o BatchMode=yes -q "$ROOT/tools/build-shaders-win.ps1" "$HOST:$REMOTE_ROOT/build-shaders-win.ps1" 2>&1 | quiet
 rm -f "$TAR"
 
 echo "== baking =="
 ssh -o BatchMode=yes "$HOST" \
-  "${REMOTE_GAME}powershell -ExecutionPolicy Bypass -File (Join-Path \$env:USERPROFILE 'build-shaders-win.ps1')" \
+  "${REMOTE_GAME}powershell -ExecutionPolicy Bypass -File (Join-Path $REMOTE_ROOT_PS 'build-shaders-win.ps1')" \
   2>&1 | quiet | grep -E "\[VDGS\] (built|building)|Shader error|error CS|installed ->|BUNDLE NOT PRODUCED"
 
 # A bundle under a megabyte means the shaders were baked unsupported: they declare

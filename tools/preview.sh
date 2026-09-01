@@ -82,16 +82,16 @@ bake_openvdb() {
       # shellcheck disable=SC1091
       . "$ROOT/tools/_remote.sh"
       ssh -o BatchMode=yes -o ConnectTimeout=15 "$HOST" \
-        "New-Item -ItemType Directory -Force -Path (Join-Path \$env:USERPROFILE 'vdgs-stage') | Out-Null" \
+        "New-Item -ItemType Directory -Force -Path (Join-Path $REMOTE_ROOT_PS 'vdgs-stage') | Out-Null" \
         >/dev/null
-      scp -o BatchMode=yes -q "$points" "$HOST:vdgs-stage/preview-points.ply"
-      scp -o BatchMode=yes -q "$ROOT/tools/decimate_mesh.py" "$HOST:vdgs-stage/decimate_mesh.py"
+      scp -o BatchMode=yes -q "$points" "$HOST:$REMOTE_ROOT/vdgs-stage/preview-points.ply"
+      scp -o BatchMode=yes -q "$ROOT/tools/decimate_mesh.py" "$HOST:$REMOTE_ROOT/vdgs-stage/decimate_mesh.py"
       local remote
       remote="$(mktemp -t vdgs-preview-vdb)"
       cat >"$remote" <<EOF
 set -euo pipefail
 WIN=\$(powershell.exe -NoProfile -Command 'Write-Output \$env:USERPROFILE' 2>/dev/null | tr -d '\r')
-STAGE=\$(wslpath "\$WIN/vdgs-stage")
+STAGE=\$(wslpath "\$WIN/$REMOTE_ROOT/vdgs-stage")
 IN="\$STAGE/preview-points.ply"
 FINE="\$STAGE/preview-fine.ply"
 OUT="\$STAGE/preview-reduced.ply"
@@ -106,7 +106,7 @@ vdb_tool -read "\$IN" \
 EOF
       bash "$ROOT/tools/wsl.sh" "$remote"
       rm -f "$remote"
-      scp -o BatchMode=yes -q "$HOST:vdgs-stage/preview-reduced.ply" "$reduced"
+      scp -o BatchMode=yes -q "$HOST:$REMOTE_ROOT/vdgs-stage/preview-reduced.ply" "$reduced"
       ;;
     *)
       echo "preview.sh: vdb_tool is not on PATH, and VDGS_HOST is not set." >&2

@@ -23,10 +23,10 @@ if [ ! -f "$BUNDLE" ]; then
   echo "   not staged locally, pulling from $HOST"
   mkdir -p "$(dirname "$BUNDLE")"
   # Home-relative: OpenSSH on Windows maps this under %USERPROFILE%.
-  scp -o BatchMode=yes -q "$HOST:vdgs-shaders" "$BUNDLE" 2>/dev/null || \
-    scp -o BatchMode=yes -q "$HOST:vdgs-bundles/vdgs-shaders" "$BUNDLE" 2>/dev/null || true
+  scp -o BatchMode=yes -q "$HOST:$REMOTE_ROOT/vdgs-shaders" "$BUNDLE" 2>/dev/null || \
+    scp -o BatchMode=yes -q "$HOST:$REMOTE_ROOT/vdgs-bundles/vdgs-shaders" "$BUNDLE" 2>/dev/null || true
   if [ ! -f "$BUNDLE" ]; then
-    echo "ERROR: could not pull vdgs-shaders from $HOST (tried ~/vdgs-shaders and ~/vdgs-bundles/vdgs-shaders)." >&2
+    echo "ERROR: could not pull vdgs-shaders from $HOST (tried ~/$REMOTE_ROOT/vdgs-shaders and ~/$REMOTE_ROOT/vdgs-bundles/vdgs-shaders)." >&2
     echo "       Bake it first (bash tools/bake-shaders.sh) or copy it into dist/payload/vdgs/." >&2
     exit 1
   fi

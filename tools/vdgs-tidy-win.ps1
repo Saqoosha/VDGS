@@ -5,7 +5,7 @@
 # plugin's scan, and make the companion's list a place to hunt rather than read.
 #
 # What a track points at is bindings.json, so that file is the whole rule. Nothing is
-# deleted: captures move to %USERPROFILE%\vdgs-dev, outside the game folder so a launcher
+# deleted: captures move to %USERPROFILE%\VDGS\vdgs-dev, outside the game folder so a launcher
 # update cannot take them with it.
 #
 #   powershell -File vdgs-tidy-win.ps1            # report only
@@ -16,7 +16,7 @@ $ErrorActionPreference = 'Stop'
 $game = if ($env:VDGS_GAME) { $env:VDGS_GAME }
         else { Join-Path $env:USERPROFILE 'Downloads\Velocidrone Windows Launcher\app' }
 $vdgs = Join-Path $game 'vdgs'
-$dest = Join-Path $env:USERPROFILE 'vdgs-dev'
+$dest = Join-Path (Join-Path $env:USERPROFILE 'VDGS') 'vdgs-dev'
 
 if (-not (Test-Path $vdgs)) { throw "no vdgs folder: $vdgs" }
 

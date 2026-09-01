@@ -46,6 +46,13 @@ compute 'SplatUtilities'                   supported=True
 ゲームを走らせる Windows ボックスへ SSH する。リモートのデフォルトシェルは **PowerShell**。
 ホスト名は `tools/local.env` の `VDGS_HOST`（gitignore 済み）。リポジトリには書かない。
 
+**このリポジトリが向こうに置くものは全部 `%USERPROFILE%\VDGS\` の下**（`tools/_remote.sh` の
+`REMOTE_ROOT`）。中継所も 3GB のバックアップも一度きりのログも、かつてホーム直下に 59 個
+散らばっていて見分けが付かなかった。scp のパスは `"$HOST:$REMOTE_ROOT/..."`、送り込む先の
+PowerShell は `$REMOTE_ROOT_PS`、`.ps1` 側は `Join-Path $env:USERPROFILE 'VDGS'` で同じ場所を
+出す。**scp は書き込み先を作らない**ので、直下へ送る前に `remote_root_mkdir` を呼ぶ。
+八月の足場は `VDGS\old\` にまとめてある。
+
 | 項目 | 値 |
 |---|---|
 | ゲームパス | この機械では `%USERPROFILE%\Downloads\Velocidrone Windows Launcher\app`。上書きは `VDGS_GAME`。**これは既定ではない**（下） |
@@ -158,7 +165,7 @@ VDGS_BENCH_INSIDE=1 VDGS_BENCH_CULL=0 bash tools/bench-win.sh   # カリング�
 古いシェーダーのまま動き、C# だけ新しいという食い違いになる。
 
 - tgz は**プロジェクトディレクトリごと**固める必要がある（`build-shaders-win.ps1` は
-  `%USERPROFILE%` に展開するため）。中身だけ固めると `unpack failed: VDGSBundler missing`
+  `%USERPROFILE%\VDGS` に展開するため）。中身だけ固めると `unpack failed: VDGSBundler missing`
   になり、転送の失敗に見える
 - **バンドルが 1MB を切ったら失敗を疑う。** splat シェーダーは `#pragma require
   wavebasic/waveballot` を宣言していて、プロジェクトのグラフィックス API が D3D12 で
@@ -559,6 +566,13 @@ sha256 を固定して。**「先に BepInEx を入れて」は全インスト�
 - **`scp host:relative` が exit 0 のまま何も転送しないことがある。** `-v` を見ると
   `Executing: cp --` ＝ **ローカルコピーだと判定されている**（ホスト名が 1 文字だと
   ドライブレターに見える）。`scp host:/C:/Users/a/name` と**絶対パスにする**
+- **`ssh host '...'` の中身は PowerShell に 2 回読まれる。** 向こうの既定シェルが
+  PowerShell なので、`powershell -Command "..."` に届く前に**外側の PowerShell が
+  `$` を展開してしまう**。`$env:USERPROFILE` は外側にも値があるので通るが、
+  **`$_` は外側で空**になり、`ForEach-Object { $_.Name }` が
+  `ForEach-Object { .Name }` になって `.Name is not recognized` で落ちる。
+  一行で済ませたいなら `Select-Object -ExpandProperty Name` のように `$_` を避ける。
+  **確実なのは `.ps1` を `scp` して `-File` で走らせること** — 引用の段が 1 つ減る
 - **GUI サブシステムの exe は PowerShell が待たない。** `& $exe args` は即座に戻るので、
   出力もファイルも「無かった」ことになる。`Start-Process -Wait -PassThru`、
   かつ **`-ArgumentList` は空白を含む引数を勝手に引用しない**ので自分で `'"..."'` にする

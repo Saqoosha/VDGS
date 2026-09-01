@@ -5,8 +5,9 @@ param([int]$WaitSeconds = 12)
 # the logged-on user, exactly as the game is.
 $ErrorActionPreference = 'Stop'
 $homeDir = $env:USERPROFILE
-$exe  = Join-Path $homeDir 'vdgs-app\VDGS.exe'
-$shot = Join-Path $homeDir 'vdgs-appshot.png'
+$exe  = Join-Path $homeDir 'VDGS\app\VDGS.exe'
+$shot = Join-Path $homeDir 'VDGS\vdgs-appshot.png'
+New-Item -ItemType Directory -Force -Path (Join-Path $homeDir 'VDGS') | Out-Null
 $task = 'VDGS-AppShot'
 
 if (Test-Path $shot) { Remove-Item $shot -Force }

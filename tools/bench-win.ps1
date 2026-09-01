@@ -22,8 +22,8 @@ param(
     [int]$Inside = 0,
     [int]$Cull = 1,
     [double]$CullMargin = 4,
-    [string]$Tgz = $(Join-Path $env:USERPROFILE 'vdgs-bench.tgz'),
-    [string]$Project = $(Join-Path $env:USERPROFILE 'VDGSBench')
+    [string]$Tgz = $(Join-Path (Join-Path $env:USERPROFILE 'VDGS') 'vdgs-bench.tgz'),
+    [string]$Project = $(Join-Path (Join-Path $env:USERPROFILE 'VDGS') 'VDGSBench')
 )
 
 $ErrorActionPreference = 'Stop'

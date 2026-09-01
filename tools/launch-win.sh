@@ -20,6 +20,7 @@ if [ -n "${VDGS_GAME:-}" ]; then
   REMOTE_GAME="\$env:VDGS_GAME = '$(printf '%s' "$VDGS_GAME" | sed "s/'/''/g")'; "
 fi
 
-scp -o BatchMode=yes -q "$ROOT/tools/launch-win.ps1" "$HOST:launch-win.ps1" 2>&1 | quiet
+remote_root_mkdir
+scp -o BatchMode=yes -q "$ROOT/tools/launch-win.ps1" "$HOST:$REMOTE_ROOT/launch-win.ps1" 2>&1 | quiet
 ssh -o BatchMode=yes "$HOST" \
-  "${REMOTE_GAME}powershell -ExecutionPolicy Bypass -File (Join-Path \$env:USERPROFILE 'launch-win.ps1') $*" 2>&1 | quiet
+  "${REMOTE_GAME}powershell -ExecutionPolicy Bypass -File (Join-Path $REMOTE_ROOT_PS 'launch-win.ps1') $*" 2>&1 | quiet

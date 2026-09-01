@@ -53,16 +53,16 @@ fi
 
 echo "== stage =="
 ssh -o BatchMode=yes "$HOST" \
-  "${REMOTE_GAME}New-Item -ItemType Directory -Force -Path (Join-Path \$env:USERPROFILE 'vdgs-stage') | Out-Null; Write-Output ok" \
+  "${REMOTE_GAME}New-Item -ItemType Directory -Force -Path (Join-Path $REMOTE_ROOT_PS 'vdgs-stage') | Out-Null; Write-Output ok" \
   2>&1 | quiet
 if [ "$UI_ONLY" = 0 ]; then
-  scp -o BatchMode=yes -q "$ROOT/src/VDGS/bin/Release/VDGS.dll" "$HOST:vdgs-stage/VDGS.dll" 2>&1 | quiet
+  scp -o BatchMode=yes -q "$ROOT/src/VDGS/bin/Release/VDGS.dll" "$HOST:$REMOTE_ROOT/vdgs-stage/VDGS.dll" 2>&1 | quiet
 fi
 if [ -d "$ROOT/web/dist" ]; then
   ssh -o BatchMode=yes "$HOST" \
-    "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue (Join-Path (Join-Path \$env:USERPROFILE 'vdgs-stage') 'ui'); New-Item -ItemType Directory -Force -Path (Join-Path (Join-Path \$env:USERPROFILE 'vdgs-stage') 'ui') | Out-Null" \
+    "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue (Join-Path (Join-Path $REMOTE_ROOT_PS 'vdgs-stage') 'ui'); New-Item -ItemType Directory -Force -Path (Join-Path (Join-Path $REMOTE_ROOT_PS 'vdgs-stage') 'ui') | Out-Null" \
     2>&1 | quiet
-  scp -o BatchMode=yes -q -r "$ROOT/web/dist/." "$HOST:vdgs-stage/ui/" 2>&1 | quiet
+  scp -o BatchMode=yes -q -r "$ROOT/web/dist/." "$HOST:$REMOTE_ROOT/vdgs-stage/ui/" 2>&1 | quiet
 fi
 
 # The shader bundle is built ON the Windows box (macOS cannot run DXC for D3D),
@@ -75,9 +75,9 @@ if [ "$PLUGIN_ONLY" = 0 ] && [ "$UI_ONLY" = 0 ] && [ -d "$ROOT/build/splats" ]; 
     name="$(basename "$dir")"
     echo "== stage splat scene: $name =="
     ssh -o BatchMode=yes "$HOST" \
-      "New-Item -ItemType Directory -Force -Path (Join-Path (Join-Path \$env:USERPROFILE 'vdgs-stage') 'splats\\$name') | Out-Null" \
+      "New-Item -ItemType Directory -Force -Path (Join-Path (Join-Path $REMOTE_ROOT_PS 'vdgs-stage') 'splats\\$name') | Out-Null" \
       2>&1 | quiet
-    scp -o BatchMode=yes -q "$dir"* "$HOST:vdgs-stage/splats/$name/" 2>&1 | quiet
+    scp -o BatchMode=yes -q "$dir"* "$HOST:$REMOTE_ROOT/vdgs-stage/splats/$name/" 2>&1 | quiet
   done
 fi
 
@@ -86,7 +86,7 @@ ssh -o BatchMode=yes "$HOST" "
   ${REMOTE_GAME}\$PLUGIN_ONLY = $PLUGIN_ONLY
   \$UI_ONLY = $UI_ONLY
   \$homeDir = \$env:USERPROFILE
-  \$stage = Join-Path \$homeDir 'vdgs-stage'
+  \$stage = Join-Path (Join-Path \$homeDir '$REMOTE_ROOT') 'vdgs-stage'
   \$game = if (\$env:VDGS_GAME) { \$env:VDGS_GAME } else { Join-Path \$homeDir 'Downloads\\Velocidrone Windows Launcher\\app' }
   New-Item -ItemType Directory -Force -Path (Join-Path \$game 'BepInEx\\plugins') | Out-Null
   if (\$UI_ONLY -eq 0) {

@@ -5,7 +5,7 @@
 # their session, which is where the screen is.
 $ErrorActionPreference = 'Stop'
 $homeDir = $env:USERPROFILE
-$exe  = Join-Path $homeDir 'vdgs-app\VDGS.exe'
+$exe  = Join-Path $homeDir 'VDGS\app\VDGS.exe'
 $task = 'VDGS-AppStart'
 
 if (-not (Test-Path $exe)) { throw "not installed: $exe" }
