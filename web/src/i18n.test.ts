@@ -60,7 +60,7 @@ describe('the dictionary', () => {
         // The lead-ins around a button name are deliberately empty in Japanese, where the
         // particle follows the name instead of preceding it. English has no such case -
         // exempting it there would let "Press Install mod" ship as "Install mod".
-        if (!(lang === 'ja' && /^step[234]a$/.test(key)))
+        if (!(lang === 'ja' && /^step[2-4]a$/.test(key)))
           expect(value, `${lang}.${key}`).not.toBe('')
   })
 })

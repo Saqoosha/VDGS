@@ -31,7 +31,10 @@ describe('Browse', () => {
     serve({ formatVersion: 1, scenes: [scene], app: { version: '1', url: 'https://h/a.zip', bytes: 10 } })
     render(<Browse lang="ja" />)
     await waitFor(() => expect(screen.getByText(/使い方/)).toBeInTheDocument())
-    expect(screen.getByText(/下から companion を落として起動する/)).toBeInTheDocument()
+    expect(screen.getByText(/companion をダウンロードして解凍し/)).toBeInTheDocument()
+    // The half that was missing: a scan only shows on the track it is bound to, so
+    // without this the reader flies somewhere else and sees an empty sky.
+    expect(screen.getByText(/VelociDrone でそのコースを名前で選ぶ/)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'companion をダウンロード' })).toBeInTheDocument()
     // The app's own buttons are English in both languages, because the app is.
     expect(screen.getByText('Install mod')).toBeInTheDocument()
@@ -42,8 +45,9 @@ describe('Browse', () => {
     serve({ formatVersion: 1, scenes: [scene], app: { version: '1', url: 'https://h/a.zip', bytes: 10 } })
     render(<Browse lang="en" />)
     await waitFor(() =>
-      expect(screen.getByText(/Download the companion below/)).toBeInTheDocument(),
+      expect(screen.getByText(/Download the companion, unzip it/)).toBeInTheDocument(),
     )
+    expect(screen.getByText(/pick that track by name/)).toBeInTheDocument()
     expect(screen.queryByText(/使い方/)).not.toBeInTheDocument()
   })
 
@@ -53,9 +57,9 @@ describe('Browse', () => {
     serve({ formatVersion: 1, scenes: [scene], app: { version: '1', url: 'https://h/a.zip', bytes: 10 } })
     const { container } = render(<Browse lang="ja" />)
     await waitFor(() => expect(screen.getByText('使い方')).toBeInTheDocument())
-    for (const name of ['Install mod', '02 get', 'Fly'])
+    for (const name of ['VDGS.exe', 'Install mod', 'Change', '02 get', 'Fly'])
       expect(screen.getByText(name).closest('[lang]')?.getAttribute('lang'), name).toBe('en')
-    expect(container.querySelectorAll('b[lang="en"]')).toHaveLength(3)
+    expect(container.querySelectorAll('b[lang="en"]')).toHaveLength(5)
   })
 
   // Latin micro-caps tracking spaces kanji apart; this is the page's biggest button.

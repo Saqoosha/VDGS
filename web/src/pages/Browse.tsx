@@ -107,14 +107,20 @@ export default function Browse({ lang }: { lang: Lang }) {
           (ja ? 'text-[15px] ' : 'text-[14px] ') +
           'space-y-3 leading-relaxed text-muted-foreground'
         }>
-          <Step n="01">{t.step1}</Step>
-          {/* The button names stay in English in both languages, because the app is - and
-              they are marked as English, because a section that says it is Japanese hands
-              them to a Japanese voice otherwise. Same reason the document is not marked. */}
+          {/* The app's own names stay in English in both languages, because the app is -
+              and they are marked as English, because a section that says it is Japanese
+              hands them to a Japanese voice otherwise. Same reason the document is not. */}
+          <Step n="01">
+            {t.step1a}
+            <Name>VDGS.exe</Name>
+            {t.step1b}
+          </Step>
           <Step n="02">
             {t.step2a}
             <Name>Install mod</Name>
             {t.step2b}
+            <Name>Change</Name>
+            {t.step2c}
           </Step>
           <Step n="03">
             {t.step3a}
