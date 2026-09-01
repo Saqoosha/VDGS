@@ -17,7 +17,28 @@ namespace VDGS
     {
         public const string PluginGuid = "sh.saqoo.vdgs";
         public const string PluginName = "VDGS";
+        // BepInEx takes this through an attribute, so it has to be a compile-time
+        // constant and cannot follow the release. It is this plugin's identity to the
+        // loader, and stable is what that wants.
         public const string PluginVersion = "0.1.0";
+
+        /// <summary>
+        /// What this build actually is: the release version make-release.sh stamps into
+        /// the assembly, which is also the number the companion reads off the DLL and
+        /// compares against a catalog's minModVersion.
+        ///
+        /// Reported instead of PluginVersion anywhere a person or another tool reads it,
+        /// so one build does not answer the same question with two numbers. A dev build
+        /// is unstamped and says 0.1.0.0 here too.
+        ///
+        /// The companion reads the DLL's FileVersion rather than this one, and the two
+        /// were measured against a -p:Version=2026.09.01 build rather than assumed: both
+        /// say 2026.9.1.0, because MSBuild derives them from the same property. Reading
+        /// FileVersion here instead was tried and taken back out - it changed nothing and
+        /// needed a try/catch around Assembly.Location, which is not always a path.
+        /// </summary>
+        internal static string ReleaseVersion =>
+            typeof(VdgsPlugin).Assembly.GetName().Version.ToString();
 
         internal static ManualLogSource Log;
 
@@ -43,7 +64,7 @@ namespace VDGS
             m_Bindings = new TrackBindings(Path.Combine(Paths.GameRootPath, "vdgs", "bindings.json"));
             m_TrackLogPath = Path.Combine(Paths.GameRootPath, "vdgs-track.log");
             try { File.WriteAllText(m_TrackLogPath, "track watch started " + DateTime.Now + "\n"); } catch { }
-            try { File.WriteAllText(Probe.LogPath, "VDGS " + PluginVersion + " loaded " + DateTime.Now + "\n\n"); }
+            try { File.WriteAllText(Probe.LogPath, "VDGS " + ReleaseVersion + " loaded " + DateTime.Now + "\n\n"); }
             catch (Exception e) { Log.LogError("cannot open probe log: " + e.Message); }
 
             Log.LogInfo("VDGS injected. Probe log: " + Probe.LogPath);

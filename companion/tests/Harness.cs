@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using Microsoft.Data.Sqlite;
 using VDGSCompanion;
@@ -356,6 +357,113 @@ internal static class Harness
         return path;
     }
 
+    /// <summary>
+    /// What the catalog page is allowed to call installed.
+    ///
+    /// This is the test the bug did not have. "Installed" used to mean the capture folder
+    /// existed, so a run that downloaded the capture and then failed to import the track -
+    /// the ordinary outcome on a machine the game has never been started on - left the
+    /// entry claiming to be installed and its Get button greyed out for good. The capture
+    /// was on disk, nothing in the game reached it, and the app insisted it was done.
+    /// </summary>
+    private static void AHalfDoneInstallIsNotInstalled()
+    {
+        Console.WriteLine();
+        Console.WriteLine("what counts as installed");
+
+        var withTrack = new Catalog.Entry
+        {
+            Id = "fdf", Name = "FDF", InstallAs = "FDF-2026-08-24",
+            Scene = new Catalog.File_ { Url = "https://x/s.zip" },
+            Track = new Catalog.File_ { Url = "https://x/t.json" },
+            TrackName = "VDGS FDF",
+        };
+        var captureOnly = new Catalog.Entry
+        {
+            Id = "bare", Name = "Bare", InstallAs = "bare",
+            Scene = new Catalog.File_ { Url = "https://x/s.zip" },
+        };
+
+        var inGame = new Dictionary<string, bool>(StringComparer.Ordinal) { { "VDGS FDF", false } };
+        var bound = new Dictionary<string, List<string>>(StringComparer.Ordinal)
+            { { "VDGS FDF", new List<string> { "FDF-2026-08-24" } } };
+        var noTracks = new Dictionary<string, bool>(StringComparer.Ordinal);
+        var noBindings = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+
+        Check(captureOnly.TrackInPlace(null, null),
+              "a capture with no published track needs nothing else");
+        Check(withTrack.TrackInPlace(inGame, bound),
+              "imported and bound is done");
+        Check(!withTrack.TrackInPlace(noTracks, bound),
+              "bound to a track the game does not have is not done");
+        Check(!withTrack.TrackInPlace(inGame, noBindings),
+              "imported but never bound is not done");
+        // The first-run case that caused this: no database at all, so the import cannot
+        // have happened. Unknown must not read as finished, or Get dies with it.
+        Check(!withTrack.TrackInPlace(null, bound),
+              "an unreadable database does not count as finished");
+
+        var emptyBinding = new Dictionary<string, List<string>>(StringComparer.Ordinal)
+            { { "VDGS FDF", new List<string>() } };
+        Check(!withTrack.TrackInPlace(inGame, emptyBinding),
+              "a binding with nothing on the other end is not a binding");
+
+        // The other direction, and the reason this asks whether the step ran rather than
+        // whether its result survived: someone who aimed the track at a different capture
+        // meant it, and Get ends by calling Bind. Offering it again is offering to undo
+        // their choice under a button labelled download.
+        var rebound = new Dictionary<string, List<string>>(StringComparer.Ordinal)
+            { { "VDGS FDF", new List<string> { "some-other-capture" } } };
+        Check(withTrack.TrackInPlace(inGame, rebound),
+              "a track aimed somewhere else on purpose is left alone");
+
+        // Parse accepts a track object with no name, and there is then nothing to look
+        // for. Reading that as finished greys out Get on the one entry that most needs
+        // it - the same shape as the bug this whole method exists to stop.
+        var namelessTrack = new Catalog.Entry
+        {
+            Id = "odd", Name = "Odd", InstallAs = "odd",
+            Scene = new Catalog.File_ { Url = "https://x/s.zip" },
+            Track = new Catalog.File_ { Url = "https://x/t.json" },
+        };
+        Check(!namelessTrack.TrackInPlace(inGame, bound),
+              "a published track with no name cannot be confirmed, so it is not finished");
+    }
+
+    /// <summary>
+    /// The mod-version gate on a catalog entry.
+    ///
+    /// The trap this has to avoid is worse than the hole it fills. Requirements are
+    /// release dates; the mod reported a fixed 0.1.0.0 until releases started stamping
+    /// one. Comparing those two directly makes every existing install fail every
+    /// requirement - including the only published capture, which those installs render
+    /// perfectly well.
+    /// </summary>
+    private static void TheModGateOnlyJudgesWhatItCanCompare()
+    {
+        Console.WriteLine();
+        Console.WriteLine("requiring a mod version");
+
+        var needs = new Catalog.Entry { Id = "fdf", Name = "FDF", MinModVersion = "2026.08.25" };
+        var anyMod = new Catalog.Entry { Id = "old", Name = "Old" };
+
+        Check(anyMod.ModShortfall("2026.09.01") == null,
+              "an entry that asks for nothing is never gated");
+        Check(needs.ModShortfall("2026.09.01") == null,
+              "a newer mod meets the requirement");
+        Check(needs.ModShortfall("2026.08.25") == null,
+              "the exact version named meets it");
+        Check(needs.ModShortfall("2026.08.20") == "2026.08.25",
+              "an older mod is told what it needs");
+        // The migration case, and the reason this is not a plain comparison.
+        Check(needs.ModShortfall("0.1.0.0") == null,
+              "a build from before versions were stamped is not called too old");
+        Check(needs.ModShortfall(null) == null,
+              "no mod installed is Setup's problem, not the catalog's");
+        Check(needs.ModShortfall("unknown") == null,
+              "an unreadable version is not held against the entry");
+    }
+
     private static int Main()
     {
         var db = MakeDb();
@@ -431,6 +539,8 @@ internal static class Harness
         CatalogIsReadAndChecked();
         InstallingAndRemovingKeepWhatIsTheirs();
         TheLoaderIsFetchedAndPinned();
+        AHalfDoneInstallIsNotInstalled();
+        TheModGateOnlyJudgesWhatItCanCompare();
 
         Console.WriteLine(_fail == 0 ? "\nALL PASS" : "\n" + _fail + " FAILED");
         return _fail == 0 ? 0 : 1;

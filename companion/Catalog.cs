@@ -48,6 +48,76 @@ namespace VDGSCompanion
 
             /// <summary>Total bytes to fetch, for a size shown before a click.</summary>
             public long Bytes => (Scene != null ? Scene.Bytes : 0) + (Track != null ? Track.Bytes : 0);
+
+            /// <summary>
+            /// The version this entry needs when the installed mod does not meet it, or
+            /// null when there is nothing to say.
+            ///
+            /// A requirement is only held against a version that can be compared with it.
+            /// Every catalog requirement is a release date, and the mod reported a fixed
+            /// 0.1.0.0 until releases began stamping the date they were cut - so an older
+            /// build's version says nothing at all about whether it meets one. Unknown is
+            /// not "too old": treating it that way would stop every install already out
+            /// there from taking the only capture published so far, a combination that in
+            /// fact works. They are gated the first time they update, which is the point
+            /// at which the answer becomes knowable.
+            /// </summary>
+            internal string ModShortfall(string installedMod)
+            {
+                Version want, have;
+                if (string.IsNullOrEmpty(MinModVersion)) return null;
+                // An unreadable requirement is a broken catalog, not a satisfied one. It
+                // cannot be enforced here - there is nothing to compare - so the guard is
+                // on the publishing side, in make-catalog.sh, where it can still be fixed.
+                if (!Version.TryParse(MinModVersion, out want)) return null;
+                if (!Version.TryParse(installedMod, out have)) return null;
+                if (have.Major < 2000) return null;     // not a date: nothing to compare
+                return have >= want ? null : MinModVersion;
+            }
+
+            /// <summary>
+            /// Whether the track half of this entry has been put in place: the course in
+            /// the game's own database, and a binding on that name naming some capture.
+            ///
+            /// A capture sitting in a folder is not an install - nothing in the game
+            /// reaches it. Reporting one as installed is what turned a failed track import
+            /// into a dead end: the page greyed out the only button that could have
+            /// finished the job, and running the game did not bring it back, because what
+            /// disabled it never looked at the database.
+            ///
+            /// It asks whether the step ran, not whether its result was kept. A binding
+            /// pointing somewhere else is a choice someone made after this, and offering
+            /// Get again would only tempt them into overwriting it - the last thing this
+            /// method does is call Bind. An empty one is not a choice, it is a binding
+            /// with nothing on the other end, so that does not count.
+            ///
+            /// Not knowing counts as not done. When the database cannot be read there is
+            /// no honest way to call this complete, and leaving Get alive costs a click,
+            /// where claiming completion costs the only route to a working install.
+            /// </summary>
+            /// <param name="inGame">Track names the game knows, or null if unreadable.</param>
+            /// <param name="bound">vdgs/bindings.json, keyed by track name.</param>
+            internal bool TrackInPlace(Dictionary<string, bool> inGame,
+                                       Dictionary<string, List<string>> bound)
+            {
+                // Nothing published to import: the capture on its own is the whole entry,
+                // and whoever wants it bound does that themselves once flying.
+                if (Track == null) return true;
+
+                // A track published without a name. Parse allows it, and there is then no
+                // name to look for - so this cannot be confirmed, and unconfirmed is not
+                // finished. Reading it as finished would grey out Get on exactly the
+                // broken entry this method exists to keep reachable.
+                if (TrackName == null) return false;
+
+                // Ordinal throughout, like the bindings file and the mod that reads it -
+                // these are the game's own track names, matched the way the game matches
+                // them.
+                List<string> captures;
+                return inGame != null && inGame.ContainsKey(TrackName)
+                    && bound != null && bound.TryGetValue(TrackName, out captures)
+                    && captures != null && captures.Count > 0;
+            }
         }
 
         // ------------------------------------------------------------------ fetching
