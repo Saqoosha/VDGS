@@ -149,8 +149,12 @@
 }
 
 /* The indeterminate bar: a third of the track sliding across, for the jobs that cannot
-   report a percentage - unpacking a capture, importing a track. */
+   report a percentage - unpacking a capture, importing a track.
+   translateX is a share of the block's own width, and the block is a third of the track,
+   so -100% puts its right edge on the left end and 300% puts its left edge on the right
+   end. Anything less than 300% stops short and the block parks against the right edge
+   instead of leaving - which is what 200% did here for one release. */
 @keyframes progress-sweep {
   0% { transform: translateX(-100%); }
-  100% { transform: translateX(200%); }
+  100% { transform: translateX(300%); }
 }
