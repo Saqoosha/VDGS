@@ -525,7 +525,11 @@ namespace VDGSCompanion
                         // agree only because make-catalog.sh copies one from the other; if
                         // they ever stop, the install works and reports as unfinished for
                         // good, each retry costing the whole capture again.
-                        if (entry.TrackName != null && t.Name != entry.TrackName)
+                        // Compared the way every other name here is compared. The two
+                        // sides can spell the same course differently and still mean it -
+                        // hard-aborting on that would refuse an install that works.
+                        if (entry.TrackName != null &&
+                            TrackStore.DisplayName(t.Name) != TrackStore.DisplayName(entry.TrackName))
                             throw new InvalidOperationException(
                                 "The catalog calls this track \"" + entry.TrackName +
                                 "\" but the published file calls it \"" + t.Name +

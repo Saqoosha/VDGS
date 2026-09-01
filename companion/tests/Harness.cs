@@ -449,11 +449,25 @@ internal static class Harness
         Console.WriteLine("track names the game spells two ways");
 
         Check(TrackStore.DisplayName("VDGS+FDF+2026-08-22") == "VDGS FDF 2026-08-22",
-              "the stored spelling converts to the one on screen");
+              "a space comes back from '+'");
         Check(TrackStore.DisplayName("VDGS FDF") == "VDGS FDF",
               "a name imported with real spaces is already the displayed one");
         Check(TrackStore.DisplayName(null) == null,
               "no name converts to no name");
+
+        // Taken off a real machine, where 31 of 2,143 names carry this. Decoding only the
+        // '+' leaves every one of them wrong, and the order matters: percent-decoding
+        // first would turn "%2b" into a '+' and the next step would read it as a space.
+        Check(TrackStore.DisplayName("Sols%2bStreet%2bLeague%2b1") == "Sols+Street+League+1",
+              "a literal + comes back from %2b");
+        Check(TrackStore.DisplayName("TOG%2bStreet%2bLeague%2bFastodon") == "TOG+Street+League+Fastodon",
+              "and again on another published course");
+        Check(TrackStore.DisplayName("Canadian%2bWinter%2bSerie%2bRace%2b15%2b-%2b1%2bLap%2b-%2bStreet%2bLeague")
+                  == "Canadian+Winter+Serie+Race+15+-+1+Lap+-+Street+League",
+              "both halves at once, on the longest one there is");
+        // Track names come from community downloads, so this is attacker-shaped input.
+        Check(TrackStore.DisplayName("Race 50% off") == "Race 50% off",
+              "a stray percent with no escape behind it is left alone");
 
         // The entry as it is published: the catalog carries the stored spelling, because
         // that is what came out of the database it was exported from.

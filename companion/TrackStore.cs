@@ -84,10 +84,15 @@ namespace VDGSCompanion
         /// <summary>
         /// A track name as the game shows it, and as the mod therefore knows it.
         ///
-        /// VelociDrone turns spaces into '+' when it saves a track of its own, and turns
-        /// them back for display. So one course has two spellings - "VDGS+FDF+2026-08-22"
-        /// in the database, "VDGS FDF 2026-08-22" on screen - and which one you are
-        /// holding depends on where you got it.
+        /// VelociDrone form-encodes a track name when it saves one of its own: a space
+        /// becomes '+', and a literal '+' becomes "%2b". So one course has two spellings -
+        /// "VDGS+FDF+2026-08-22" in the database, "VDGS FDF 2026-08-22" on screen - and
+        /// which one you are holding depends on where you got it.
+        ///
+        /// Both halves are needed, and the order is not free. Of the 2,143 track names on
+        /// a real machine, 31 carry "%2b"; decoding only the '+' leaves every one of them
+        /// wrong. Percent-decoding first would be worse still - it would turn "%2b" into a
+        /// '+' and the next step would read that as a space.
         ///
         /// The mod reads the name off the running game, so every binding is keyed by the
         /// displayed form. This app reads the database, so everything it writes has to be
@@ -99,8 +104,15 @@ namespace VDGSCompanion
         /// database holds both conventions at once. Comparing on this form is what lets
         /// the two live side by side.
         /// </summary>
-        internal static string DisplayName(string stored) =>
-            stored == null ? null : stored.Replace('+', ' ');
+        internal static string DisplayName(string stored)
+        {
+            if (stored == null) return null;
+            var spaced = stored.Replace('+', ' ');
+            // A name can be anything a community track author typed, so a stray '%' with
+            // no escape behind it is possible. Half a name is worse than an undecoded one.
+            try { return Uri.UnescapeDataString(spaced); }
+            catch (UriFormatException) { return spaced; }
+        }
 
         /// <summary>
         /// The track the game would call by this name, whichever way either side spells
