@@ -641,6 +641,46 @@ internal static class Harness
         finally { try { Directory.Delete(deep, true); } catch { } }
     }
 
+    /// <summary>
+    /// The payload this app carries, counted rather than assumed.
+    ///
+    /// The interface is fingerprinted per build and the csproj copies it without removing
+    /// anything, so every rebuild left the previous build's scripts beside the new ones -
+    /// twenty-three in the payload against five in the source, every one of them shipped
+    /// in the zip and copied into a player's game folder. Nothing broke, because
+    /// index.html names only the current pair, which is exactly why it survived five
+    /// releases.
+    /// </summary>
+    private static void ThePayloadCarriesOneBuild()
+    {
+        Console.WriteLine();
+        Console.WriteLine("what the app carries");
+
+        // The app's own output, not this test project's: BundledModDir looks beside the
+        // running assembly, and that is the app when it runs and the harness when this
+        // does. Both are filled from the same staged tree, which is what is checked.
+        var mod = Path.GetFullPath(Path.Combine(
+            AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..",
+            "bin", "Release", "net48", "mod"));
+        if (!File.Exists(Path.Combine(mod, "BepInEx", "plugins", "VDGS.dll")))
+        {
+            Console.WriteLine("  (the app has not been built with a payload - skipped)");
+            return;
+        }
+
+        var assets = Path.Combine(mod, "vdgs", "ui", "assets");
+        if (!Directory.Exists(assets)) { Check(false, "the payload carries an interface"); return; }
+
+        // One per entry point. More than that is a previous build that was never swept.
+        foreach (var stem in new[] { "companion-", "index-", "input-", "site-", "src-" })
+        {
+            var n = Directory.GetFiles(assets, stem + "*.js").Length;
+            Check(n == 1, n == 1
+                ? "one " + stem + "*.js in the payload"
+                : stem + "*.js appears " + n + " times - an older build was not swept");
+        }
+    }
+
     private static int Main()
     {
         var db = MakeDb();
@@ -751,6 +791,7 @@ internal static class Harness
         AHalfDoneInstallIsNotInstalled();
         OneCourseTwoSpellings();
         TheGuessesAreTheOnesTheGuideNames();
+        ThePayloadCarriesOneBuild();
 
         Console.WriteLine(_fail == 0 ? "\nALL PASS" : "\n" + _fail + " FAILED");
         return _fail == 0 ? 0 : 1;
