@@ -114,6 +114,10 @@ export default function Browse({ lang }: { lang: Lang }) {
             {t.step1a}
             <Name>VDGS.exe</Name>
             {t.step1b}
+            <Name>More info</Name>
+            {t.step1c}
+            <Name>Run anyway</Name>
+            {t.step1d}
           </Step>
           <Step n="02">
             {t.step2a}

@@ -36,6 +36,9 @@ describe('Browse', () => {
     // without this the reader flies somewhere else and sees an empty sky.
     expect(screen.getByText(/VelociDrone でそのコースを名前で選ぶ/)).toBeInTheDocument()
     expect(screen.getByText(/スキャンとトラックデータをダウンロード/)).toBeInTheDocument()
+    // The first wall anyone meets, and the one that shows only "Don't run" until More
+    // info is pressed. Left unsaid, most people stop here.
+    expect(screen.getByText(/Windows が警告を出したら/)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'companion をダウンロード' })).toBeInTheDocument()
     // The app's own buttons are English in both languages, because the app is.
     expect(screen.getByText('Install mod')).toBeInTheDocument()
@@ -50,6 +53,7 @@ describe('Browse', () => {
     )
     expect(screen.getByText(/pick that track by name/)).toBeInTheDocument()
     expect(screen.getByText(/Download the scan and its track/)).toBeInTheDocument()
+    expect(screen.getByText(/Windows will warn about an unrecognised app/)).toBeInTheDocument()
     expect(screen.queryByText(/使い方/)).not.toBeInTheDocument()
   })
 
@@ -59,9 +63,9 @@ describe('Browse', () => {
     serve({ formatVersion: 1, scenes: [scene], app: { version: '1', url: 'https://h/a.zip', bytes: 10 } })
     const { container } = render(<Browse lang="ja" />)
     await waitFor(() => expect(screen.getByText('使い方')).toBeInTheDocument())
-    for (const name of ['VDGS.exe', 'Install mod', 'Change', '02 get', 'Fly'])
+    for (const name of ['VDGS.exe', 'More info', 'Run anyway', 'Install mod', 'Change', '02 get', 'Fly'])
       expect(screen.getByText(name).closest('[lang]')?.getAttribute('lang'), name).toBe('en')
-    expect(container.querySelectorAll('b[lang="en"]')).toHaveLength(5)
+    expect(container.querySelectorAll('b[lang="en"]')).toHaveLength(7)
   })
 
   // Latin micro-caps tracking spaces kanji apart; this is the page's biggest button.
