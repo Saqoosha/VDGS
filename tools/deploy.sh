@@ -101,7 +101,11 @@ ssh -o BatchMode=yes "$HOST" "
     Copy-Item (Join-Path \$uiSrc '*') \$uiDst -Recurse -Force
     Write-Output ('  installed ui -> ' + \$uiDst)
   }
-  if (\$PLUGIN_ONLY -eq 0 -and (Test-Path (Join-Path \$stage 'splats'))) {
+  # Both flags have to be checked here. The staging loop above skips the copy under
+  # --ui, but this install loop reads whatever splats a PREVIOUS run left in the
+  # staging directory - so a --ui deploy quietly reinstalled 13 stale captures
+  # (2.9 GB) into a game folder that had been cleaned down to one.
+  if (\$PLUGIN_ONLY -eq 0 -and \$UI_ONLY -eq 0 -and (Test-Path (Join-Path \$stage 'splats'))) {
     foreach (\$d in Get-ChildItem (Join-Path \$stage 'splats') -Directory) {
       \$dst = Join-Path (Join-Path \$game 'vdgs') \$d.Name
       New-Item -ItemType Directory -Force -Path \$dst | Out-Null
