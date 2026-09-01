@@ -531,6 +531,22 @@ internal static class Harness
         File.Delete(removeBackup);
         Check(TrackStore.Find(db, "VDGS FDF") == null, "and it is gone");
 
+        // Both halves of the encoding, against a real database rather than the string
+        // function on its own. Import is handed the stored name out of a track file;
+        // RemoveTrack is handed the displayed name off a binding key. One row, two ways in.
+        Console.WriteLine("finding a course by either of its spellings");
+        r = TrackStore.Import(db, "Sols%2bStreet%2bLeague%2b1", 16, 0, track, out backup);
+        Check(r == TrackStore.ImportResult.Added, "a course whose name carries %2b imports");
+        Check(TrackStore.Find(db, "Sols%2bStreet%2bLeague%2b1") != null,
+              "found by the spelling the database holds");
+        Check(TrackStore.Find(db, "Sols+Street+League+1") != null,
+              "and by the spelling the game shows, which is what a binding key carries");
+        Check(TrackStore.Find(db, "Sols Street League 1") == null,
+              "and not by a name nobody uses - decoding the input twice would land here");
+        Check(TrackStore.Remove(db, "Sols+Street+League+1", out removeBackup),
+              "removal works from the displayed spelling, which is all the page ever has");
+        if (removeBackup != null) File.Delete(removeBackup);
+
         Console.WriteLine("track file parsing");
         var parsed = Json.ParseTrackFile(
             "{\"format\":\"vdgs-track-1\",\"scene_id\":16,\"name\":\"VDGS FDF\",\"type\":0,\"value\":"

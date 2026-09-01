@@ -116,13 +116,20 @@ namespace VDGSCompanion
 
         /// <summary>
         /// The track the game would call by this name, whichever way either side spells
-        /// it. Matched on the displayed form for the reason in <see cref="DisplayName"/>.
+        /// it. See <see cref="DisplayName"/> for why there are two.
+        ///
+        /// The name given is compared as it arrives, against the row both ways round -
+        /// never decoded first. Callers hold different halves: Import is handed the stored
+        /// name out of a track file, RemoveTrack is handed the displayed one off a binding
+        /// key. Decoding the input would take an already-displayed "Sols+Street+League+1"
+        /// down to "Sols Street League 1" and miss the row it names - or, worse, find a
+        /// different course that really is called that.
         /// </summary>
         internal static Track Find(string dbPath, string name)
         {
-            var want = DisplayName(name);
             foreach (var t in List(dbPath))
-                if (string.Equals(DisplayName(t.Name), want, StringComparison.Ordinal))
+                if (string.Equals(t.Name, name, StringComparison.Ordinal) ||
+                    string.Equals(DisplayName(t.Name), name, StringComparison.Ordinal))
                     return t;
             return null;
         }
