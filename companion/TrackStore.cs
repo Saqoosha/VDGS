@@ -127,9 +127,16 @@ namespace VDGSCompanion
         /// </summary>
         internal static Track Find(string dbPath, string name)
         {
-            foreach (var t in List(dbPath))
-                if (string.Equals(t.Name, name, StringComparison.Ordinal) ||
-                    string.Equals(DisplayName(t.Name), name, StringComparison.Ordinal))
+            var all = List(dbPath);
+            // What the database actually holds wins. Two real courses can answer to one
+            // query - one stored "Sols+Street+League+1", another stored
+            // "Sols%2bStreet%2bLeague%2b1" - and taking whichever came first in table
+            // order would delete, export or refuse the wrong one.
+            foreach (var t in all)
+                if (string.Equals(t.Name, name, StringComparison.Ordinal))
+                    return t;
+            foreach (var t in all)
+                if (string.Equals(DisplayName(t.Name), name, StringComparison.Ordinal))
                     return t;
             return null;
         }

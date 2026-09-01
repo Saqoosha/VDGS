@@ -335,6 +335,27 @@ internal static class Harness
         public void Dispose() { try { _listener.Stop(); _listener.Close(); } catch { } }
     }
 
+    /// <summary>
+    /// Puts a row in directly, for states the app will not create through Import - a
+    /// course whose displayed name already belongs to another row, say, which the game's
+    /// own editor can make but this app deliberately refuses to.
+    /// </summary>
+    private static void InsertTrack(string dbPath, string name, string value)
+    {
+        using (var c = new SqliteConnection("Data Source=" + dbPath + ";Pooling=False"))
+        {
+            c.Open();
+            using (var cmd = c.CreateCommand())
+            {
+                cmd.CommandText = "insert into tracks (scene_id,name,value,protected_track,online_id,type)" +
+                                  " values (16,$n,$v,0,0,0)";
+                cmd.Parameters.AddWithValue("$n", name);
+                cmd.Parameters.AddWithValue("$v", value);
+                cmd.ExecuteNonQuery();
+            }
+        }
+    }
+
     private static string MakeDb()
     {
         var path = Path.Combine(Path.GetTempPath(), "vdgs-test-" + Guid.NewGuid().ToString("N") + ".db");
@@ -543,9 +564,25 @@ internal static class Harness
               "and by the spelling the game shows, which is what a binding key carries");
         Check(TrackStore.Find(db, "Sols Street League 1") == null,
               "and not by a name nobody uses - decoding the input twice would land here");
+        // Importing a course whose displayed name already belongs to another row is
+        // refused rather than merged. Worth pinning: it is what keeps the collision below
+        // out of anything this app builds.
+        r = TrackStore.Import(db, "Sols+Street+League+1", 16, 0, "{\"gates\":[],\"barriers\":[]}", out backup);
+        Check(r == TrackStore.ImportResult.WouldOverwrite,
+              "a course that would answer to the same query is left alone");
+
+        // The game's own editor can still make that pair, so what the database holds has
+        // to win the lookup - otherwise a REMOVE typed against one takes the other away.
+        InsertTrack(db, "Sols+Street+League+1", "{\"gates\":[],\"barriers\":[]}");
+        Check(TrackStore.Find(db, "Sols+Street+League+1").Value == "{\"gates\":[],\"barriers\":[]}",
+              "an exact match beats a decoded one");
+        Check(TrackStore.Find(db, "Sols%2bStreet%2bLeague%2b1").Value == track,
+              "and the encoded one is still reachable by its own spelling");
         Check(TrackStore.Remove(db, "Sols+Street+League+1", out removeBackup),
               "removal works from the displayed spelling, which is all the page ever has");
         if (removeBackup != null) File.Delete(removeBackup);
+        Check(TrackStore.Find(db, "Sols%2bStreet%2bLeague%2b1") != null,
+              "and it took the right one - the other course is untouched");
 
         Console.WriteLine("track file parsing");
         var parsed = Json.ParseTrackFile(
