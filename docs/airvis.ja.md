@@ -109,7 +109,7 @@ GPU バンドル調整で、MSIX の LocalCache に `caspar-vulkan` という名
 
 ## 空・雲・人のマスクを足す
 
-`tools/sky_person_mask.py`（wsl4090 の `~/dgs-field/.venv` に torch がある）。
+`tools/sky_person_mask.py`（学習機の `~/dgs-field/.venv` に torch がある）。
 **AirVis のマスクと論理積を取る** —— マウントの分を消さないため。
 
 ```bash

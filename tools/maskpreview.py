@@ -10,8 +10,15 @@ import torch
 from PIL import Image
 from transformers import SegformerForSemanticSegmentation, SegformerImageProcessor
 
-D = '/mnt/c/Users/saqoosha/Documents/AirVis/JDL 2026 R5_AirVisStudio/Extracted/sfm-images-1600/'
-M = '/mnt/c/Users/saqoosha/Documents/AirVis/JDL 2026 R5_AirVisStudio/Extracted/sfm-masks-1600/'
+# The AirVis project lives wherever the app was pointed at, so it comes from the
+# environment rather than being written down here - a path with someone's username in it
+# is both a leak and a script nobody else can run.
+ROOT = os.environ.get('VDGS_AIRVIS_PROJECT') or (sys.argv[1] if len(sys.argv) > 1 else '')
+if not ROOT:
+    sys.exit('set VDGS_AIRVIS_PROJECT, or pass the project directory as the first argument\n'
+             '       (the one holding Extracted/sfm-images-1600 and Extracted/sfm-masks-1600)')
+D = os.path.join(ROOT, 'Extracted', 'sfm-images-1600') + os.sep
+M = os.path.join(ROOT, 'Extracted', 'sfm-masks-1600') + os.sep
 PICKS = [
     ('yaw+000_pitch-060__VID_20260821_173728_00_007-f000347.jpg', 'down: mount + person'),
     ('yaw+045_pitch+000__VID_20260821_173728_00_007-f000347.jpg', 'horizon: sky'),

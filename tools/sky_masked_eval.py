@@ -16,16 +16,20 @@ masks (the mask has to reach the val split, which the patch does).
 """
 
 import glob
+import os
 import sys
 
 import numpy as np
 import torch
 
-sys.path.insert(0, "/home/saqoosha/gsplat/examples")
+# Both live in the training box's home directory; overridable because nothing here should
+# hardcode a path with a username in it.
+sys.path.insert(0, os.environ.get("GSPLAT_EXAMPLES",
+                                  os.path.expanduser("~/gsplat/examples")))
 from simple_trainer import Config, Runner  # noqa: E402
 from lib_bilagrid import color_correct  # noqa: E402
 
-DATA = "/home/saqoosha/dgs-field"
+DATA = os.environ.get("DGS_FIELD", os.path.expanduser("~/dgs-field"))
 
 
 def score(ckpt_path):

@@ -256,8 +256,8 @@ X が 1.88 m、Y が 0.15 m ずれた。**高さは `placement.json` で吸え�
 ## 道具
 
 密度場と間引きは `scipy` / `scikit-image` / `fast_simplification` を要求する。**Mac には
-入らない**（PEP 668 で `pip install` が拒否される）ので wsl4090 の
-`~/jdl-collision-venv` で走らせる。62GB / 32 コアあるので 4 億セルでも余裕がある。
+入らない**（PEP 668 で `pip install` が拒否される）ので Linux / WSL 側の
+`~/jdl-collision-venv` で走らせる。62GB / 32 コアあれば 4 億セルでも余裕がある。
 
 **待ちループに `pgrep -f <script>` を使ってはいけない** ——`bash -c` のコマンドラインに
 そのスクリプト名が入るので**自分自身にマッチして永久に抜けない**。マーカーを書く：

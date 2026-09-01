@@ -611,7 +611,7 @@ Crash!!!
 最終書き込み）。「約 5 分」は安全側の見積もりではない。**メニューに戻したら、放置しない。**
 
 **クラッシュハンドラは走るが、ダンプは残らない。** `Player.log` は
-`C:/Users/a/AppData/Local/Temp/velocidrone/velocidrone/Crashes` を名指しするが、
+`%LOCALAPPDATA%\Temp\velocidrone\velocidrone\Crashes` を名指しするが、
 **そのディレクトリは存在しない**（2026-09-01 に確認）。自然死を待てばダンプが手に入る、
 という筋は使えない。
 

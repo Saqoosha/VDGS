@@ -65,7 +65,7 @@ sha256 を固定して。**「先に BepInEx を入れて」は全インスト�
 
 - **`scp host:relative` が exit 0 のまま何も転送しないことがある。** `-v` を見ると
   `Executing: cp --` ＝ **ローカルコピーだと判定されている**（ホスト名が 1 文字だと
-  ドライブレターに見える）。`scp host:/C:/Users/a/name` と**絶対パスにする**
+  ドライブレターに見える）。`scp host:/C:/Users/<you>/name` と**絶対パスにする**
 - **`ssh host '...'` の中身は PowerShell に 2 回読まれる。** 向こうの既定シェルが
   PowerShell なので、`powershell -Command "..."` に届く前に**外側の PowerShell が
   `$` を展開してしまう**。`$env:USERPROFILE` は外側にも値があるので通るが、
