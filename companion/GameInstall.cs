@@ -53,7 +53,15 @@ namespace VDGSCompanion
         /// The guesses themselves, apart from the looking, so a test can read the list
         /// rather than infer it from whether a search happened to succeed.
         /// </summary>
-        internal static List<string> CandidateRoots()
+        internal static List<string> CandidateRoots() =>
+            NamedRoots().Concat(DriveRoots()).ToList();
+
+        /// <summary>
+        /// The guesses written down here, apart from the ones derived from whatever
+        /// drives happen to be mounted. Kept separate so a test can hold this list to
+        /// what the guide says without a volume's name deciding the outcome.
+        /// </summary>
+        internal static List<string> NamedRoots()
         {
             var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             var roots = new List<string>
@@ -64,14 +72,19 @@ namespace VDGSCompanion
                 Path.Combine(home, "Downloads", "VelociDrone"),
                 Path.Combine(home, "Downloads", "Velocidrone Windows Launcher"),
             };
-            // Every ready drive, not only the fixed ones. "Another drive" is one of the
-            // guide's own suggestions, and it does not say the drive has to be internal -
-            // an external disk is where a large sim often ends up.
-            foreach (var drive in DriveInfo.GetDrives().Where(d => d.IsReady))
-                roots.Add(Path.Combine(drive.RootDirectory.FullName, "VelociDrone"));
-
             return roots;
         }
+
+        /// <summary>
+        /// One guess per mounted drive. "Another drive" is one of the guide's own
+        /// suggestions, and it does not say the drive has to be internal - an external
+        /// disk is where a large sim often ends up.
+        /// </summary>
+        internal static List<string> DriveRoots() =>
+            DriveInfo.GetDrives()
+                .Where(d => d.IsReady)
+                .Select(d => Path.Combine(d.RootDirectory.FullName, "VelociDrone"))
+                .ToList();
 
         /// <summary>
         /// Looks for velocidrone.exe across the disks, for when the known locations miss.
@@ -90,8 +103,11 @@ namespace VDGSCompanion
             {
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             };
+            // Every ready drive, matching the guesses above. Fixed-only meant a game on
+            // an external disk was missed twice over: the guess did not name the drive
+            // and the walk did not visit it.
             foreach (var d in DriveInfo.GetDrives())
-                if (d.IsReady && d.DriveType == DriveType.Fixed)
+                if (d.IsReady)
                     roots.Add(d.RootDirectory.FullName);
 
             return ScanRoots(roots, maxDepth: 5, log: log);

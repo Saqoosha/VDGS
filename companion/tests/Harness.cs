@@ -539,14 +539,20 @@ internal static class Harness
         // what makes re-adding a Steam path or dropping the launcher folder fail here;
         // exercising ScanRoots instead pins nothing, which is what the first version of
         // this test did while claiming otherwise.
-        var guesses = GameInstall.CandidateRoots();
-        Check(guesses.Any(g => g.IndexOf("Velocidrone Windows Launcher", StringComparison.OrdinalIgnoreCase) >= 0),
+        // Only the written-down entries. The drive-derived ones are named after whatever
+        // volumes are mounted, so a disk called "Steam" would otherwise fail this with
+        // nothing in the code having changed - and telling the two apart by comparing
+        // against the live drive list only works on the machine that has that disk.
+        var written = GameInstall.NamedRoots();
+        Check(written.Any(g => g.IndexOf("Velocidrone Windows Launcher", StringComparison.OrdinalIgnoreCase) >= 0),
               "the launcher folder as unpacked is one of the guesses");
-        Check(guesses.Any(g => g.EndsWith(@"C:\VelociDrone", StringComparison.OrdinalIgnoreCase)),
+        Check(written.Any(g => g.EndsWith(@"C:\VelociDrone", StringComparison.OrdinalIgnoreCase)),
               "so is the location the guide names first");
-        Check(!guesses.Any(g => g.IndexOf("Steam", StringComparison.OrdinalIgnoreCase) >= 0),
+        Check(GameInstall.CandidateRoots().Count > written.Count,
+              "and each mounted drive adds one, for the guide's \"another drive\"");
+        Check(!written.Any(g => g.IndexOf("Steam", StringComparison.OrdinalIgnoreCase) >= 0),
               "and no Steam path, for a game that is not sold through Steam");
-        Check(!guesses.Any(g => g.IndexOf("Program Files", StringComparison.OrdinalIgnoreCase) >= 0),
+        Check(!written.Any(g => g.IndexOf("Program Files", StringComparison.OrdinalIgnoreCase) >= 0),
               "nor Program Files, which the guide tells people to stay out of");
 
         var root = Path.Combine(Path.GetTempPath(), "vdgs-find-" + Guid.NewGuid().ToString("N"));
