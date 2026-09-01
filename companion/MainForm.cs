@@ -277,8 +277,11 @@ namespace VDGSCompanion
             {
                 var db = TrackStore.DatabasePath();
                 if (!File.Exists(db)) return null;
+                // Keyed by the displayed name, not the stored one: every other map in
+                // this window - bindings above all - is keyed that way, because that is
+                // the only name the mod ever sees. See TrackStore.DisplayName.
                 var map = new Dictionary<string, bool>(StringComparer.Ordinal);
-                foreach (var t in TrackStore.List(db)) map[t.Name] = t.FromServer;
+                foreach (var t in TrackStore.List(db)) map[TrackStore.DisplayName(t.Name)] = t.FromServer;
                 return map;
             }
             catch { return null; }
@@ -522,7 +525,11 @@ namespace VDGSCompanion
                         // agree only because make-catalog.sh copies one from the other; if
                         // they ever stop, the install works and reports as unfinished for
                         // good, each retry costing the whole capture again.
-                        if (entry.TrackName != null && t.Name != entry.TrackName)
+                        // Compared the way every other name here is compared. The two
+                        // sides can spell the same course differently and still mean it -
+                        // hard-aborting on that would refuse an install that works.
+                        if (entry.TrackName != null &&
+                            TrackStore.DisplayName(t.Name) != TrackStore.DisplayName(entry.TrackName))
                             throw new InvalidOperationException(
                                 "The catalog calls this track \"" + entry.TrackName +
                                 "\" but the published file calls it \"" + t.Name +
@@ -574,8 +581,12 @@ namespace VDGSCompanion
 
                     if (entry.InstallAs != null)
                     {
-                        GameInstall.Bind(game, t.Name, entry.InstallAs);
-                        log("bound \"" + t.Name + "\" to " + entry.InstallAs);
+                        // The name the game will show, which is the only one the mod
+                        // looks a binding up by. Writing the stored spelling here is the
+                        // silent failure this whole convention exists to stop.
+                        var shown = TrackStore.DisplayName(t.Name);
+                        GameInstall.Bind(game, shown, entry.InstallAs);
+                        log("bound \"" + shown + "\" to " + entry.InstallAs);
                     }
                 }
                 finally
@@ -787,8 +798,9 @@ namespace VDGSCompanion
                 Log("bind \"" + trackName + "\" to a capture at http://localhost:8777/ once flying");
                 return;
             }
-            GameInstall.Bind(_game, trackName, scenes[0]);
-            Log("bound \"" + trackName + "\" to " + scenes[0]);
+            var shown = TrackStore.DisplayName(trackName);
+            GameInstall.Bind(_game, shown, scenes[0]);
+            Log("bound \"" + shown + "\" to " + scenes[0]);
         }
 
         private void Launch()

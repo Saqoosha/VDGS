@@ -83,12 +83,15 @@ namespace VDGSCompanion
                 // broken entry this method exists to keep reachable.
                 if (TrackName == null) return false;
 
-                // Ordinal throughout, like the bindings file and the mod that reads it -
-                // these are the game's own track names, matched the way the game matches
-                // them.
+                // Both maps are keyed by the name the game shows, so the catalog's name
+                // is converted to that form before either is asked. VelociDrone stores a
+                // space as '+', and a course made in its editor therefore answers to two
+                // spellings - see TrackStore.DisplayName. Comparing the wrong one here
+                // reports a working install as unfinished, forever.
+                var shown = TrackStore.DisplayName(TrackName);
                 List<string> captures;
-                return inGame != null && inGame.ContainsKey(TrackName)
-                    && bound != null && bound.TryGetValue(TrackName, out captures)
+                return inGame != null && inGame.ContainsKey(shown)
+                    && bound != null && bound.TryGetValue(shown, out captures)
                     && captures != null && captures.Count > 0;
             }
         }

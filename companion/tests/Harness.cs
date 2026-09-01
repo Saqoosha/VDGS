@@ -335,6 +335,27 @@ internal static class Harness
         public void Dispose() { try { _listener.Stop(); _listener.Close(); } catch { } }
     }
 
+    /// <summary>
+    /// Puts a row in directly, for states the app will not create through Import - a
+    /// course whose displayed name already belongs to another row, say, which the game's
+    /// own editor can make but this app deliberately refuses to.
+    /// </summary>
+    private static void InsertTrack(string dbPath, string name, string value)
+    {
+        using (var c = new SqliteConnection("Data Source=" + dbPath + ";Pooling=False"))
+        {
+            c.Open();
+            using (var cmd = c.CreateCommand())
+            {
+                cmd.CommandText = "insert into tracks (scene_id,name,value,protected_track,online_id,type)" +
+                                  " values (16,$n,$v,0,0,0)";
+                cmd.Parameters.AddWithValue("$n", name);
+                cmd.Parameters.AddWithValue("$v", value);
+                cmd.ExecuteNonQuery();
+            }
+        }
+    }
+
     private static string MakeDb()
     {
         var path = Path.Combine(Path.GetTempPath(), "vdgs-test-" + Guid.NewGuid().ToString("N") + ".db");
@@ -430,6 +451,71 @@ internal static class Harness
               "a published track with no name cannot be confirmed, so it is not finished");
     }
 
+    /// <summary>
+    /// One course, two spellings.
+    ///
+    /// VelociDrone saves a track of its own with spaces turned into '+', and shows it with
+    /// them turned back. The mod reads the name off the running game, so every binding is
+    /// keyed by the displayed form; this app reads the database, so it holds the stored
+    /// form. Comparing the wrong one is silent all the way through - the track imports,
+    /// the capture installs, the binding is written, and nothing appears.
+    ///
+    /// A name this app imported keeps whatever spelling it arrived with, so both live in
+    /// the database at once. That is why matching is on the displayed form rather than
+    /// re-encoding one side.
+    /// </summary>
+    private static void OneCourseTwoSpellings()
+    {
+        Console.WriteLine();
+        Console.WriteLine("track names the game spells two ways");
+
+        Check(TrackStore.DisplayName("VDGS+FDF+2026-08-22") == "VDGS FDF 2026-08-22",
+              "a space comes back from '+'");
+        Check(TrackStore.DisplayName("VDGS FDF") == "VDGS FDF",
+              "a name imported with real spaces is already the displayed one");
+        Check(TrackStore.DisplayName(null) == null,
+              "no name converts to no name");
+
+        // Taken off a real machine, where 31 of 2,143 names carry this. Decoding only the
+        // '+' leaves every one of them wrong, and the order matters: percent-decoding
+        // first would turn "%2b" into a '+' and the next step would read it as a space.
+        Check(TrackStore.DisplayName("Sols%2bStreet%2bLeague%2b1") == "Sols+Street+League+1",
+              "a literal + comes back from %2b");
+        Check(TrackStore.DisplayName("TOG%2bStreet%2bLeague%2bFastodon") == "TOG+Street+League+Fastodon",
+              "and again on another published course");
+        Check(TrackStore.DisplayName("Canadian%2bWinter%2bSerie%2bRace%2b15%2b-%2b1%2bLap%2b-%2bStreet%2bLeague")
+                  == "Canadian+Winter+Serie+Race+15+-+1+Lap+-+Street+League",
+              "both halves at once, on the longest one there is");
+        // Track names come from community downloads, so this is attacker-shaped input.
+        Check(TrackStore.DisplayName("Race 50% off") == "Race 50% off",
+              "a stray percent with no escape behind it is left alone");
+
+        // The entry as it is published: the catalog carries the stored spelling, because
+        // that is what came out of the database it was exported from.
+        var e = new Catalog.Entry
+        {
+            Id = "fdf", Name = "FDF", InstallAs = "FDF-2026-08-22",
+            Scene = new Catalog.File_ { Url = "https://x/s.zip" },
+            Track = new Catalog.File_ { Url = "https://x/t.json" },
+            TrackName = "VDGS+FDF+2026-08-22",
+        };
+        // Both maps as the window builds them: keyed by what the game shows.
+        var inGame = new Dictionary<string, bool>(StringComparer.Ordinal)
+            { { "VDGS FDF 2026-08-22", false } };
+        var bound = new Dictionary<string, List<string>>(StringComparer.Ordinal)
+            { { "VDGS FDF 2026-08-22", new List<string> { "FDF-2026-08-22" } } };
+
+        Check(e.TrackInPlace(inGame, bound),
+              "a course made in the editor is recognised as installed");
+
+        // What the bug looked like: everything keyed the stored way, which is the one
+        // spelling the mod never asks for.
+        var storedKeyed = new Dictionary<string, List<string>>(StringComparer.Ordinal)
+            { { "VDGS+FDF+2026-08-22", new List<string> { "FDF-2026-08-22" } } };
+        Check(!e.TrackInPlace(inGame, storedKeyed),
+              "a binding written under the stored spelling does not count - the mod cannot find it");
+    }
+
     private static int Main()
     {
         var db = MakeDb();
@@ -465,6 +551,38 @@ internal static class Harness
               "and copies the database first - it holds every lap time ever set");
         File.Delete(removeBackup);
         Check(TrackStore.Find(db, "VDGS FDF") == null, "and it is gone");
+
+        // Both halves of the encoding, against a real database rather than the string
+        // function on its own. Import is handed the stored name out of a track file;
+        // RemoveTrack is handed the displayed name off a binding key. One row, two ways in.
+        Console.WriteLine("finding a course by either of its spellings");
+        r = TrackStore.Import(db, "Sols%2bStreet%2bLeague%2b1", 16, 0, track, out backup);
+        Check(r == TrackStore.ImportResult.Added, "a course whose name carries %2b imports");
+        Check(TrackStore.Find(db, "Sols%2bStreet%2bLeague%2b1") != null,
+              "found by the spelling the database holds");
+        Check(TrackStore.Find(db, "Sols+Street+League+1") != null,
+              "and by the spelling the game shows, which is what a binding key carries");
+        Check(TrackStore.Find(db, "Sols Street League 1") == null,
+              "and not by a name nobody uses - decoding the input twice would land here");
+        // Importing a course whose displayed name already belongs to another row is
+        // refused rather than merged. Worth pinning: it is what keeps the collision below
+        // out of anything this app builds.
+        r = TrackStore.Import(db, "Sols+Street+League+1", 16, 0, "{\"gates\":[],\"barriers\":[]}", out backup);
+        Check(r == TrackStore.ImportResult.WouldOverwrite,
+              "a course that would answer to the same query is left alone");
+
+        // The game's own editor can still make that pair, so what the database holds has
+        // to win the lookup - otherwise a REMOVE typed against one takes the other away.
+        InsertTrack(db, "Sols+Street+League+1", "{\"gates\":[],\"barriers\":[]}");
+        Check(TrackStore.Find(db, "Sols+Street+League+1").Value == "{\"gates\":[],\"barriers\":[]}",
+              "an exact match beats a decoded one");
+        Check(TrackStore.Find(db, "Sols%2bStreet%2bLeague%2b1").Value == track,
+              "and the encoded one is still reachable by its own spelling");
+        Check(TrackStore.Remove(db, "Sols+Street+League+1", out removeBackup),
+              "removal works from the displayed spelling, which is all the page ever has");
+        if (removeBackup != null) File.Delete(removeBackup);
+        Check(TrackStore.Find(db, "Sols%2bStreet%2bLeague%2b1") != null,
+              "and it took the right one - the other course is untouched");
 
         Console.WriteLine("track file parsing");
         var parsed = Json.ParseTrackFile(
@@ -506,6 +624,7 @@ internal static class Harness
         InstallingAndRemovingKeepWhatIsTheirs();
         TheLoaderIsFetchedAndPinned();
         AHalfDoneInstallIsNotInstalled();
+        OneCourseTwoSpellings();
 
         Console.WriteLine(_fail == 0 ? "\nALL PASS" : "\n" + _fail + " FAILED");
         return _fail == 0 ? 0 : 1;
