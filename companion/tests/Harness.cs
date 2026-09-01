@@ -404,6 +404,40 @@ internal static class Harness
               "an unreadable database does not count as finished");
     }
 
+    /// <summary>
+    /// The mod-version gate on a catalog entry.
+    ///
+    /// The trap this has to avoid is worse than the hole it fills. Requirements are
+    /// release dates; the mod reported a fixed 0.1.0.0 until releases started stamping
+    /// one. Comparing those two directly makes every existing install fail every
+    /// requirement - including the only published capture, which those installs render
+    /// perfectly well.
+    /// </summary>
+    private static void TheModGateOnlyJudgesWhatItCanCompare()
+    {
+        Console.WriteLine();
+        Console.WriteLine("requiring a mod version");
+
+        var needs = new Catalog.Entry { Id = "fdf", Name = "FDF", MinModVersion = "2026.08.25" };
+        var anyMod = new Catalog.Entry { Id = "old", Name = "Old" };
+
+        Check(anyMod.ModShortfall("2026.09.01") == null,
+              "an entry that asks for nothing is never gated");
+        Check(needs.ModShortfall("2026.09.01") == null,
+              "a newer mod meets the requirement");
+        Check(needs.ModShortfall("2026.08.25") == null,
+              "the exact version named meets it");
+        Check(needs.ModShortfall("2026.08.20") == "2026.08.25",
+              "an older mod is told what it needs");
+        // The migration case, and the reason this is not a plain comparison.
+        Check(needs.ModShortfall("0.1.0.0") == null,
+              "a build from before versions were stamped is not called too old");
+        Check(needs.ModShortfall(null) == null,
+              "no mod installed is Setup's problem, not the catalog's");
+        Check(needs.ModShortfall("unknown") == null,
+              "an unreadable version is not held against the entry");
+    }
+
     private static int Main()
     {
         var db = MakeDb();
@@ -480,6 +514,7 @@ internal static class Harness
         InstallingAndRemovingKeepWhatIsTheirs();
         TheLoaderIsFetchedAndPinned();
         AHalfDoneInstallIsNotInstalled();
+        TheModGateOnlyJudgesWhatItCanCompare();
 
         Console.WriteLine(_fail == 0 ? "\nALL PASS" : "\n" + _fail + " FAILED");
         return _fail == 0 ? 0 : 1;

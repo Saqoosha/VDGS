@@ -63,6 +63,29 @@ namespace VDGSCompanion
             /// no honest way to call this complete, and leaving Get alive costs a click,
             /// where claiming completion costs the only route to a working install.
             /// </summary>
+            /// <summary>
+            /// The version this entry needs when the installed mod does not meet it, or
+            /// null when there is nothing to say.
+            ///
+            /// A requirement is only held against a version that can be compared with it.
+            /// Every catalog requirement is a release date, and the mod reported a fixed
+            /// 0.1.0.0 until releases began stamping the date they were cut - so an older
+            /// build's version says nothing at all about whether it meets one. Unknown is
+            /// not "too old": treating it that way would stop every install already out
+            /// there from taking the only capture published so far, a combination that in
+            /// fact works. They are gated the first time they update, which is the point
+            /// at which the answer becomes knowable.
+            /// </summary>
+            internal string ModShortfall(string installedMod)
+            {
+                Version want, have;
+                if (string.IsNullOrEmpty(MinModVersion)) return null;
+                if (!Version.TryParse(MinModVersion, out want)) return null;
+                if (!Version.TryParse(installedMod, out have)) return null;
+                if (have.Major < 2000) return null;     // not a date: nothing to compare
+                return have >= want ? null : MinModVersion;
+            }
+
             /// <param name="inGame">Track names the game knows, or null if unreadable.</param>
             /// <param name="bound">vdgs/bindings.json, keyed by track name.</param>
             internal bool TrackInPlace(Dictionary<string, bool> inGame,

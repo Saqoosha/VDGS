@@ -42,7 +42,12 @@ say() { printf '\n== %s ==\n' "$1"; }
 # ---------------------------------------------------------------- mod
 if [ "$SCENE_ONLY" = 0 ]; then
 say "building the plugin"
-dotnet build "$ROOT/src/VDGS/VDGS.csproj" -c Release | tail -2
+# Stamped with the release version, not the placeholder in the csproj. A catalog entry
+# can say which mod it needs (minModVersion, a release date), and that requirement is
+# unanswerable while every build reports the same 0.1.0.0 - the field was published and
+# silently did nothing for exactly that reason. Only this path stamps it: a dev build
+# keeps the placeholder, is not comparable to a date, and is therefore never gated.
+dotnet build "$ROOT/src/VDGS/VDGS.csproj" -c Release -p:Version="$VERSION" | tail -2
 DLL="$ROOT/src/VDGS/bin/Release/VDGS.dll"
 [ -f "$DLL" ] || { echo "no VDGS.dll produced" >&2; exit 1; }
 

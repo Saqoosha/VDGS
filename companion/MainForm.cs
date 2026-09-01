@@ -223,7 +223,7 @@ namespace VDGSCompanion
                 bundledMod = GameInstall.BundledModVersion(),
                 busy = _busy,
                 busyPercent = _busyPercent,
-                catalog = CatalogState(scenes, inGame, bound),
+                catalog = CatalogState(scenes, mod, inGame, bound),
                 stateMs = (int)clock.ElapsedMilliseconds,
                 ready = _game != null && missing.Count == 0,
                 running = _running = GameInstall.IsRunning(),
@@ -237,6 +237,7 @@ namespace VDGSCompanion
         /// can be called the same thing and only the folder is the identity.
         /// </summary>
         private object CatalogState(List<GameInstall.SceneInfo> scenes,
+                                    string mod,
                                     Dictionary<string, bool> inGame,
                                     Dictionary<string, List<string>> bound)
         {
@@ -257,6 +258,9 @@ namespace VDGSCompanion
                     splats = e.Splats,
                     bytes = e.Bytes,
                     installed = haveCapture && e.TrackInPlace(inGame, bound),
+                    // Said rather than merely enforced. A button that is off for a reason
+                    // nobody can see is the same as a broken one.
+                    needsMod = e.ModShortfall(mod),
                 });
             }
 
