@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SetupState } from './types'
 
 /**
- * The window merges three kinds of message from the host, and two of them are partial on
+ * The window merges four kinds of message from the host, and three of them are partial on
  * purpose: rebuilding the whole state for a progress tick would walk the disk a hundred
  * times during one download. That merging is the part with somewhere to go wrong.
  */
@@ -12,6 +12,7 @@ type Push =
   | { type: 'log'; line: string }
   | { type: 'progress'; percent: number | null }
   | { type: 'busy'; what: string | null }
+  | { type: 'running'; running: boolean }
 
 let deliver: (m: Push) => void = () => {}
 
@@ -62,6 +63,25 @@ describe('the companion window', () => {
     await waitFor(() => expect(screen.getByText(/working/i)).toBeInTheDocument())
     deliver({ type: 'state', ...base })
     await waitFor(() => expect(screen.getByText(/ready/i)).toBeInTheDocument())
+  })
+
+  // The two directions do not arrive the same way, and the test says so because getting
+  // that backwards is how a passing test covers a message nobody sends: the game
+  // starting is one flag, because rebuilding a whole state walks every capture on disk
+  // for a bool - the game ending is a whole state, because it held the track database
+  // open while it ran. Nobody presses refresh to say they quit, so both have to land or
+  // Fly stays dead.
+  it('follows the game starting and ending', async () => {
+    const fly = () => screen.getByRole('button', { name: /^fly$/i })
+    // Wait for the first state to land before asserting anything. Fly is disabled while
+    // state is still null - no game path is known yet - so a "disabled" assertion made
+    // straight away passes on an empty window and tests nothing at all. This test read
+    // green with the merge deleted until that wait was added.
+    await waitFor(() => expect(fly()).toBeEnabled())
+    deliver({ type: 'running', running: true })
+    await waitFor(() => expect(fly()).toBeDisabled())
+    deliver({ type: 'state', ...base, running: false })
+    await waitFor(() => expect(fly()).toBeEnabled())
   })
 
   it('keeps the log', async () => {
