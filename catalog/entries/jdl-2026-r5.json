@@ -1,0 +1,10 @@
+{
+  "id": "jdl-2026-r5",
+  "name": "VDGS JDL 2026 R5",
+  "description": "The Japan Drone League 2026 Round 5 race site in Okayama, Japan.",
+  "author": "Saqoosha",
+  "licence": "CC0-1.0",
+  "captured": "2026-08-21",
+  "installAs": "JDL-2026-R5-airvis",
+  "track": "VDGS-JDL-2026-R5.track.json"
+}

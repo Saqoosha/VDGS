@@ -85,9 +85,13 @@ against its terms. Local flying only.
 
 ## Captures
 
-**One is published, and the companion installs it**: FDF-2026-08-22, an FPV practice field
-in Funabashi, Chiba — scanned for this project and released under CC0. 4,508,391 splats,
-with a collision mesh.
+**Two are published, and the companion installs them.** Both were scanned for this project
+and released under CC0, and both come with a collision mesh.
+
+| | splats | where |
+|---|---|---|
+| FDF-2026-08-22 | 4,508,391 | Funabashi Drone Field, an FPV practice field in Funabashi, Chiba |
+| JDL-2026-R5 | 2,521,003 | the Japan Drone League 2026 Round 5 race site, Okayama |
 
 **Nothing else flown during development can be redistributed, and none of it is here.**
 The academic datasets state no licence at all, which means all rights reserved rather than

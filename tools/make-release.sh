@@ -187,11 +187,19 @@ if [ -n "$SCENE" ]; then
 
   # bindings.json maps a track NAME to a scene, so it only works if the track is named
   # the same on the other machine. Shipped as a sample rather than merged blindly.
-  cat > "$STAGE/scene/bindings.sample.json" <<EOF
-{
-  "VDGS FDF": ["$SCENE"]
-}
-EOF
+  #
+  # The name is looked up in catalog/ rather than written here. It used to be the literal
+  # string "VDGS FDF", which was right for the first capture ever packaged and wrong for
+  # every one after it, including one that shipped. Getting it wrong is the silent kind:
+  # the capture installs, the track installs, the binding is written, and nothing renders,
+  # with no error anywhere.
+  #
+  # VelociDrone form-encodes the stored name (space -> '+', literal '+' -> '%2b') and
+  # bindings are keyed by the DISPLAYED name, so both stages are undone, in that order.
+  TRACK_NAME=$(python3 "$ROOT/tools/track_display_name.py" "$ROOT" "$SCENE")
+  echo "   sample binding: $TRACK_NAME -> $SCENE"
+  python3 -c "import json,sys; json.dump({sys.argv[2]: [sys.argv[3]]}, open(sys.argv[1],'w'), indent=2)" \
+          "$STAGE/scene/bindings.sample.json" "$TRACK_NAME" "$SCENE"
 
   cat > "$STAGE/scene/README.txt" <<EOF
 $SCENE - a capture for VDGS ($SPLATS splats)
