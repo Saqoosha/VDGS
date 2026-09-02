@@ -84,8 +84,7 @@ UAC に止められ、更新が失敗したりログインで固まる。**Steam
 PatchKit 経由の macOS 版（1.17、arm64 thin、adhoc 署名、同じ Unity 2021.3.45f2）で
 **mod が動く。** 2.5M splats が M1 Max で 60fps 張り付き、4.5M で 57〜60fps。
 **Windows と同等**。しかも `-force-d3d12` の副作用（ログ埋まり、メニュー放置クラッシュ）が
-丸ごと無い。
-Metal はゲームの正規経路だから。
+丸ごと無い。Metal はゲームの正規経路だから。
 
 | 項目 | 値 |
 |---|---|
@@ -576,6 +575,23 @@ F5・F6・F7・F8 は**使っていない**。操作は Web UI から。
 答えを待つので、**自分が描画を止めている窓を待って固まる**。フォルダ選択が Escape も
 Cancel も受け付けなくなる。実機で再現・修正済み。
 
+### 「入れたのに何も出ない」と言われたら
+
+**推測せず、ログ一式を送ってもらう。** この症状は原因が 4 つあり、どれも外から見た姿が同じ：
+注入されていない、シェーダーが使えない、トラック名が読めない、紐付けが違う。そして **True Lens
+なら 4 つとも正常のまま何も出ない**（前節）。
+
+```
+curl -sSL https://raw.githubusercontent.com/Saqoosha/VDGS/master/tools/collect-mac-diagnostics.sh | bash
+```
+
+デスクトップに 15 KB の zip が出る（macOS のみ）。ログ 4 本と `Player.log`、キャプチャごとの
+`meta.json` / `placement.json`、機械の情報。**抜粋ではなく全文を入れてある** — 先に書いた grep は
+「誰かが既に想像した失敗」しか拾わず、ここで高くついた失敗は全部その外側だった。
+
+**`bash <(curl ...)` は使わない。** process substitution は bash 固有で、
+**fish は構文エラーで落ちる**。相手のシェルは選べない。パイプなら通る。
+
 ### macOS の署名と公証
 
 **Developer ID は個人（Tomohiko Koyama / VCFY2GFR89）。** 公証は Canopy と同じ keychain
@@ -617,7 +633,7 @@ PowerShell が待たない、payload に前回の資産が残る、など）、`
 木立 43.7 → 9.6（web 11.8）、芝は 133 のまま変化なし。
 
 **True Lens を on にすると、キャプチャは描かれるのに 1 ピクセルも見えない。** ゲーム側の設定で、
-OS は関係ない（Windows でも同じはず）。飛行シーンのカメラが 1 個から**6 個**になる —
+**OS は関係ない**（Windows でも同じ）。飛行シーンのカメラが 1 個から**6 個**になる —
 `CameraLocation/Camera` の子として `Front/Left/Right/Bottom/Top` が 90° 画角で生え、それを
 歪めた合成が画面に出る。`SplatRenderer` は Preview 以外の全カメラに付いて `CameraTarget` に
 合成するので、**1 フレームに 6 回ソートして描き、どれも表示には届かない。**
@@ -626,6 +642,15 @@ OS は関係ない（Windows でも同じはず）。飛行シーンのカメラ
 言い、`vdgs-perf.log` には splat 数が出続ける。**見分ける印は速度** — M3 Max が 252 万で
 30fps、M1 Max が同じキャプチャで 60fps。速い機械の方が遅ければこれを疑う。カメラ数は
 `vdgs-probe.log` の `cameraCount` にそのまま出る。
+
+**設定は `user11.db` の `sim_states` に平文で入っている** — `name='true_lens'`、値は文字列の
+`'true'` / `'false'`。**companion が既に開いている同じファイル**なので、読むのは 1 行。
+`true_lens_size` など前方一致する行が並んでいるので**完全一致で引く**。
+
+**だから companion が FLY の真上で警告する**（両 OS）。サイトに書くだけでは読まれない —
+**症状は「mod が入っていない」と見分けが付かず、本人は設定を疑いもしない。**
+規則は 1 つ、**`true` だけが警告する**。DB が無い・読めない・行が無いは全部「分からない」で
+黙る。**「読めなかった」を「危ない」と出す警告は、一度嘘をつけば二度と信じられない。**
 
 **対処は「True Lens を切る」。** mod 側で支えられるかは未着手（[#27](https://github.com/Saqoosha/VDGS/issues/27)）。
 
@@ -744,10 +769,11 @@ docs/superpowers/specs/2026-08-18-splat-collision-design.md。
   docs/airvis.ja.md。**まだ効果を出しきれていないのは 360 単独の走行だけ**（下）
 - **Windows の companion を Tauri に移す。** いまは C# と Rust が同じ仕事を 2 回書いている。
   移したら `companion/` を消す
-- **macOS 側の未着手 4 件は issue にしてある** — #23（本文が止まったダウンロードから復旧
-  できない）、#24（`.track.json` の検証が C# より緩い）、#25（DMG の配布経路は通したが
-  カタログのスキーマ判断が残る）、#26（小物 4 つ）
-- **Mac でトラックに入って飛んだ数字はまだ無い。** 測ったのはメニューと `menuspawn` だけ
+- **True Lens の下でも描けるようにするか**（[#27](https://github.com/Saqoosha/VDGS/issues/27)）。
+  いまの答えは「切ってもらう」で、companion が FLY の手前でそう言う。5 面それぞれに合成して
+  歪みの前に届ける必要があり、**そもそも届く場所があるかを見ていない**
+- **未着手の issue** — #23（本文が止まったダウンロードから復旧できない）、#24（`.track.json`
+  の検証が C# より緩い）、#25（DMG は配れているがカタログのスキーマ判断が残る）、#26（小物 4 つ）
 - **FDF の芝の平坦化は不要だった可能性が高い。** 平坦化前でも地面は破綻せず、むしろ芝目が
   残る（「over flattened で眠い」の原因）。一方**ゴミ除去は本当に必要**で、生データは空が
   白く埋まる
