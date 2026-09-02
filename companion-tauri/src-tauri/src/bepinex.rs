@@ -53,6 +53,16 @@ pub fn install(
     let into = std::env::temp_dir().join("vdgs-download");
     let zip = catalog::download(&release(), &into, percent)?;
     let result = (|| {
+        // Checked again here, after the download, for the reason the same check exists in
+        // game.rs: the caller's check happened before a fetch, and replacing a loader the
+        // running game has already mapped does not fail on macOS - it succeeds, and leaves
+        // what is on disk disagreeing with what is loaded.
+        if crate::launch::is_running() {
+            return Err(catalog::Error::Msg(
+                "VelociDrone is running. Close it first - files in use cannot be replaced."
+                    .into(),
+            ));
+        }
         catalog::extract(&zip, root, &["BepInEx.cfg"], log)?;
         strip_quarantine(&root.join("libdoorstop.dylib"));
         strip_quarantine(&root.join("BepInEx"));
