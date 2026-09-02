@@ -6,6 +6,7 @@ use std::time::Instant;
 
 use serde::Serialize;
 
+use crate::bepinex;
 use crate::catalog;
 use crate::game;
 use crate::tracks;
@@ -100,7 +101,10 @@ pub fn build(i: Inputs) -> SetupState {
 
     if let Some(app) = i.game {
         let root = game::root(app);
-        if !game::has_bepinex(&root) {
+        // The patched loader specifically. One that is merely present may be the official
+        // build, which cannot load anything on Apple Silicon - reporting that as satisfied
+        // is how a machine ends up calling itself ready and drawing nothing.
+        if !bepinex::is_ours(&root) {
             missing.push("BepInEx".into());
         }
         mod_ver = game::installed_mod_version(&root);

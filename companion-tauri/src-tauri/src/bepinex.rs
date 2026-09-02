@@ -18,6 +18,28 @@ pub fn release() -> catalog::FileRef {
     }
 }
 
+/// Records which BepInEx this app put there.
+///
+/// The loader's own files do not say. An official macOS BepInEx has the same dylib and the
+/// same preloader path as the patched one, so "is BepInEx here" cannot answer "is the
+/// preloader the one that survives arm64" - and the official one does not: it dies before
+/// the chainloader and the game starts with no plugins. Skipping the install on the
+/// strength of those files would drop our plugin into a loader that never runs it, and
+/// then report the machine ready.
+fn stamp_path(root: &Path) -> std::path::PathBuf {
+    root.join("BepInEx/vdgs-bepinex-version.txt")
+}
+
+/// Whether the loader here is the build this app installs.
+///
+/// Anything else - the official release, an older fork, a hand-unzipped copy - reads as
+/// false, so it is replaced. Replacing is safe: the extract keeps an existing BepInEx.cfg.
+pub fn is_ours(root: &Path) -> bool {
+    std::fs::read_to_string(stamp_path(root))
+        .map(|s| s.trim() == VERSION)
+        .unwrap_or(false)
+}
+
 pub fn install(
     root: &Path,
     log: &mut dyn FnMut(String),
@@ -31,6 +53,7 @@ pub fn install(
         strip_quarantine(&root.join("libdoorstop.dylib"));
         strip_quarantine(&root.join("BepInEx"));
         write_logging_config(root)?;
+        std::fs::write(stamp_path(root), VERSION)?;
         log(format!("installed BepInEx {VERSION}"));
         Ok(())
     })();
@@ -118,5 +141,22 @@ mod tests {
         let _ = std::fs::remove_dir_all(&p);
         std::fs::create_dir_all(&p).unwrap();
         p
+    }
+
+    #[test]
+    fn only_our_own_build_counts_as_installed() {
+        let root = tmp();
+        // A loader that is present but not ours - the official macOS release looks exactly
+        // like this - must not satisfy the check.
+        std::fs::create_dir_all(root.join("BepInEx/core")).unwrap();
+        std::fs::write(root.join("BepInEx/core/BepInEx.Preloader.dll"), b"x").unwrap();
+        std::fs::write(root.join("libdoorstop.dylib"), b"x").unwrap();
+        assert!(!is_ours(&root));
+
+        std::fs::write(stamp_path(&root), VERSION).unwrap();
+        assert!(is_ours(&root));
+
+        std::fs::write(stamp_path(&root), "5.4.23.5-vdgs.0").unwrap();
+        assert!(!is_ours(&root), "an older fork is replaced, not kept");
     }
 }

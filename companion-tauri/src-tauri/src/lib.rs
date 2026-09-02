@@ -183,7 +183,9 @@ impl Host {
                 );
             }
             let root = game::root(&app);
-            if !game::has_bepinex(&root) {
+            // Not "is a loader here" but "is it ours": an official BepInEx has the same
+            // files and a preloader that dies on arm64.
+            if !bepinex::is_ours(&root) {
                 bepinex::install(&root, log, &mut |p| host.percent(Some(p)))
                     .map_err(|e| e.to_string())?;
                 host.percent(None);
