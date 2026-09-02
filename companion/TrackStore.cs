@@ -82,6 +82,42 @@ namespace VDGSCompanion
         }
 
         /// <summary>
+        /// Whether VelociDrone's True Lens setting is on.
+        ///
+        /// Null means we do not know (db missing, unreadable, or no such row) - that must
+        /// NOT be shown as a warning. A warning that cannot tell not-knowing from danger
+        /// is one nobody believes a second time. With it on the mod draws every capture
+        /// and none of it reaches the screen; every log says success and the sky is empty,
+        /// so a note on the website is useless. Related rows (true_lens_size,
+        /// true_lens_quality) exist; match the exact name only.
+        /// </summary>
+        internal static bool? TrueLensOn(string dbPath)
+        {
+            try
+            {
+                if (!File.Exists(dbPath)) return null;
+                using (var c = Open(dbPath, writable: false))
+                using (var cmd = c.CreateCommand())
+                {
+                    cmd.CommandText = "select value from sim_states where name = $name";
+                    cmd.Parameters.AddWithValue("$name", "true_lens");
+                    var o = cmd.ExecuteScalar();
+                    if (o == null || o is DBNull) return null;
+                    var value = o as string ?? o.ToString();
+                    if (value == "true") return true;
+                    if (value == "false") return false;
+                    return null;
+                }
+            }
+            catch
+            {
+                // An unreadable database is an answerable state, not a crash - same as the
+                // track list treating a missing user11.db as "unknown", not failure.
+                return null;
+            }
+        }
+
+        /// <summary>
         /// A track name as the game shows it, and as the mod therefore knows it.
         ///
         /// VelociDrone form-encodes a track name when it saves one of its own: a space

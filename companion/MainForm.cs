@@ -212,6 +212,14 @@ namespace VDGSCompanion
                 BuildTracks(scenes, inGame, bound, tracks, unbound);
             }
 
+            // Same db TracksInGame() reads; a second pass over one small row is fine, and
+            // keeps this independent of whether the tracks query succeeded. Only Some(true)
+            // must be shown as a warning - with it on the mod draws and nothing reaches the
+            // screen, and every log still says success.
+            bool? trueLens = _game != null
+                ? TrackStore.TrueLensOn(TrackStore.DatabasePath())
+                : (bool?)null;
+
             Post(new
             {
                 type = "state",
@@ -228,6 +236,7 @@ namespace VDGSCompanion
                 ready = _game != null && missing.Count == 0,
                 running = _running = GameInstall.IsRunning(),
                 launchArgs = GameInstall.LaunchArgs,
+                trueLens,
             });
         }
 

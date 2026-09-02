@@ -508,6 +508,80 @@ internal static class Harness
     }
 
     /// <summary>
+    /// VelociDrone's True Lens setting, plain text in sim_states.
+    ///
+    /// With it on the mod draws every capture and none of it reaches the screen; every
+    /// log says success. Null must stay null - a warning that cannot tell not-knowing
+    /// from danger is one nobody believes a second time. Related rows (true_lens_size,
+    /// true_lens_quality) exist; only the exact name counts.
+    /// </summary>
+    private static void TrueLensSettingIsReadable()
+    {
+        Console.WriteLine();
+        Console.WriteLine("True Lens setting");
+
+        var path = Path.Combine(Path.GetTempPath(),
+            "vdgs-sim-" + Guid.NewGuid().ToString("N") + ".db");
+        using (var c = new SqliteConnection("Data Source=" + path + ";Pooling=False"))
+        {
+            c.Open();
+            using (var cmd = c.CreateCommand())
+            {
+                cmd.CommandText =
+                    "CREATE TABLE [sim_states] ([name] VARCHAR, [value] VARCHAR);";
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        Check(TrackStore.TrueLensOn(path) == null,
+              "an absent row is unknown, not a warning");
+
+        using (var c = new SqliteConnection("Data Source=" + path + ";Pooling=False"))
+        {
+            c.Open();
+            using (var cmd = c.CreateCommand())
+            {
+                // Related rows must not count: a size/quality row of 'true' is not the
+                // setting, and treating it as on would warn when True Lens is off.
+                cmd.CommandText =
+                    "insert into sim_states (name, value) values ('true_lens_size', 'true')";
+                cmd.ExecuteNonQuery();
+            }
+        }
+        Check(TrackStore.TrueLensOn(path) == null,
+              "a related row does not count as the setting");
+
+        using (var c = new SqliteConnection("Data Source=" + path + ";Pooling=False"))
+        {
+            c.Open();
+            using (var cmd = c.CreateCommand())
+            {
+                cmd.CommandText =
+                    "insert into sim_states (name, value) values ('true_lens', 'true')";
+                cmd.ExecuteNonQuery();
+            }
+        }
+        Check(TrackStore.TrueLensOn(path) == true, "value 'true' reads as on");
+
+        using (var c = new SqliteConnection("Data Source=" + path + ";Pooling=False"))
+        {
+            c.Open();
+            using (var cmd = c.CreateCommand())
+            {
+                cmd.CommandText =
+                    "update sim_states set value = 'false' where name = 'true_lens'";
+                cmd.ExecuteNonQuery();
+            }
+        }
+        Check(TrackStore.TrueLensOn(path) == false, "value 'false' reads as off");
+
+        Check(TrackStore.TrueLensOn(path + ".missing") == null,
+              "a missing database is unknown, not a crash");
+
+        File.Delete(path);
+    }
+
+    /// <summary>
     /// One course, two spellings.
     ///
     /// VelociDrone saves a track of its own with spaces turned into '+', and shows it with
@@ -789,6 +863,7 @@ internal static class Harness
         InstallingAndRemovingKeepWhatIsTheirs();
         TheLoaderIsFetchedAndPinned();
         AHalfDoneInstallIsNotInstalled();
+        TrueLensSettingIsReadable();
         OneCourseTwoSpellings();
         TheGuessesAreTheOnesTheGuideNames();
         ThePayloadCarriesOneBuild();
