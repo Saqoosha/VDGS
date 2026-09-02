@@ -1,0 +1,26 @@
+[package]
+name = "vdgs-companion"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "companion_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+sha2 = "0.10"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+pelite = "0.10"
+sysinfo = "0.32"
+dirs = "5"
+percent-encoding = "2"
+thiserror = "1"

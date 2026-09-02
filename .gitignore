@@ -47,7 +47,11 @@ companion/obj/
 companion/tests/bin/
 companion/tests/obj/
 
+companion-tauri/src-tauri/target/
+companion-tauri/src-tauri/resources/mod/
+
 # Worker dependencies and wrangler's own cache, which names the account it is signed
 # into - machine state, not the project's
 worker/node_modules/
 .wrangler/
+companion-tauri/src-tauri/gen/

@@ -27,11 +27,19 @@ type WebViewHost = {
   removeEventListener: (type: 'message', fn: (e: { data: Push }) => void) => void
 }
 
-const host: WebViewHost | undefined = (
+type TauriGlobal = {
+  core: { invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown> }
+  event: {
+    listen: (name: string, fn: (e: { payload: Push }) => void) => Promise<() => void>
+  }
+}
+
+const webview: WebViewHost | undefined = (
   window as unknown as { chrome?: { webview?: WebViewHost } }
 ).chrome?.webview
+const tauri: TauriGlobal | undefined = (window as unknown as { __TAURI__?: TauriGlobal }).__TAURI__
 
-export const hosted = !!host
+export const hosted = !!webview || !!tauri
 
 export type Command =
   | 'refresh'
@@ -45,16 +53,41 @@ export type Command =
   | 'addTrack'
   | 'fly'
 
+/**
+ * Registering a Tauri listener is asynchronous, and the page's first command goes out in
+ * the same breath as its subscription. Sent straight away, that command is answered
+ * before anything is listening and the reply is dropped - which is a window that never
+ * fills in, with nothing to say why, because a state is only pushed when asked for.
+ */
+let listening: Promise<unknown> | null = null
+
 export function send(cmd: Command, id?: string): void {
-  if (host) host.postMessage({ cmd, id })
+  if (tauri) {
+    const invoke = () => tauri.core.invoke('dispatch', { cmd, id: id ?? null })
+    void (listening ? listening.then(invoke, invoke) : invoke())
+  } else if (webview) webview.postMessage({ cmd, id })
   else devSend(cmd, id)
 }
 
 export function subscribe(fn: (m: Push) => void): () => void {
-  if (!host) return devSubscribe(fn)
+  if (tauri) {
+    let off: (() => void) | null = null
+    let gone = false
+    const ready = tauri.event.listen('push', (e) => fn(e.payload)).then((u) => {
+      if (gone) u()
+      else off = u
+    })
+    listening = ready
+    void ready
+    return () => {
+      gone = true
+      off?.()
+    }
+  }
+  if (!webview) return devSubscribe(fn)
   const listener = (e: { data: Push }) => fn(e.data)
-  host.addEventListener('message', listener)
-  return () => host.removeEventListener('message', listener)
+  webview.addEventListener('message', listener)
+  return () => webview.removeEventListener('message', listener)
 }
 
 // ---------------------------------------------------------------- dev stand-in
