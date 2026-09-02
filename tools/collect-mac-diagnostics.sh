@@ -64,7 +64,15 @@ if [ -f "$GAME/vdgs-probe.log" ]; then
   awk '/======== shader bundle/{buf=""} {buf=buf"\n"$0}
        END{print buf}' "$GAME/vdgs-probe.log" \
     | grep -E "bundle size|MISSING|shader '|compute '|=> shaders" | sed 's/^/  /'
-  grep -c "======== show " "$GAME/vdgs-probe.log" | sed 's/^/  captures spawned so far: /'
+  # Only the web UI's Show writes a "show" block; a capture that appeared because its
+  # track was selected is recorded in vdgs-track.log instead, so this counts one route,
+  # not all of them.
+  grep -c "======== show " "$GAME/vdgs-probe.log" | sed 's/^/  shown by hand from the web UI: /'
+  # Which camera the splat pass can attach to. A capture that spawns, costs frame time and
+  # still shows nothing has been rasterised somewhere the screen is not.
+  say "cameras the last scene offered"
+  awk '/^-- cameras/{f=1} f&&!/^-- cameras/{if(/^--/)f=0; else print}' "$GAME/vdgs-probe.log" \
+    | tail -8 | sed 's/^/  /'
 else
   echo "  NO - the plugin never ran. BepInEx did not inject."
   echo "  --- preloader errors, if any"
