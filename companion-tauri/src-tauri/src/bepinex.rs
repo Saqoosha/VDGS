@@ -30,14 +30,18 @@ fn stamp_path(root: &Path) -> std::path::PathBuf {
     root.join("BepInEx/vdgs-bepinex-version.txt")
 }
 
-/// Whether the loader here is the build this app installs.
+/// Whether the loader here is the build this app installs, and is still all there.
 ///
-/// Anything else - the official release, an older fork, a hand-unzipped copy - reads as
-/// false, so it is replaced. Replacing is safe: the extract keeps an existing BepInEx.cfg.
+/// Both halves are needed. Without the stamp, another BepInEx - the official release, an
+/// older fork, a hand-unzipped copy - passes as ours and is never replaced. Without the
+/// file check, a stamp that outlived the files it describes says the loader is fine while
+/// the game has nothing to load, and the install skips it, so the one button that could
+/// repair the machine is the one that reports there is nothing to repair.
 pub fn is_ours(root: &Path) -> bool {
-    std::fs::read_to_string(stamp_path(root))
-        .map(|s| s.trim() == VERSION)
-        .unwrap_or(false)
+    crate::game::has_bepinex(root)
+        && std::fs::read_to_string(stamp_path(root))
+            .map(|s| s.trim() == VERSION)
+            .unwrap_or(false)
 }
 
 pub fn install(
@@ -158,5 +162,11 @@ mod tests {
 
         std::fs::write(stamp_path(&root), "5.4.23.5-vdgs.0").unwrap();
         assert!(!is_ours(&root), "an older fork is replaced, not kept");
+
+        // A stamp that outlived the loader must not report the loader as present, or the
+        // install skips the very files that are missing and the app stays broken.
+        std::fs::write(stamp_path(&root), VERSION).unwrap();
+        std::fs::remove_file(root.join("libdoorstop.dylib")).unwrap();
+        assert!(!is_ours(&root), "the stamp alone is not the loader");
     }
 }

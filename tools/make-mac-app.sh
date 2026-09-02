@@ -85,20 +85,12 @@ echo "   payload ok: $(find "$PAY" -type f | wc -l | tr -d ' ') files"
 
 # ---------------------------------------------------------------- app
 say "building the companion"
-# The version the app reports lives in tauri.conf.json, so it is written there rather than
-# only into the file name - otherwise every build calls itself 0.1.0 inside Get Info while
-# the DMG beside it claims something else.
-CONF="$ROOT/companion-tauri/src-tauri/tauri.conf.json"
-python3 - "$CONF" "$VER" <<'PY'
-import json, sys
-path, ver = sys.argv[1], sys.argv[2]
-conf = json.load(open(path))
-if conf.get("version") != ver:
-    conf["version"] = ver
-    json.dump(conf, open(path, "w"), indent=2)
-    open(path, "a").write("\n")
-    print("   set tauri.conf.json version to " + ver)
-PY
+# The version inside the bundle is left as tauri.conf.json has it. Writing $VER there was
+# tried and taken back out: this project's releases are CalVer with leading zeros
+# (vdgs-companion-2026.09.02.zip), Tauri parses that field as SemVer, and a leading zero in
+# a numeric identifier is rejected - so stamping it would fail the real release build while
+# fixing only the version string in Get Info. Mapping CalVer onto SemVer is its own
+# decision and belongs with whoever makes it.
 # Emptied first: the DMG is found by globbing this directory afterwards, and a leftover
 # from an earlier version is otherwise what gets notarized and published.
 rm -rf "$ROOT/companion-tauri/src-tauri/target/release/bundle"
