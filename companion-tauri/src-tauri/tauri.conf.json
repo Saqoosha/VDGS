@@ -12,15 +12,33 @@
   "app": {
     "withGlobalTauri": true,
     "windows": [
-      { "title": "VDGS Companion", "url": "companion.html", "width": 760, "height": 640, "minWidth": 600, "minHeight": 480 }
+      {
+        "title": "VDGS Companion",
+        "url": "companion.html",
+        "width": 760,
+        "height": 860,
+        "minWidth": 600,
+        "minHeight": 560
+      }
     ],
-    "security": { "csp": null }
+    "security": {
+      "csp": null
+    }
   },
   "bundle": {
     "active": true,
-    "targets": ["app", "dmg"],
-    "icon": ["icons/icon.icns"],
-    "resources": ["resources/mod/**/*"],
-    "macOS": { "minimumSystemVersion": "12.0" }
+    "targets": [
+      "app",
+      "dmg"
+    ],
+    "icon": [
+      "icons/icon.icns"
+    ],
+    "resources": [
+      "resources/mod/**/*"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "12.0"
+    }
   }
 }

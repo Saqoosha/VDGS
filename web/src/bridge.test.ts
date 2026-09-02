@@ -19,3 +19,22 @@ describe('bridge transports', () => {
     delete (window as any).__TAURI__
   })
 })
+
+describe('the first command waits for the listener', () => {
+  it('does not invoke before listen has resolved', async () => {
+    vi.resetModules()
+    let release: (u: () => void) => void = () => {}
+    const invoke = vi.fn()
+    const listen = vi.fn().mockReturnValue(new Promise<() => void>((r) => { release = r }))
+    ;(window as any).__TAURI__ = { core: { invoke }, event: { listen } }
+    const { send, subscribe } = await import('./bridge')
+    subscribe(() => {})
+    send('refresh')
+    await Promise.resolve()
+    expect(invoke).not.toHaveBeenCalled()
+    release(() => {})
+    await new Promise((r) => setTimeout(r, 0))
+    expect(invoke).toHaveBeenCalledWith('dispatch', { cmd: 'refresh', id: null })
+    delete (window as any).__TAURI__
+  })
+})

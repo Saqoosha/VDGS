@@ -53,9 +53,19 @@ export type Command =
   | 'addTrack'
   | 'fly'
 
+/**
+ * Registering a Tauri listener is asynchronous, and the page's first command goes out in
+ * the same breath as its subscription. Sent straight away, that command is answered
+ * before anything is listening and the reply is dropped - which is a window that never
+ * fills in, with nothing to say why, because a state is only pushed when asked for.
+ */
+let listening: Promise<unknown> | null = null
+
 export function send(cmd: Command, id?: string): void {
-  if (tauri) void tauri.core.invoke('dispatch', { cmd, id: id ?? null })
-  else if (webview) webview.postMessage({ cmd, id })
+  if (tauri) {
+    const invoke = () => tauri.core.invoke('dispatch', { cmd, id: id ?? null })
+    void (listening ? listening.then(invoke, invoke) : invoke())
+  } else if (webview) webview.postMessage({ cmd, id })
   else devSend(cmd, id)
 }
 
@@ -63,10 +73,12 @@ export function subscribe(fn: (m: Push) => void): () => void {
   if (tauri) {
     let off: (() => void) | null = null
     let gone = false
-    void tauri.event.listen('push', (e) => fn(e.payload)).then((u) => {
+    const ready = tauri.event.listen('push', (e) => fn(e.payload)).then((u) => {
       if (gone) u()
       else off = u
     })
+    listening = ready
+    void ready
     return () => {
       gone = true
       off?.()

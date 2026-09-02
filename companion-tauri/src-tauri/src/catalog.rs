@@ -263,8 +263,12 @@ pub fn extract(
             Error::Msg(format!("archive escapes the game folder: {}", entry.name()))
         })?;
         let name_str = enclosed.to_string_lossy();
-        // README.txt beside the archive root is for the person, not the game.
-        if !name_str.contains('/') && !name_str.contains('\\') {
+        // A README at the top of the archive is for the person, not the game. It is the
+        // note that is skipped, though, not everything at that level: BepInEx puts
+        // libdoorstop.dylib beside its README, and dropping that leaves a loader the game
+        // never loads - installed, reported installed, and inert.
+        let top_level = !name_str.contains('/') && !name_str.contains('\\');
+        if top_level && is_note(&name_str) {
             continue;
         }
 
@@ -294,6 +298,12 @@ pub fn extract(
         written.push(target);
     }
     Ok(written)
+}
+
+/// A file at the top of an archive that is meant to be read, not installed.
+fn is_note(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    lower.ends_with(".txt") || lower.ends_with(".md")
 }
 
 #[cfg(test)]
@@ -341,6 +351,8 @@ mod tests {
             w.write_all(b"new").unwrap();
             w.start_file("README.txt", o).unwrap();
             w.write_all(b"top").unwrap();
+            w.start_file("libdoorstop.dylib", o).unwrap();
+            w.write_all(b"loader").unwrap();
             w.finish().unwrap();
         }
         let root = dir.join("root");
@@ -360,7 +372,9 @@ mod tests {
         );
         assert!(root.join("vdgs/x/meta.json").exists());
         assert!(!root.join("README.txt").exists());
-        assert_eq!(written.len(), 1);
+        // A note at the top is skipped; a loader at the top is not.
+        assert_eq!(std::fs::read(root.join("libdoorstop.dylib")).unwrap(), b"loader");
+        assert_eq!(written.len(), 2);
         // escaping entry
         let bad = dir.join("bad.zip");
         {
