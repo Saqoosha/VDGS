@@ -37,6 +37,7 @@ const base: SetupState = {
   tracks: [],
   unbound: [],
   catalog: null,
+  trueLens: false,
 }
 
 describe('the companion window', () => {

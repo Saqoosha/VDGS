@@ -2,6 +2,7 @@ import { Section } from '../chrome'
 import { Button } from '@/components/ui/button'
 import { formatBytes } from '../format'
 import { send } from '../bridge'
+import { how, initialLang } from '../i18n'
 import type { SetupState, TrackEntry } from '../types'
 
 /**
@@ -24,6 +25,7 @@ export default function Setup({
   const game = state?.game ?? null
   const tracks = state?.tracks ?? []
   const unbound = state?.unbound ?? []
+  const t = how[initialLang()]
 
   return (
     <>
@@ -125,14 +127,28 @@ export default function Setup({
         </div>
       </Section>
 
-      <Button
-        size="lg"
-        disabled={!game || busy}
-        onClick={() => send('fly')}
-        className="mt-6 h-14 w-full shrink-0 font-mono text-base tracking-[0.3em] uppercase"
-      >
-        Fly
-      </Button>
+      {/* Above Fly, not on the website: with True Lens on every capture is drawn and none
+          of it reaches the screen, every log says success, and the sky is empty — a note
+          elsewhere is useless because the finger is already here. null/false must not warn. */}
+      <div className="mt-6 shrink-0">
+        {state?.trueLens === true ? (
+          <p className="mb-3 font-mono text-[11px] leading-relaxed text-destructive">
+            {t.setupTrueLensA}
+            <b lang="en" className="text-foreground">
+              True Lens
+            </b>
+            {t.setupTrueLensB}
+          </p>
+        ) : null}
+        <Button
+          size="lg"
+          disabled={!game || busy}
+          onClick={() => send('fly')}
+          className="h-14 w-full font-mono text-base tracking-[0.3em] uppercase"
+        >
+          Fly
+        </Button>
+      </div>
     </>
   )
 }

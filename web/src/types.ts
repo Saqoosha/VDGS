@@ -71,6 +71,11 @@ export type SetupState = {
   catalog: CatalogState | null
   /** Installed captures no track points at - otherwise they are invisible here. */
   unbound: Capture[]
+  /**
+   * VelociDrone's True Lens setting. null = unknown; only true must warn — with it on
+   * captures are drawn and never reach the screen, and every log still says success.
+   */
+  trueLens: boolean | null
 }
 
 /** One capture on offer from the published catalog. */

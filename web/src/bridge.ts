@@ -172,6 +172,8 @@ const devState: SetupState = {
       },
     ],
   },
+  // Off in the stand-in so the warning does not cover the Fly button while laying out.
+  trueLens: false,
 }
 
 function devPush(m: Push) {

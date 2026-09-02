@@ -58,9 +58,14 @@ describe('the dictionary', () => {
     for (const lang of ['en', 'ja'] as Lang[])
       for (const [key, value] of Object.entries(how[lang]))
         // The lead-ins around a button name are deliberately empty in Japanese, where the
-        // particle follows the name instead of preceding it. English has no such case -
-        // exempting it there would let "Press Install mod" ship as "Install mod".
-        if (!(lang === 'ja' && /^step[2-4]a$/.test(key)))
+        // particle follows the name instead of preceding it. English has no such case for
+        // the website steps - but the companion True Lens warning starts with the name, so
+        // its English lead-in is empty the same way. Exempting other English keys would
+        // let "Press Install mod" ship as "Install mod".
+        if (
+          !(lang === 'ja' && /^step[2-4]a$/.test(key)) &&
+          !(lang === 'en' && key === 'setupTrueLensA')
+        )
           expect(value, `${lang}.${key}`).not.toBe('')
   })
 })

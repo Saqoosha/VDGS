@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import Setup from './Setup'
+import { rememberLang } from '../i18n'
 import type { SetupState, TrackEntry } from '../types'
 
 const xss = '<img src=x onerror=alert(1)>'
@@ -34,6 +35,7 @@ function state(over: Partial<SetupState> = {}): SetupState {
     launchArgs: '-force-d3d12',
     tracks: [],
     unbound: [],
+    trueLens: false,
     ...over,
   }
 }
@@ -144,5 +146,17 @@ describe('Setup', () => {
     rerender(<Setup state={state()} log={['12:00:00  installed']} />)
     // getByText normalises whitespace, and the host pads the timestamp with two spaces.
     expect(screen.getByText(/12:00:00\s+installed/)).toBeInTheDocument()
+  })
+
+  it('warns about True Lens only when the game has it on', () => {
+    // null = unknown and false = off must not warn; only true sits above Fly.
+    rememberLang('en')
+    const { rerender } = render(<Setup state={state({ trueLens: null })} log={[]} />)
+    expect(screen.queryByText(/True Lens/)).toBeNull()
+    rerender(<Setup state={state({ trueLens: false })} log={[]} />)
+    expect(screen.queryByText(/True Lens/)).toBeNull()
+    rerender(<Setup state={state({ trueLens: true })} log={[]} />)
+    expect(screen.getByText('True Lens').closest('[lang]')?.getAttribute('lang')).toBe('en')
+    expect(screen.getByText(/is on in VelociDrone/i)).toBeInTheDocument()
   })
 })

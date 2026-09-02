@@ -94,6 +94,29 @@ pub fn list(db: &Path) -> rusqlite::Result<Vec<Track>> {
     Ok(found)
 }
 
+/// Whether VelociDrone's True Lens setting is on.
+///
+/// None means we do not know (db missing, unreadable, or no such row) — that must NOT be
+/// shown as a warning. With it on the mod draws every capture and none of it reaches the
+/// screen; every log says success and the sky is empty, so a note on the website is
+/// useless. Related rows (true_lens_size, true_lens_quality) exist; match the exact name
+/// only.
+pub fn true_lens_on(db: &Path) -> Option<bool> {
+    let c = open_ro(db).ok()?;
+    let value: String = c
+        .query_row(
+            "select value from sim_states where name = ?1",
+            ["true_lens"],
+            |r| r.get(0),
+        )
+        .ok()?;
+    match value.as_str() {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => None,
+    }
+}
+
 /// Exact stored name first, then display_name(row.name). Input is never decoded.
 pub fn find(db: &Path, name: &str) -> rusqlite::Result<Option<Track>> {
     let all = list(db)?;
@@ -297,11 +320,47 @@ mod tests {
         assert_eq!(remove(&db, "VDGS+X").unwrap().0, true);
         assert!(find(&db, "VDGS+X").unwrap().is_none());
     }
+
+    #[test]
+    fn true_lens_on_reads_exact_row() {
+        // Plain text in sim_states; related rows (true_lens_size, …) must not count.
+        let db = fresh_sim_db();
+        assert_eq!(true_lens_on(&db), None);
+        let c = rusqlite::Connection::open(&db).unwrap();
+        c.execute(
+            "insert into sim_states (name, value) values ('true_lens_size', 'true')",
+            [],
+        )
+        .unwrap();
+        assert_eq!(true_lens_on(&db), None);
+        c.execute(
+            "insert into sim_states (name, value) values ('true_lens', 'true')",
+            [],
+        )
+        .unwrap();
+        assert_eq!(true_lens_on(&db), Some(true));
+        c.execute(
+            "update sim_states set value = 'false' where name = 'true_lens'",
+            [],
+        )
+        .unwrap();
+        assert_eq!(true_lens_on(&db), Some(false));
+    }
+
     fn fresh_db() -> PathBuf {
         let p = std::env::temp_dir().join(format!("vdgs-tracks-{}.db", std::process::id()));
         let _ = std::fs::remove_file(&p);
         let c = rusqlite::Connection::open(&p).unwrap();
         c.execute_batch("CREATE TABLE [tracks] ([id] INTEGER NOT NULL PRIMARY KEY, [scene_id] INTEGER NOT NULL, [name] VARCHAR, [value] VARCHAR, [protected_track] TINYINT(1) NOT NULL DEFAULT 0, online_id int default 0, rating int default 0, favourite int default 0, date varchar default '2019-07-01 00:00:00', type int default 0);").unwrap();
+        p
+    }
+
+    fn fresh_sim_db() -> PathBuf {
+        let p = std::env::temp_dir().join(format!("vdgs-sim-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&p);
+        let c = rusqlite::Connection::open(&p).unwrap();
+        c.execute_batch("CREATE TABLE [sim_states] ([name] VARCHAR, [value] VARCHAR);")
+            .unwrap();
         p
     }
 }

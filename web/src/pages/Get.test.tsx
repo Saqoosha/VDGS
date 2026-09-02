@@ -35,6 +35,7 @@ function state(over: Partial<SetupState> = {}): SetupState {
     tracks: [],
     unbound: [],
     catalog: { url: 'https://vdgs.saqoo.sh/catalog.json', error: null, entries: [] },
+    trueLens: false,
     ...over,
   }
 }

@@ -56,6 +56,12 @@ export const how = {
     trueLensB: ' off in the game. with it on the scans are drawn and never reach the ' +
       'screen - the game renders through five extra cameras, and nothing says why the ' +
       'sky is empty.',
+    // Companion Setup, above Fly: a website note is useless because the finger is already
+    // on the button that starts a session that will look empty.
+    setupTrueLensA: '',
+    setupTrueLensB:
+      ' is on in VelociDrone. captures are drawn but never reach the screen - turn it ' +
+      "off in the game's settings.",
     loaderA: 'the loader is BepInEx 5.4.23.5 - ',
     loaderMid: ' on windows, ',
     loaderB: ' on macos, patched so its preloader survives on apple silicon. either way ' +
@@ -86,6 +92,9 @@ export const how = {
     trueLensA: 'ゲーム側の ',
     trueLensB: ' は切る。on のままだとスキャンは描画されているのに画面に出ない。' +
       'カメラが 5 つ増えて合成の経路が変わるためで、理由は何も表示されない。',
+    setupTrueLensA: 'VelociDrone で ',
+    setupTrueLensB:
+      ' が on になっている。キャプチャは描画されているのに画面に届かない。ゲームの設定で切る。',
     loaderA: 'ローダーは BepInEx 5.4.23.5。Windows は ',
     loaderMid: '、macOS は ',
     loaderB: '（preloader を Apple Silicon で動くように直したもの）。どちらも本家のリリースから取得し、固定した digest と照合する。',

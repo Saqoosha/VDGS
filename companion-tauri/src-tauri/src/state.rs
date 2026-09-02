@@ -75,6 +75,11 @@ pub struct SetupState {
     pub tracks: Vec<TrackEntry>,
     pub catalog: Option<CatalogOut>,
     pub unbound: Vec<Unbound>,
+    /// VelociDrone's True Lens setting. None = unknown (no game, or the row is absent);
+    /// only Some(true) must be shown as a warning — with it on the mod draws and nothing
+    /// reaches the screen, and every log still says success.
+    #[serde(rename = "trueLens")]
+    pub true_lens: Option<bool>,
 }
 
 pub struct Inputs<'a> {
@@ -121,6 +126,14 @@ pub fn build(i: Inputs) -> SetupState {
         build_tracks(&scenes, in_game.as_ref(), &bound, &mut tracks, &mut unbound);
     }
 
+    // Same db tracks_in_game() reads; a second pass over one small table is fine, and
+    // keeps this independent of whether the tracks query succeeded.
+    let true_lens = if i.game.is_some() {
+        tracks::true_lens_on(&tracks::db_path())
+    } else {
+        None
+    };
+
     let catalog = catalog_state(
         i.catalog,
         i.catalog_error,
@@ -145,6 +158,7 @@ pub fn build(i: Inputs) -> SetupState {
         tracks,
         catalog,
         unbound,
+        true_lens,
     }
 }
 
