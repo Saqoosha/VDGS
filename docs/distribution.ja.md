@@ -111,6 +111,16 @@ sha256 を固定して。**「先に BepInEx を入れて」は全インスト�
 
 **欠けたフィールドを「トラック無し」と誤読して、公開物の半分だけ入れるのが最悪**なので。
 
+**カタログの `app` は OS ごとに 1 つ持つ** — `{"windows": {...}, "macos": {...}}`。あるものだけ
+入り、無い OS はボタンが出ないだけで壊れない。**Windows の companion はこの欄を読まない**
+（`scenes` しか見ない）ので、形を変えても既存のアプリは壊れなかった。読むのはサイトだけで、
+サイトはカタログと一緒に deploy される。
+
+`make-catalog.sh` は `build/release` から拾う：Windows は `vdgs-companion-*.zip`、macOS は
+`VDGS-Companion-*-macos.dmg`。どちらも**名前順ではなく mtime で最新**を選ぶ（`2026.09.01.1`
+は名前順だと `2026.09.01` より古く見える）。`publish.sh` はカタログが名指しした**全部**を
+上げる — 1 つでも漏らすと 404 するボタンを公開することになる。
+
 **mod の版はリリースの日付で、`make-release.sh` だけが刻む**（`-p:Version=$VERSION`）。
 `src/VDGS/VDGS.csproj` の `<Version>0.1.0</Version>` は置き場所で、そのまま出るのは
 **dev ビルド**。companion の mod ボタンは導入済みの版と同梱の版を比べるので、

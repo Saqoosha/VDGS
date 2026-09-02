@@ -5,9 +5,10 @@ VelociDrone に 3D Gaussian Splatting シーンを読み込む mod。BepInEx プ
 
 ## 状態
 
-**実データで動作確認済み。** 3 シーン同時（計 117 万 splats）を RTX 3060 で描画してクラッシュ
-なし。ドローン機体との前後関係も半透明ブレンドも破綻しない。配布まで通っていて、まっさらな
-Windows から 4 クリックで飛べる（「配布は companion アプリ」）。
+**実データで動作確認済み。Windows と macOS の両方。** 3 シーン同時（計 117 万 splats）を
+RTX 3060 で描画してクラッシュなし。ドローン機体との前後関係も半透明ブレンドも破綻しない。
+配布まで通っていて、まっさらな機械から 4 クリックで飛べる（「配布は companion アプリ」）。
+公開先は https://vdgs.saqoo.sh で、**両 OS の companion が並んでいる**。
 
 ```
 shader 'Gaussian Splatting/Render Splats'  supported=True
@@ -78,11 +79,40 @@ UAC に止められ、更新が失敗したりログインで固まる。**Steam
 候補にしていた — **4 つのうち 3 つは存在しえず、1 つは公式が避けろと言う場所**。何も壊れず、
 ただ一度も当たらず、走査が黙って全部を拾っていた。2026-09-01 に一次情報を当てて直した。
 
-### Mac（解析用）
+### Mac（mod も動く。解析だけの機械ではない）
 
-PatchKit 経由の macOS 版（1.17、arm64 thin、adhoc 署名、同じ Unity 2021.3.45f2）でも
-`settings.db` / AssetBundle の構造は Windows と同じなので解析には使える。BepInEx の
-macOS universal ビルドは arm64 では**未検証**。
+PatchKit 経由の macOS 版（1.17、arm64 thin、adhoc 署名、同じ Unity 2021.3.45f2）で
+**mod が動く。** 2.5M splats が M1 Max で 60fps 張り付き、4.5M で 57〜60fps。
+**Windows と同等**。しかも `-force-d3d12` の副作用（ログ埋まり、メニュー放置クラッシュ）が
+丸ごと無い。
+Metal はゲームの正規経路だから。
+
+| 項目 | 値 |
+|---|---|
+| ゲーム | `~/Library/Application Support/PatchKit/Apps/<hash>/Data/velocidrone.app` |
+| GameRootPath | **`.app` の親**（`Data/`）。`vdgs/`・`bindings.json`・ログは全部そこ |
+| ユーザー DB | `~/Library/Application Support/com.velocidrone.velocidrone/user11.db`（scene 16 = `BlankCanvas`） |
+| 描画 API | Metal。フラグ不要 |
+
+**注入が通る理由は署名にある。** adhoc 署名でハードンドランタイム無し（`codesign -d -vvv`
+の flags が `0x2(adhoc)` だけ、entitlements も空）なので `DYLD_INSERT_LIBRARIES` が素通り
+する。再署名は要らない。
+
+**BepInEx 公式 5.4.23.5 は Apple Silicon で死ぬ。** arm64 Mono では MonoMod の
+`DetourHelper.GetIdentifiable()` が null を返し、preloader が chainloader に届く前に落ちる
+— **プラグインは 1 つも読まれず、`preloader_<日時>.log` が 1 枚残るだけ**（BepInEx#1303）。
+公式 PR #1288 が 3 箇所のうち 2 つを `Utility.TryDo` で包んだが、`HarmonyInteropFix.Apply()`
+が残っていた。パッチ済みの universal ビルドを fork のリリースに置いてある：
+
+```
+https://github.com/Saqoosha/BepInEx/releases/tag/v5.4.23.5-vdgs.1
+sha256 950d55271c176c732fc896bcdae2750978ef92b940c951aa7fad0eb4251f1d61  (660,321 bytes)
+```
+
+**公式版が既に入っている機械では「BepInEx があるか」を見てはいけない。** ファイル構成が
+同じなので見分けが付かず、arm64 で死ぬ loader に mod を載せて READY と表示してしまう。
+導入時に `BepInEx/vdgs-bepinex-version.txt` を書き、それと**ファイルの実在の両方**を見る
+（`bepinex::is_ours`）。印だけ見ると、印が残ってファイルが消えた機械を UI から直せなくなる。
 
 ## MOD の仕組み
 
@@ -129,7 +159,7 @@ python3 tools/make_test_ply.py build/testdata/testcube.ply   # 合成テスト�
 bash tools/deploy.sh
 bash tools/deploy.sh --plugin    # DLL だけ（splat 2.2GB を送り直さない）
 
-# 3. シェーダーバンドルを焼く（Windows 上で実行。macOS では不可能）
+# 3. シェーダーバンドルを焼く（D3D12 版。Windows 上で実行）
 bash tools/bake-shaders.sh
 
 # 4. ゲームを起動（セッション1、D3D12 強制）
@@ -512,12 +542,53 @@ F5・F6・F7・F8 は**使っていない**。操作は Web UI から。
 
 設計の理由は [docs/ARCHITECTURE.ja.md](docs/ARCHITECTURE.ja.md) の「トラックと GS の対応」「操作面」、操作手順は [docs/USAGE.ja.md](docs/USAGE.ja.md)。
 
-## 配布は companion アプリ（`companion/`）
+## 配布は companion アプリ（2 本ある）
 
 **mod を配る道具で、人がやることは 4 クリックだけ。** BepInEx の取得、mod の導入・削除、
-キャプチャのダウンロードと導入、トラックの DB 登録と紐付け、`-force-d3d12` 付きの起動 —
-全部これで済む。.NET Framework 4.8 + WinForms、中身は `web/` の React を WebView2 で
-描いている。
+キャプチャのダウンロードと導入、トラックの DB 登録と紐付け、ゲームの起動 — 全部これで済む。
+**両方とも `web/` の同じ React を描く**（`bridge.ts` が host を 3 択にしている）。
+
+| | 実装 | 起動のしかた |
+|---|---|---|
+| `companion/` | .NET Framework 4.8 + WinForms + WebView2 | `velocidrone.exe -force-d3d12` |
+| `companion-tauri/` | Tauri 2 + Rust（macOS 先行） | `DYLD_INSERT_LIBRARIES` + `DOORSTOP_*` を付けて `arch -arm64` で exec |
+
+**Windows 版もいずれ Tauri に移す**（そのとき `companion/` を消す）。それまでは C# と Rust が
+同じ仕事を 2 回書いている状態で、**Rust は C# を 1 対 1 で写している** — 挙動を変えるときは
+`companion/*.cs` が正解の側。設計は docs/superpowers/specs/2026-09-02-companion-tauri-design.md。
+
+**macOS 版で踏んだ罠 3 つ。全部エラーが 1 行も出ない：**
+
+- **Tauri の `listen()` は非同期。** ページは `subscribe()` の直後に同期で `refresh` を送る
+  ので、最初の state がリスナー登録前に emit されて**永久に届かない** — 窓は空のまま、
+  理由は出ない。WebView2 は同期登録なので Windows では起きなかった。`bridge.ts` に
+  「listen が解決するまでコマンドを保留する」ゲートがある
+- **zip の直下エントリを一律で飛ばすと注入本体が消える。** C# の `InstallArchive` は
+  「スラッシュを含まない＝README」として捨てるが、**BepInEx は `libdoorstop.dylib` を直下に
+  置く**。ログは `installed BepInEx` と出て、`has_bepinex` だけが false のまま。直下でも
+  `.txt`/`.md` だけを飛ばす
+- **`reqwest` の `timeout` はボディ読み込みも含む。** 30 秒を付けると 376 MB のキャプチャは
+  必ず失敗する。`timeout(None)` + `connect_timeout`。**代わりに無反応タイムアウトが無い**
+  ので、本文が止まると復旧は app 再起動だけ（issue #23）
+
+**ダイアログを開くコマンドは `#[tauri::command(async)]` にする。** 素の
+`#[tauri::command]` はメインスレッドで走り、dialog plugin はそこにダイアログを投げてから
+答えを待つので、**自分が描画を止めている窓を待って固まる**。フォルダ選択が Escape も
+Cancel も受け付けなくなる。実機で再現・修正済み。
+
+### macOS の署名と公証
+
+**Developer ID は個人（Tomohiko Koyama / VCFY2GFR89）。** 公証は Canopy と同じ keychain
+profile `notarytool-profile` をそのまま使う（同じチームなので作り直し不要）。
+
+**app を先に公証して staple し、そのあと DMG を作る**（Canopy の順番）。DMG だけ staple
+すると、Applications にドラッグした app が**オフラインで検証できない**。
+
+**notarytool は DMG を内部でマウントする。** 前のマウントが残っていると
+`xar_open_digest_verify` で固まり、**Apple には何も届かない**まま何分でも待つ。復旧の順番は
+決まっている：`notarytool history` で未達を確認 → notarytool を kill → `lsof <dmg>` が挙げる
+**孤児の `diskimages-helper`（PPID 1）を kill** → `hdiutil detach`。`tools/make-mac-app.sh`
+は /tmp で作業し、EXIT で自分のマウントを外す。全文は Canopy の AGENTS.md。
 
 **中身と、リリースを組んで上げる通しは [docs/distribution.ja.md](docs/distribution.ja.md)。**
 配るときにしか要らないので本文から出した。そこに置いてあるもの — companion の各ファイルの
@@ -552,17 +623,22 @@ PostProcessing カメラ（D3D12）で**バインドごと無言で失敗する*
 持ち上げを食う。色のみバインドし、前後関係は splat シェーダーで `_CameraDepthTexture` を
 サンプルして解く（`m_DepthClip`）。**エラーは 1 行も出ない。**
 
-**`-force-d3d12` 必須。** ソートの compute が SM6 の wave intrinsics を 41 箇所使う。
-`-force-vulkan` は**ゲーム自身**が描けない（VelociDrone が Vulkan 向けにビルドされていない）。
-companion の `FLY` は常にこのフラグを付ける。
+**Windows では `-force-d3d12` 必須。** ソートの compute が SM6 の wave intrinsics を 41 箇所
+使う。`-force-vulkan` は**ゲーム自身**が描けない（VelociDrone が Vulkan 向けにビルドされて
+いない）。companion の `FLY` は常にこのフラグを付ける。**macOS は Metal が正規経路なので
+フラグは要らず、以下の副作用も一切出ない。**
 
-**シェーダーは Windows の Unity 2021.3.45f2 でしか焼けない。** 罠が 2 つ：
+**シェーダーは焼く OS がターゲットを決める。** D3D12 版は Windows の Unity 2021.3.45f2 で
+しか焼けず、Metal 版は Mac で焼ける（`BuildBundles.BuildMac`）。罠が 2 つ：
 
-- **プロジェクトのグラフィックス API を先に D3D12 にする**（`PlayerSettings.SetGraphicsAPIs`
+- **プロジェクトのグラフィックス API を先に合わせる**（`PlayerSettings.SetGraphicsAPIs`
   をビルド前に呼ぶ）。既定のまま焼くと無言で unsupported になる — 症状とサイズの基準は
   「開発フロー」
 - **macOS の Editor は D3D 向けに DXC を回せない** —
   `DXC: can only use DXC to target D3D from the Windows Editor.`
+  **Metal 版を焼くときもこの行はログに出るが無視してよい** — Metal のプログラムはその前に
+  焼き終わっている（`metal (total internal programs: 2, unique: 2)` が先に出る）。
+  Metal バンドルは約 437 KB、D3D12 版は約 1.5 MB。**サイズの基準が OS で違う**
 
 **`-force-d3d12` の副作用はログだけではない。** 既知のものが 2 つある。軽いほうから。
 
@@ -653,6 +729,12 @@ docs/superpowers/specs/2026-08-18-splat-collision-design.md。
 - **空マスクは実施済みで、道具は `tools/sky_person_mask.py`。** 空・雲・人を SegFormer で
   切って AirVis の自動マスク（自撮り棒とマウント）と論理積する。閾値と根拠は
   docs/airvis.ja.md。**まだ効果を出しきれていないのは 360 単独の走行だけ**（下）
+- **Windows の companion を Tauri に移す。** いまは C# と Rust が同じ仕事を 2 回書いている。
+  移したら `companion/` を消す
+- **macOS 側の未着手 4 件は issue にしてある** — #23（本文が止まったダウンロードから復旧
+  できない）、#24（`.track.json` の検証が C# より緩い）、#25（DMG の配布経路は通したが
+  カタログのスキーマ判断が残る）、#26（小物 4 つ）
+- **Mac でトラックに入って飛んだ数字はまだ無い。** 測ったのはメニューと `menuspawn` だけ
 - **FDF の芝の平坦化は不要だった可能性が高い。** 平坦化前でも地面は破綻せず、むしろ芝目が
   残る（「over flattened で眠い」の原因）。一方**ゴミ除去は本当に必要**で、生データは空が
   白く埋まる
@@ -660,12 +742,9 @@ docs/superpowers/specs/2026-08-18-splat-collision-design.md。
   「針だらけ」という誤診を招く（実際に一度出した）。log 空間で
   `t = (log(mid)-log(min))/(log(max)-log(min))` を取ると `t≈0` が針、`t≈1` が板。
   **3DGS の壁と床は板で、正常**。上から見るとエッジオンで線に見えるだけ
-- **キャプチャごとのコリジョン焼き。** 手順は docs/SCENES.ja.md。voxel はシーンで決める
-  （細かいほど穴、粗いほど柱が太い）。textilni は 0.06 で穴あり許容、0.14 は柱が太く不採用
-- **nelson は voxel 0.06、`--filter-cluster` は使わない。** 原点が空なのでクラスタが
-  孤立ブロック 1 個（1 splat）だけ残す。floater だけ落として 8.73M → 45 万三角形。
-  `nelson-full.collision.bin`（lod2 も同一座標なので同じファイルをコピー済み）。
-  `--reverse` は未確認。Web UI の show solid で中から壁が見えるか見てから決める
+- **コリジョンの voxel はシーンごとに決める**（細かいほど穴、粗いほど柱が太い）。手順と
+  各シーンの採用値は docs/SCENES.ja.md。nelson は 0.06 で `--filter-cluster` を使わない
+  （原点が空でクラスタが 1 splat だけ残る）
 - **JDL-2026-R5 は地面近くの霞がまだ少し残る。** 実機で飛んで確認済み。掃除の側はやり切って
   いて、**残りは撮影密度の問題に見える** —— FDF と比べて写真が 4.6 分の 1（0.015 対
   0.070 枚/m²）、地面の被覆が 4 分の 1（p50 0.40 対 1.68）。**学習を厚くしても埋まらない**
