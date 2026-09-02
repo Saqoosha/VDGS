@@ -2,7 +2,10 @@
 # Collects everything needed to tell apart the ways "the mod is installed but nothing
 # appears" can happen on macOS, and prints it as one block to paste back.
 #
-#   bash <(curl -sSL https://raw.githubusercontent.com/Saqoosha/VDGS/master/tools/collect-mac-diagnostics.sh)
+#   curl -sSL https://raw.githubusercontent.com/Saqoosha/VDGS/master/tools/collect-mac-diagnostics.sh | bash
+#
+# Piped rather than `bash <(...)`: process substitution is a bashism, and fish - which is
+# what a terminal here is as likely to be running as not - rejects it outright.
 #
 # Reads only. Writes nothing, changes nothing, and prints no path outside the game folder
 # except the two version strings at the top.
