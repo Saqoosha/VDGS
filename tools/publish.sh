@@ -77,8 +77,10 @@ for s in c["scenes"]:
     rows.append((key(s["scene"]["url"]), s["scene"]["bytes"], s["scene"]["sha256"]))
     if s.get("track"):
         rows.append((key(s["track"]["url"]), s["track"]["bytes"], s["track"]["sha256"]))
-if c.get("app"):
-    a = c["app"]; rows.append((key(a["url"]), a["bytes"], a["sha256"]))
+# One build per platform, so every one of them has to be uploaded - a catalog naming a
+# download the bucket does not hold is a button that 404s.
+for build in (c.get("app") or {}).values():
+    rows.append((key(build["url"]), build["bytes"], build["sha256"]))
 for k, b, h in rows:
     print("%s\t%d\t%s" % (k, b, h))
 PY
