@@ -157,6 +157,9 @@ describe('Setup', () => {
     expect(screen.queryByText(/True Lens/)).toBeNull()
     rerender(<Setup state={state({ trueLens: true })} log={[]} />)
     expect(screen.getByText('True Lens').closest('[lang]')?.getAttribute('lang')).toBe('en')
-    expect(screen.getByText(/is on in VelociDrone/i)).toBeInTheDocument()
+    // The symptom leads: it is what makes someone read the rest, so it is asserted
+    // rather than left to whatever wording the sentence happens to carry.
+    expect(screen.getByText(/scans will not appear/i)).toBeInTheDocument()
+    expect(screen.getByText(/never reach the screen/i)).toBeInTheDocument()
   })
 })

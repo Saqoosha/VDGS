@@ -58,10 +58,13 @@ export const how = {
       'sky is empty.',
     // Companion Setup, above Fly: a website note is useless because the finger is already
     // on the button that starts a session that will look empty.
-    setupTrueLensA: '',
+    // The symptom first: it is what the reader is about to see, and it is what makes
+    // them believe the rest. The setting's name is what they go and change.
+    setupTrueLensHead: 'your scans will not appear',
+    setupTrueLensA: 'Turn ',
     setupTrueLensB:
-      ' is on in VelociDrone. captures are drawn but never reach the screen - turn it ' +
-      "off in the game's settings.",
+      " off in VelociDrone's settings. With it on the scans are drawn every frame and " +
+      'never reach the screen, and nothing in the game says why.',
     loaderA: 'the loader is BepInEx 5.4.23.5 - ',
     loaderMid: ' on windows, ',
     loaderB: ' on macos, patched so its preloader survives on apple silicon. either way ' +
@@ -92,9 +95,11 @@ export const how = {
     trueLensA: 'ゲーム側の ',
     trueLensB: ' は切る。on のままだとスキャンは描画されているのに画面に出ない。' +
       'カメラが 5 つ増えて合成の経路が変わるためで、理由は何も表示されない。',
-    setupTrueLensA: 'VelociDrone で ',
+    setupTrueLensHead: 'スキャンは表示されない',
+    setupTrueLensA: 'VelociDrone の設定で ',
     setupTrueLensB:
-      ' が on になっている。キャプチャは描画されているのに画面に届かない。ゲームの設定で切る。',
+      ' を切ること。on のままだとスキャンは毎フレーム描画されているのに画面に届かず、' +
+      'ゲームは理由を何も表示しない。',
     loaderA: 'ローダーは BepInEx 5.4.23.5。Windows は ',
     loaderMid: '、macOS は ',
     loaderB: '（preloader を Apple Silicon で動くように直したもの）。どちらも本家のリリースから取得し、固定した digest と照合する。',

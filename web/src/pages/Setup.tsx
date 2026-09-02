@@ -132,13 +132,22 @@ export default function Setup({
           elsewhere is useless because the finger is already here. null/false must not warn. */}
       <div className="mt-6 shrink-0">
         {state?.trueLens === true ? (
-          <p className="mb-3 font-mono text-[11px] leading-relaxed text-destructive">
-            {t.setupTrueLensA}
-            <b lang="en" className="text-foreground">
-              True Lens
-            </b>
-            {t.setupTrueLensB}
-          </p>
+          // Loud on purpose. At the size of the other notes it sat in a column of small
+          // grey monospace and read as one more caption, which is the same as not being
+          // there. The symptom leads, because that is what the reader is about to
+          // experience; the setting's name follows as the thing to go and change.
+          <div className="mb-4 border-l-2 border-destructive bg-destructive/10 px-4 py-3">
+            <p className="font-mono text-[11px] tracking-[0.18em] text-destructive uppercase">
+              {t.setupTrueLensHead}
+            </p>
+            <p className="mt-1.5 text-[14px] leading-relaxed text-foreground">
+              {t.setupTrueLensA}
+              <b lang="en" className="text-destructive">
+                True Lens
+              </b>
+              {t.setupTrueLensB}
+            </p>
+          </div>
         ) : null}
         <Button
           size="lg"
