@@ -206,6 +206,11 @@ export default function Browse({ lang }: { lang: Lang }) {
         </div>
 
         <p className={'mt-5 ' + note}>
+          {t.trueLensA}
+          <Name>True Lens</Name>
+          {t.trueLensB}
+        </p>
+        <p className={'mt-2 ' + note}>
           {t.d3d12}
         </p>
         {/* The app fetches this itself; the link is for anyone who would rather see what

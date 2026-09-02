@@ -85,9 +85,12 @@ describe('Browse', () => {
       'Change',
       '02 get',
       'Fly',
+      // A game setting, not one of the app's buttons - but it is named in the game's own
+      // English whatever language the page is in, so it is marked the same way.
+      'True Lens',
     ])
       expect(screen.getByText(name).closest('[lang]')?.getAttribute('lang'), name).toBe('en')
-    expect(container.querySelectorAll('b[lang="en"]')).toHaveLength(9)
+    expect(container.querySelectorAll('b[lang="en"]')).toHaveLength(10)
   })
 
   // Latin micro-caps tracking spaces kanji apart; this is the page's biggest button.

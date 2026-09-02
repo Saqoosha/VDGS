@@ -50,6 +50,12 @@ export const how = {
       'on windows the game must be started with -force-d3d12, which the companion always ' +
       'does; without it the scans do not draw at all, and nothing says why. on macos it ' +
       'renders through metal and needs no flag.',
+    // Worth its own line rather than a footnote: with it on, everything reports success
+    // and the sky is empty, which reads as "the mod did not install".
+    trueLensA: 'turn ',
+    trueLensB: ' off in the game. with it on the scans are drawn and never reach the ' +
+      'screen - the game renders through five extra cameras, and nothing says why the ' +
+      'sky is empty.',
     loaderA: 'the loader is BepInEx 5.4.23.5 - ',
     loaderMid: ' on windows, ',
     loaderB: ' on macos, patched so its preloader survives on apple silicon. either way ' +
@@ -77,6 +83,9 @@ export const how = {
     d3d12:
       'Windows ではゲームを -force-d3d12 で起動する必要がある。companion は必ずそうする。' +
       '付けないとスキャンは一切描かれず、理由も表示されない。macOS は Metal で描くのでフラグは要らない。',
+    trueLensA: 'ゲーム側の ',
+    trueLensB: ' は切る。on のままだとスキャンは描画されているのに画面に出ない。' +
+      'カメラが 5 つ増えて合成の経路が変わるためで、理由は何も表示されない。',
     loaderA: 'ローダーは BepInEx 5.4.23.5。Windows は ',
     loaderMid: '、macOS は ',
     loaderB: '（preloader を Apple Silicon で動くように直したもの）。どちらも本家のリリースから取得し、固定した digest と照合する。',

@@ -616,6 +616,19 @@ PowerShell が待たない、payload に前回の資産が残る、など）、`
 実測（同一カメラ、web リファレンスと比較）：空の平均 6.20 → **0.04**（web 0.00）、
 木立 43.7 → 9.6（web 11.8）、芝は 133 のまま変化なし。
 
+**True Lens を on にすると、キャプチャは描かれるのに 1 ピクセルも見えない。** ゲーム側の設定で、
+OS は関係ない（Windows でも同じはず）。飛行シーンのカメラが 1 個から**6 個**になる —
+`CameraLocation/Camera` の子として `Front/Left/Right/Bottom/Top` が 90° 画角で生え、それを
+歪めた合成が画面に出る。`SplatRenderer` は Preview 以外の全カメラに付いて `CameraTarget` に
+合成するので、**1 フレームに 6 回ソートして描き、どれも表示には届かない。**
+
+**気づきにくいのは、症状が「mod が入っていない」と見分けが付かないから。** ログは全部成功と
+言い、`vdgs-perf.log` には splat 数が出続ける。**見分ける印は速度** — M3 Max が 252 万で
+30fps、M1 Max が同じキャプチャで 60fps。速い機械の方が遅ければこれを疑う。カメラ数は
+`vdgs-probe.log` の `cameraCount` にそのまま出る。
+
+**対処は「True Lens を切る」。** mod 側で支えられるかは未着手（[#27](https://github.com/Saqoosha/VDGS/issues/27)）。
+
 **RT の深度アタッチメントは付けない。** upstream の
 `SetRenderTarget(rt, BuiltinRenderTextureType.CurrentActive)` は、ゲームの HDR +
 PostProcessing カメラ（D3D12）で**バインドごと無言で失敗する** — splat がカメラターゲット
