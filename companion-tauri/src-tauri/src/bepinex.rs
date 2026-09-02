@@ -58,6 +58,15 @@ pub fn uninstall(root: &Path, log: &mut dyn FnMut(String)) -> std::io::Result<()
     Ok(())
 }
 
+/// Turns on the disk log, once, before the game has ever written a config of its own.
+///
+/// Shorter than the Windows companion's version on purpose. That one also sets
+/// `UnityLogListening = false`, because under `-force-d3d12` the game's own Auto Exposure
+/// throws every frame and the listener copies the exception into BepInEx's log until it
+/// reaches tens of megabytes. macOS renders through Metal and never passes that flag, so
+/// there is no spam to suppress - and leaving the listener on is what puts the game's own
+/// messages in the log, which is the first thing anyone reads when a capture does not
+/// appear. AGENTS.md describes the Windows behaviour; this is the deliberate difference.
 pub fn write_logging_config(root: &Path) -> std::io::Result<()> {
     let path = root.join("BepInEx/config/BepInEx.cfg");
     if path.exists() {

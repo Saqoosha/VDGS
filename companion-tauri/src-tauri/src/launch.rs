@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System};
+use sysinfo::{ProcessRefreshKind, ProcessStatus, ProcessesToUpdate, System};
 
 /// Doorstop + dyld env matching `run_bepinex.sh` defaults (absolute target assembly).
 pub fn doorstop_env(app: &Path) -> BTreeMap<String, String> {
@@ -62,18 +62,26 @@ pub fn spawn(app: &Path) -> std::io::Result<std::process::Child> {
         .spawn()
 }
 
+/// Whether a listed process counts as VelociDrone still running.
+/// Zombies are left behind when we spawn and never wait — they must not block installs.
+pub(crate) fn is_live_game_process(name: &std::ffi::OsStr, status: ProcessStatus) -> bool {
+    name == "velocidrone" && status != ProcessStatus::Zombie
+}
+
 pub fn is_running() -> bool {
     let mut sys = System::new();
     sys.refresh_processes_specifics(ProcessesToUpdate::All, true, ProcessRefreshKind::new());
     sys.processes()
         .values()
-        .any(|p| p.name() == "velocidrone")
+        .any(|p| is_live_game_process(p.name(), p.status()))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsStr;
     use std::path::PathBuf;
+    use sysinfo::ProcessStatus;
 
     #[test]
     fn env_for_doorstop() {
@@ -86,5 +94,14 @@ mod tests {
         );
         assert_eq!(e["DYLD_LIBRARY_PATH"], "/tmp/Data");
         assert_eq!(e["DYLD_INSERT_LIBRARIES"], "libdoorstop.dylib");
+    }
+
+    #[test]
+    fn zombie_velocidrone_is_not_running() {
+        let name = OsStr::new("velocidrone");
+        assert!(!is_live_game_process(name, ProcessStatus::Zombie));
+        assert!(is_live_game_process(name, ProcessStatus::Run));
+        assert!(is_live_game_process(name, ProcessStatus::Sleep));
+        assert!(!is_live_game_process(OsStr::new("other"), ProcessStatus::Run));
     }
 }

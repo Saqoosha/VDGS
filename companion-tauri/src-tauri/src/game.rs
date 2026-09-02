@@ -91,7 +91,8 @@ pub fn installed_mod_version(root: &Path) -> Option<String> {
     if !dll.is_file() {
         return None;
     }
-    Some(dll_file_version(&dll).unwrap_or_else(|| "unknown".into()))
+    // Truncated / unparseable DLL = absent, so state reports "the mod" as missing.
+    dll_file_version(&dll)
 }
 
 pub fn bundled_mod_dir(resource_dir: &Path) -> Option<PathBuf> {
@@ -248,26 +249,32 @@ fn directory_size(dir: &Path) -> u64 {
 
 pub type Bindings = BTreeMap<String, Vec<String>>;
 
+/// Display path: missing or unreadable bindings read as empty (companion ReadBindings).
 pub fn read_bindings(root: &Path) -> Bindings {
+    try_read_bindings(root).unwrap_or_default()
+}
+
+/// Bind/unbind path: absent file is Ok(empty); present-but-unparseable is Err so a
+/// corrupt bindings.json is never overwritten with an empty map (companion Bind).
+pub fn try_read_bindings(root: &Path) -> io::Result<Bindings> {
     let path = root.join("vdgs/bindings.json");
     match fs::read_to_string(&path) {
-        Ok(text) => parse_bindings(&text),
-        Err(_) => Bindings::new(),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(Bindings::new()),
+        Err(e) => Err(e),
+        Ok(text) => try_parse_bindings(&text),
     }
 }
 
-fn parse_bindings(text: &str) -> Bindings {
+fn try_parse_bindings(text: &str) -> io::Result<Bindings> {
     let mut map = Bindings::new();
     if text.trim().is_empty() {
-        return map;
+        return Ok(map);
     }
-    let v: serde_json::Value = match serde_json::from_str(text) {
-        Ok(v) => v,
-        Err(_) => return map,
-    };
+    let v: serde_json::Value = serde_json::from_str(text)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
     let obj = match v.as_object() {
         Some(o) => o,
-        None => return map,
+        None => return Ok(map),
     };
     for (k, val) in obj {
         let mut scenes = Vec::new();
@@ -280,7 +287,7 @@ fn parse_bindings(text: &str) -> Bindings {
         }
         map.insert(k.clone(), scenes);
     }
-    map
+    Ok(map)
 }
 
 pub fn write_bindings(root: &Path, b: &Bindings) -> io::Result<()> {
@@ -322,7 +329,7 @@ fn write_bindings_string(b: &Bindings) -> String {
 }
 
 pub fn bind(root: &Path, track: &str, scene: &str) -> io::Result<()> {
-    let mut map = read_bindings(root);
+    let mut map = try_read_bindings(root)?;
     map.insert(track.to_string(), vec![scene.to_string()]);
     write_bindings(root, &map)
 }
@@ -332,7 +339,7 @@ pub fn unbind(root: &Path, track: &str) -> io::Result<bool> {
     if !path.is_file() {
         return Ok(false);
     }
-    let mut map = read_bindings(root);
+    let mut map = try_read_bindings(root)?;
     if map.remove(track).is_none() {
         return Ok(false);
     }
@@ -346,6 +353,11 @@ pub fn install_archive(
     label: &str,
     log: &mut dyn FnMut(String),
 ) -> Result<(), catalog::Error> {
+    if crate::launch::is_running() {
+        return Err(catalog::Error::Msg(
+            "VelociDrone is running. Close it first - files in use cannot be replaced.".into(),
+        ));
+    }
     let carries_ui = zip_carries_ui(zip)?;
     let written = catalog::extract(zip, root, &["placement.json", "bindings.json"], log)?;
     if carries_ui {
@@ -373,6 +385,12 @@ pub fn install_bundled_mod(
     mod_dir: &Path,
     log: &mut dyn FnMut(String),
 ) -> io::Result<()> {
+    if crate::launch::is_running() {
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            "VelociDrone is running. Close it first - files in use cannot be replaced.",
+        ));
+    }
     let src = fs::canonicalize(mod_dir).unwrap_or_else(|_| mod_dir.to_path_buf());
     let mut copied = 0usize;
     let mut written: Vec<PathBuf> = Vec::new();
@@ -483,6 +501,12 @@ fn sweep_interface(root: &Path, written: &[PathBuf], log: &mut dyn FnMut(String)
 }
 
 pub fn uninstall_mod(root: &Path, log: &mut dyn FnMut(String)) -> io::Result<()> {
+    if crate::launch::is_running() {
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            "VelociDrone is running. Close it first - files in use cannot be removed.",
+        ));
+    }
     let mut removed = 0usize;
     for rel in ["BepInEx/plugins/VDGS.dll", "vdgs/vdgs-shaders"] {
         let path = root.join(rel);
@@ -547,6 +571,28 @@ mod tests {
         assert!(unbind(&root, "VDGS X").unwrap());
         assert!(!unbind(&root, "VDGS X").unwrap());
         assert_eq!(read_bindings(&root).len(), 1);
+    }
+
+    #[test]
+    fn bind_refuses_corrupt_bindings_and_leaves_file() {
+        let root = tmp();
+        let path = root.join("vdgs/bindings.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let corrupt = b"{\"Other\":[\"scene\"]\nnot-json";
+        std::fs::write(&path, corrupt).unwrap();
+        let before = std::fs::read(&path).unwrap();
+        assert!(bind(&root, "VDGS X", "x-dir").is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert_eq!(before, corrupt);
+    }
+
+    #[test]
+    fn installed_mod_version_none_for_non_pe_dll() {
+        let root = tmp();
+        let dll = root.join("BepInEx/plugins/VDGS.dll");
+        std::fs::create_dir_all(dll.parent().unwrap()).unwrap();
+        std::fs::write(&dll, b"not a PE file").unwrap();
+        assert!(installed_mod_version(&root).is_none());
     }
 
     #[test]

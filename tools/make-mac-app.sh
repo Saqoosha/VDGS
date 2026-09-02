@@ -37,8 +37,11 @@ DLL="$ROOT/src/VDGS/bin/Release/VDGS.dll"
 
 # ---------------------------------------------------------------- metal shaders
 say "baking the Metal shader bundle"
+# Baked every time. Reusing whatever is on disk is how a release ships the old shaders
+# with new C# - the mismatch AGENTS.md warns about - and the bake is a minute against a
+# build that already takes several. VDGS_SKIP_BAKE=1 is for iterating on the script itself.
 BUNDLE="$ROOT/build/bundles/OSX/vdgs-shaders"
-if [ ! -f "$BUNDLE" ]; then
+if [ -z "${VDGS_SKIP_BAKE:-}" ]; then
   mkdir -p "$(dirname "$BUNDLE")"
   /Applications/Unity/Hub/Editor/2021.3.45f2/Unity.app/Contents/MacOS/Unity \
     -batchmode -quit -nographics \
@@ -48,7 +51,14 @@ if [ ! -f "$BUNDLE" ]; then
     -logFile "$ROOT/build/bake-mac.log"
 fi
 [ -f "$BUNDLE" ] || { echo "no Metal shader bundle at $BUNDLE" >&2; exit 1; }
-echo "   bundle ok: $(wc -c < "$BUNDLE" | tr -d ' ') bytes"
+# A bundle this small means the shaders baked as unsupported: they declare wave intrinsics,
+# and a project whose graphics API is not set for the target compiles them away without
+# failing. It loads fine and every shader reports isSupported=false. The Metal bundle runs
+# about 437 KB; the Windows one about 1.5 MB.
+BUNDLE_BYTES=$(wc -c < "$BUNDLE" | tr -d ' ')
+[ "$BUNDLE_BYTES" -ge 200000 ] || {
+  echo "shader bundle is only $BUNDLE_BYTES bytes - it baked as unsupported" >&2; exit 1; }
+echo "   bundle ok: $BUNDLE_BYTES bytes"
 
 # ---------------------------------------------------------------- web UI
 say "building the control UI"
@@ -75,17 +85,39 @@ echo "   payload ok: $(find "$PAY" -type f | wc -l | tr -d ' ') files"
 
 # ---------------------------------------------------------------- app
 say "building the companion"
+# The version the app reports lives in tauri.conf.json, so it is written there rather than
+# only into the file name - otherwise every build calls itself 0.1.0 inside Get Info while
+# the DMG beside it claims something else.
+CONF="$ROOT/companion-tauri/src-tauri/tauri.conf.json"
+python3 - "$CONF" "$VER" <<'PY'
+import json, sys
+path, ver = sys.argv[1], sys.argv[2]
+conf = json.load(open(path))
+if conf.get("version") != ver:
+    conf["version"] = ver
+    json.dump(conf, open(path, "w"), indent=2)
+    open(path, "a").write("\n")
+    print("   set tauri.conf.json version to " + ver)
+PY
+# Emptied first: the DMG is found by globbing this directory afterwards, and a leftover
+# from an earlier version is otherwise what gets notarized and published.
+rm -rf "$ROOT/companion-tauri/src-tauri/target/release/bundle"
 ( cd "$ROOT/companion-tauri/src-tauri" && cargo tauri build --bundles app,dmg )
 APP="$ROOT/companion-tauri/src-tauri/target/release/bundle/macos/VDGS Companion.app"
-DMG="$(ls "$ROOT"/companion-tauri/src-tauri/target/release/bundle/dmg/*.dmg | head -1)"
+DMG="$(ls "$ROOT"/companion-tauri/src-tauri/target/release/bundle/dmg/*.dmg 2>/dev/null | head -1)"
 [ -d "$APP" ] || { echo "no .app produced" >&2; exit 1; }
 [ -n "$DMG" ] && [ -f "$DMG" ] || { echo "no .dmg produced" >&2; exit 1; }
 echo "   app ok: $APP"
 echo "   dmg ok: $DMG"
 
-# Signing is done by Tauri via APPLE_SIGNING_IDENTITY during the build above.
-# Verify before notarizing so a missing identity fails here, not at Apple.
-codesign -dv --verbose=2 "$APP" 2>&1 | grep -E 'Authority=|Identifier=' || true
+# Signing is done by Tauri via APPLE_SIGNING_IDENTITY during the build above. Checked
+# here so an unsigned app stops now rather than being uploaded and rejected by Apple
+# several minutes later, with a DMG left behind that looks finished.
+codesign --verify --deep --strict "$APP" || {
+  echo "the app is not signed - set APPLE_SIGNING_IDENTITY before building" >&2
+  exit 1
+}
+codesign -dv --verbose=2 "$APP" 2>&1 | grep -E 'Authority=|Identifier='
 
 # ---------------------------------------------------------------- notarize
 # Profile: xcrun notarytool store-credentials vdgs-notary --apple-id ... --team-id VCFY2GFR89

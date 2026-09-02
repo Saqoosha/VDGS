@@ -32,7 +32,6 @@ struct Inner {
     busy: Option<String>,
     busy_percent: Option<u8>,
     running: bool,
-    #[allow(dead_code)]
     child: Option<std::process::Child>,
 }
 
@@ -94,10 +93,17 @@ impl Host {
         what: &str,
         job: impl FnOnce(&Host, &mut dyn FnMut(String)) -> Result<(), String> + Send + 'static,
     ) {
-        if self.inner.lock().unwrap().busy.is_some() {
-            return;
+        {
+            let mut i = self.inner.lock().unwrap();
+            if let Some(running) = i.busy.as_ref() {
+                let msg = format!("already busy - {running} is running");
+                drop(i);
+                self.log(&msg);
+                return;
+            }
+            i.busy = Some(what.to_string());
         }
-        self.set_busy(Some(what));
+        self.post(json!({"type":"busy","what": what}));
         let me = Arc::clone(self);
         std::thread::spawn(move || {
             let mut log = |s: String| me.log(&s);
@@ -368,6 +374,12 @@ impl Host {
 
                 let db = tracks::db_path();
                 let value = t.value_string();
+                if launch::is_running() {
+                    return Err(
+                        "VelociDrone is running. Close it first - it keeps its track database open."
+                            .into(),
+                    );
+                }
                 let (result, backup) =
                     tracks::import(&db, &t.name, t.scene_id, t.kind, &value)
                         .map_err(|e| e.to_string())?;
@@ -681,7 +693,15 @@ fn local_hms(_secs: i64) -> (i32, u32, u32, u32, u32, u32) {
     (1970, 1, 1, 0, 0, 0)
 }
 
-#[tauri::command]
+/// Every command the page can send.
+///
+/// `async` is load-bearing rather than decorative. A plain `#[tauri::command]` runs on the
+/// main thread, and half of these open a modal - pick a folder, confirm a removal, warn
+/// about a name clash. The dialog plugin posts the dialog to the main thread and then
+/// blocks waiting for the answer, so from the main thread it waits for a window it is
+/// itself preventing from ever being drawn. The app freezes with a picker on screen that
+/// does not respond to Escape, to its own Cancel button, or to anything else.
+#[tauri::command(async)]
 fn dispatch(host: tauri::State<'_, Arc<Host>>, cmd: String, id: Option<String>) {
     let h = Arc::clone(&host);
     match cmd.as_str() {
@@ -746,6 +766,16 @@ pub fn run() {
             let watch = Arc::clone(&host);
             std::thread::spawn(move || loop {
                 std::thread::sleep(Duration::from_secs(2));
+                {
+                    let mut i = watch.inner.lock().unwrap();
+                    if let Some(child) = i.child.as_mut() {
+                        match child.try_wait() {
+                            Ok(Some(_)) => i.child = None,
+                            Ok(None) => {}
+                            Err(_) => i.child = None,
+                        }
+                    }
+                }
                 let now = launch::is_running();
                 {
                     let mut i = watch.inner.lock().unwrap();
