@@ -1,0 +1,26 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "VDGS Companion",
+  "version": "0.1.0",
+  "identifier": "sh.saqoo.vdgs.companion",
+  "build": {
+    "frontendDist": "../../web/dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "cd ../web && bun run dev",
+    "beforeBuildCommand": "cd ../web && bun run build"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      { "title": "VDGS Companion", "url": "companion.html", "width": 760, "height": 640, "minWidth": 600, "minHeight": 480 }
+    ],
+    "security": { "csp": null }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "dmg"],
+    "icon": ["icons/icon.icns"],
+    "resources": ["resources/mod/**/*"],
+    "macOS": { "minimumSystemVersion": "12.0" }
+  }
+}
