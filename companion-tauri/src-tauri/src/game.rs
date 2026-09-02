@@ -265,6 +265,14 @@ pub fn try_read_bindings(root: &Path) -> io::Result<Bindings> {
     }
 }
 
+
+fn bad_bindings(why: &str) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidData,
+        format!("vdgs/bindings.json: {why}"),
+    )
+}
+
 fn try_parse_bindings(text: &str) -> io::Result<Bindings> {
     let mut map = Bindings::new();
     if text.trim().is_empty() {
@@ -272,18 +280,24 @@ fn try_parse_bindings(text: &str) -> io::Result<Bindings> {
     }
     let v: serde_json::Value = serde_json::from_str(text)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-    let obj = match v.as_object() {
-        Some(o) => o,
-        None => return Ok(map),
-    };
+    // Valid JSON of the wrong shape is refused rather than normalised. Reading an array,
+    // a string, or a track whose value is not a list of names as "no bindings" and then
+    // saving that is the same loss as failing to parse at all - the file is only ever
+    // written by this app and the mod, so a shape that is not an object of string arrays
+    // means it was edited by hand or damaged, and neither is ours to tidy away.
+    let obj = v
+        .as_object()
+        .ok_or_else(|| bad_bindings("the top level is not an object"))?;
     for (k, val) in obj {
+        let arr = val
+            .as_array()
+            .ok_or_else(|| bad_bindings(&format!("\"{k}\" is not a list of capture names")))?;
         let mut scenes = Vec::new();
-        if let Some(arr) = val.as_array() {
-            for item in arr {
-                if let Some(s) = item.as_str() {
-                    scenes.push(s.to_string());
-                }
-            }
+        for item in arr {
+            let s = item
+                .as_str()
+                .ok_or_else(|| bad_bindings(&format!("\"{k}\" holds something that is not a name")))?;
+            scenes.push(s.to_string());
         }
         map.insert(k.clone(), scenes);
     }
@@ -639,5 +653,31 @@ mod tests {
         let _ = std::fs::remove_dir_all(&p);
         std::fs::create_dir_all(&p).unwrap();
         p
+    }
+
+    #[test]
+    fn a_bindings_file_of_the_wrong_shape_is_refused_not_emptied() {
+        for bad in [
+            "[]",
+            "\"nope\"",
+            "{\"T\": \"one-capture\"}",
+            "{\"T\": [1]}",
+            "{oops",
+        ] {
+            let root = tmp();
+            bind(&root, "Existing", "cap-a").unwrap();
+            let path = root.join("vdgs/bindings.json");
+            std::fs::write(&path, bad).unwrap();
+            assert!(
+                bind(&root, "New", "cap-b").is_err(),
+                "bind should refuse {bad}"
+            );
+            assert_eq!(
+                std::fs::read_to_string(&path).unwrap(),
+                bad,
+                "the file must be left exactly as it was"
+            );
+            assert!(unbind(&root, "Existing").is_err(), "unbind should refuse {bad}");
+        }
     }
 }

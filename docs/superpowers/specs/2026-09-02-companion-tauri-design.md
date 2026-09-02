@@ -41,7 +41,7 @@ companion-tauri/
 ```
 
 `bridge.ts` は host を 3 択にする：`chrome.webview`（Windows）、`__TAURI__`（Tauri）、無ければ dev の
-スタンドイン。コマンドは `invoke("cmd", { cmd, id })` 1 本、push は `listen("push")` 1 本。
+スタンドイン。コマンドは `invoke("dispatch", { cmd, id })` 1 本、push は `listen("push")` 1 本。
 React 側は一切知らない。
 
 ## 各モジュールの責務

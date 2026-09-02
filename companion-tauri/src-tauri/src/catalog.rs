@@ -70,13 +70,14 @@ pub fn require_safe_url(url: &str) -> Result<(), Error> {
 pub fn parse(json: &str) -> Result<Vec<Entry>, Error> {
     let root: serde_json::Value = serde_json::from_str(json)?;
 
+    // Anything but the integer 1 is refused, including a string "2" or 1.5. A version this
+    // app cannot read must stop here rather than be waved through on a type mismatch: the
+    // fields it would then guess at decide what gets downloaded and where it is installed.
     if let Some(v) = root.get("formatVersion") {
-        if let Some(n) = v.as_i64() {
-            if n != 1 {
-                return Err(Error::Msg(format!(
-                    "this catalog is format {n}; this app reads 1. Update it."
-                )));
-            }
+        if v.as_i64() != Some(1) {
+            return Err(Error::Msg(format!(
+                "this catalog is format {v}; this app reads 1. Update it."
+            )));
         }
     }
 
@@ -322,6 +323,18 @@ mod tests {
         assert_eq!(e[0].install_as.as_deref(), Some("A-dir"));
         assert_eq!(e[0].track_name.as_deref(), Some("VDGS+A"));
         assert_eq!(e[0].bytes(), 11);
+    }
+
+    #[test]
+    fn parse_refuses_a_format_that_is_not_the_integer_one() {
+        // A string, a float and a null are all "not 1", and guessing past any of them
+        // would have this app act on fields it does not understand.
+        for bad in [r#""2""#, "1.5", "null", "2"] {
+            let json = format!(r#"{{"formatVersion":{bad},"scenes":[]}}"#);
+            assert!(parse(&json).is_err(), "should refuse formatVersion {bad}");
+        }
+        assert!(parse(r#"{"formatVersion":1,"scenes":[]}"#).is_ok());
+        assert!(parse(r#"{"scenes":[]}"#).is_ok(), "absent is still allowed");
     }
 
     #[test]
