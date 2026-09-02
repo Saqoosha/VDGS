@@ -26,6 +26,10 @@ export const how = {
     step1b: '. Windows will warn about an unrecognised app: press ',
     step1c: ', then ',
     step1d: '.',
+    // The download is a .dmg, not a zip, and Metal needs no -force-d3d12 flag.
+    macStep1a: 'Open the .dmg, drag ',
+    macStep1b: ' to ',
+    macStep1c: ', then open it.',
     // What to do when the button will not press, rather than why it will not.
     step2a: 'Press ',
     step2b: '. If it is greyed out, use ',
@@ -38,11 +42,18 @@ export const how = {
     step4a: 'Press ',
     step4b: ', then pick that track by name in VelociDrone.',
     download: 'Download the companion',
+    windows: 'Windows',
+    macos: 'macOS',
+    // Named per platform because the Windows flag does not exist on the Mac, and a
+    // reader who goes looking for it finds nothing and assumes something is missing.
     d3d12:
-      'the game must be started with -force-d3d12, which the companion always does. ' +
-      'without it the scans do not draw at all, and nothing says why.',
-    loaderA: 'the loader is ',
-    loaderB: ', fetched from its own release and checked against a pinned digest.',
+      'on windows the game must be started with -force-d3d12, which the companion always ' +
+      'does; without it the scans do not draw at all, and nothing says why. on macos it ' +
+      'renders through metal and needs no flag.',
+    loaderA: 'the loader is BepInEx 5.4.23.5 - ',
+    loaderMid: ' on windows, ',
+    loaderB: ' on macos, patched so its preloader survives on apple silicon. either way ' +
+      'it is fetched from its own release and checked against a pinned digest.',
   },
   ja: {
     label: '使い方',
@@ -50,6 +61,9 @@ export const how = {
     step1b: ' を起動する。Windows が警告を出したら ',
     step1c: ' を押して ',
     step1d: '。',
+    macStep1a: '.dmg を開き、',
+    macStep1b: ' を ',
+    macStep1c: ' にドラッグして起動する。',
     step2a: '',
     step2b: ' を押す。押せないときは ',
     step2c: ' で VelociDrone のフォルダを指す。',
@@ -58,11 +72,14 @@ export const how = {
     step4a: '',
     step4b: ' を押し、VelociDrone でそのコースを名前で選ぶ。',
     download: 'companion をダウンロード',
+    windows: 'Windows',
+    macos: 'macOS',
     d3d12:
-      'ゲームは -force-d3d12 で起動する必要がある。companion は必ずそうする。' +
-      '付けないとスキャンは一切描かれず、理由も表示されない。',
-    loaderA: 'ローダーは ',
-    loaderB: '。本家のリリースから取得し、固定した digest と照合する。',
+      'Windows ではゲームを -force-d3d12 で起動する必要がある。companion は必ずそうする。' +
+      '付けないとスキャンは一切描かれず、理由も表示されない。macOS は Metal で描くのでフラグは要らない。',
+    loaderA: 'ローダーは BepInEx 5.4.23.5。Windows は ',
+    loaderMid: '、macOS は ',
+    loaderB: '（preloader を Apple Silicon で動くように直したもの）。どちらも本家のリリースから取得し、固定した digest と照合する。',
   },
 } as const satisfies Record<Lang, Record<string, string>>
 

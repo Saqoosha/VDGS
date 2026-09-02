@@ -28,7 +28,11 @@ describe('Browse', () => {
   // The instructions are the only part that carries a translation - the list above them
   // is names, numbers and licences, which read the same either way.
   it('says how to do it in Japanese when asked', async () => {
-    serve({ formatVersion: 1, scenes: [scene], app: { version: '1', url: 'https://h/a.zip', bytes: 10 } })
+    serve({
+      formatVersion: 1,
+      scenes: [scene],
+      app: { windows: { version: '1', url: 'https://h/a.zip', bytes: 10 } },
+    })
     render(<Browse lang="ja" />)
     await waitFor(() => expect(screen.getByText(/使い方/)).toBeInTheDocument())
     expect(screen.getByText(/companion をダウンロードして解凍し/)).toBeInTheDocument()
@@ -39,14 +43,18 @@ describe('Browse', () => {
     // The first wall anyone meets, and the one that shows only "Don't run" until More
     // info is pressed. Left unsaid, most people stop here.
     expect(screen.getByText(/Windows が警告を出したら/)).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'companion をダウンロード' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'companion をダウンロード Windows' })).toBeInTheDocument()
     // The app's own buttons are English in both languages, because the app is.
     expect(screen.getByText('Install mod')).toBeInTheDocument()
     expect(screen.getByText('Fly')).toBeInTheDocument()
   })
 
   it('says the same thing in English', async () => {
-    serve({ formatVersion: 1, scenes: [scene], app: { version: '1', url: 'https://h/a.zip', bytes: 10 } })
+    serve({
+      formatVersion: 1,
+      scenes: [scene],
+      app: { windows: { version: '1', url: 'https://h/a.zip', bytes: 10 } },
+    })
     render(<Browse lang="en" />)
     await waitFor(() =>
       expect(screen.getByText(/Download the companion, unzip it/)).toBeInTheDocument(),
@@ -60,29 +68,47 @@ describe('Browse', () => {
   // A section that declares itself Japanese hands everything inside it to a Japanese
   // voice, including the English button names it deliberately did not translate.
   it('marks the app\'s own button names as English inside the Japanese section', async () => {
-    serve({ formatVersion: 1, scenes: [scene], app: { version: '1', url: 'https://h/a.zip', bytes: 10 } })
+    serve({
+      formatVersion: 1,
+      scenes: [scene],
+      app: { windows: { version: '1', url: 'https://h/a.zip', bytes: 10 } },
+    })
     const { container } = render(<Browse lang="ja" />)
     await waitFor(() => expect(screen.getByText('使い方')).toBeInTheDocument())
-    for (const name of ['VDGS.exe', 'More info', 'Run anyway', 'Install mod', 'Change', '02 get', 'Fly'])
+    for (const name of [
+      'VDGS.exe',
+      'More info',
+      'Run anyway',
+      'VDGS Companion',
+      'Applications',
+      'Install mod',
+      'Change',
+      '02 get',
+      'Fly',
+    ])
       expect(screen.getByText(name).closest('[lang]')?.getAttribute('lang'), name).toBe('en')
-    expect(container.querySelectorAll('b[lang="en"]')).toHaveLength(7)
+    expect(container.querySelectorAll('b[lang="en"]')).toHaveLength(9)
   })
 
   // Latin micro-caps tracking spaces kanji apart; this is the page's biggest button.
   it('does not letter-space the Japanese download button', async () => {
-    serve({ formatVersion: 1, scenes: [scene], app: { version: '1', url: 'https://h/a.zip', bytes: 10 } })
+    serve({
+      formatVersion: 1,
+      scenes: [scene],
+      app: { windows: { version: '1', url: 'https://h/a.zip', bytes: 10 } },
+    })
     const { rerender } = render(<Browse lang="ja" />)
     await waitFor(() =>
-      expect(screen.getByRole('link', { name: 'companion をダウンロード' })).toBeInTheDocument(),
+      expect(screen.getByRole('link', { name: 'companion をダウンロード Windows' })).toBeInTheDocument(),
     )
-    expect(screen.getByRole('link', { name: 'companion をダウンロード' }).className).not.toMatch(
+    expect(screen.getByRole('link', { name: 'companion をダウンロード Windows' }).className).not.toMatch(
       /tracking-/,
     )
     rerender(<Browse lang="en" />)
     await waitFor(() =>
-      expect(screen.getByRole('link', { name: 'Download the companion' })).toBeInTheDocument(),
+      expect(screen.getByRole('link', { name: 'Download the companion Windows' })).toBeInTheDocument(),
     )
-    expect(screen.getByRole('link', { name: 'Download the companion' }).className).toMatch(
+    expect(screen.getByRole('link', { name: 'Download the companion Windows' }).className).toMatch(
       /tracking-/,
     )
   })
@@ -108,10 +134,12 @@ describe('Browse', () => {
     serve({
       formatVersion: 1,
       scenes: [scene],
-      app: { version: '2026.08.25', url: 'https://h/app/c.zip', bytes: 6_061_831 },
+      app: {
+        windows: { version: '2026.08.25', url: 'https://h/app/c.zip', bytes: 6_061_831 },
+      },
     })
     render(<Browse lang="en" />)
-    const download = await screen.findByRole('link', { name: /download the companion/i })
+    const download = await screen.findByRole('link', { name: /download the companion windows/i })
     expect(download).toHaveAttribute('href', 'https://h/app/c.zip')
   })
 
@@ -125,11 +153,15 @@ describe('Browse', () => {
     expect(screen.queryByRole('link', { name: /^track$/i })).toBeNull()
   })
 
-  it('links the loader it installs on your behalf', async () => {
+  it('links the loader it installs on your behalf, one build per platform', async () => {
     serve({ formatVersion: 1, scenes: [scene] })
     render(<Browse lang="en" />)
-    const link = await screen.findByRole('link', { name: /BepInEx/i })
-    expect(link).toHaveAttribute('href', expect.stringContaining('BepInEx/releases'))
+    const win = await screen.findByRole('link', { name: /win_x64/i })
+    expect(win).toHaveAttribute('href', expect.stringContaining('BepInEx/BepInEx/releases'))
+    // The macOS one is a fork: the official build's preloader dies on arm64, so linking
+    // the upstream release there would send someone to a loader that cannot work.
+    const mac = screen.getByRole('link', { name: /macos_universal/i })
+    expect(mac).toHaveAttribute('href', expect.stringContaining('Saqoosha/BepInEx/releases'))
   })
 
   it('says so when there is no catalog rather than sitting blank', async () => {

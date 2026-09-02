@@ -125,24 +125,37 @@ for name in sorted(os.listdir(entries_dir)):
     scenes.append(entry)
 
 # The app itself is published alongside the captures: a page that lists things to install
-# and does not offer the thing that installs them is a dead end.
+# and does not offer the thing that installs them is a dead end. Windows and macOS are
+# separate builds; the page offers whichever is present, so a missing platform is a
+# missing button rather than a broken link.
 # Newest by mtime, not by name. Sorting by name reads "2026.09.01.1" as older than
-# "2026.09.01", because '1' sorts before the 'z' of ".zip" - so a second build of the same
-# day silently published the first one. Whichever was built last is the one that was meant,
-# and only that one is copied: hashing every build to keep one was pure waste.
-builds = [n for n in os.listdir(release)
-          if n.startswith("vdgs-companion-") and n.endswith(".zip")]
-app = None
-if builds:
+# "2026.09.01", because '1' sorts before the next character of the suffix - so a second
+# build of the same day silently published the first one. Whichever was built last is
+# the one that was meant, and only that one is copied: hashing every build to keep one
+# was pure waste.
+def newest_app(prefix, suffix):
+    builds = [n for n in os.listdir(release)
+              if n.startswith(prefix) and n.endswith(suffix)]
+    if not builds:
+        return None
     name = max(builds, key=lambda n: os.path.getmtime(os.path.join(release, n)))
     path = os.path.join(release, name)
     shutil.copy2(path, os.path.join(out, "app", name))
-    app = {
-        "version": name[len("vdgs-companion-"):-len(".zip")],
+    return {
+        "version": name[len(prefix):-len(suffix)],
         "url": "%s/app/%s" % (base, name),
         "bytes": os.path.getsize(path),
         "sha256": digest(path),
     }
+
+app = {}
+windows = newest_app("vdgs-companion-", ".zip")
+if windows:
+    app["windows"] = windows
+# Version sits between the fixed ends: VDGS-Companion-<version>-macos.dmg.
+macos = newest_app("VDGS-Companion-", "-macos.dmg")
+if macos:
+    app["macos"] = macos
 
 catalog = {
     "formatVersion": 1,
@@ -185,9 +198,12 @@ for s in c["scenes"]:
     assert s["scene"]["installAs"], "%s: nowhere to install" % s["id"]
 app = c.get("app")
 if app:
-    assert app["url"].startswith("https://"), "app is not https"
-    assert len(app["sha256"]) == 64, "app digest is not a sha256"
-    assert app["bytes"] > 0, "app has no size"
+    for platform, build in app.items():
+        assert platform in ("windows", "macos"), "unknown app platform %s" % platform
+        assert build["url"].startswith("https://"), "%s app is not https" % platform
+        assert len(build["sha256"]) == 64, "%s app digest is not a sha256" % platform
+        assert build["bytes"] > 0, "%s app has no size" % platform
+        assert build.get("version"), "%s app has no version" % platform
 else:
     # The comment above the app block says a page that lists things to install and does
     # not offer the thing that installs them is a dead end. That was stated and not
@@ -196,7 +212,7 @@ else:
     # download button simply gone for everyone.
     sys.exit("no companion build in build/release, so this catalog would publish a site\n"
              "       with nothing to download. Run tools/make-release.sh without\n"
-             "       --scene-only, or leave the previous vdgs-companion-*.zip in place.")
+             "       --scene-only, or leave a previous Windows zip / macOS dmg in place.")
 print("   catalog.json checks out")
 CHECK
 

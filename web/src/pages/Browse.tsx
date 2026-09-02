@@ -19,7 +19,8 @@ import { how, type Lang } from '../i18n'
  * Only the instructions below carry a translation. The list is names, numbers and
  * licences, and "4,508,391 splats" reads the same in either language.
  */
-type App = { version: string; url: string; bytes: number }
+type Build = { version: string; url: string; bytes: number }
+type Apps = { windows?: Build; macos?: Build }
 
 type Published = {
   id: string
@@ -41,7 +42,7 @@ export default function Browse({ lang }: { lang: Lang }) {
     ? 'font-mono text-[12px] leading-relaxed text-muted-foreground'
     : 'font-mono text-[11px] leading-relaxed text-muted-foreground'
   const [scenes, setScenes] = useState<Published[] | null>(null)
-  const [app, setApp] = useState<App | null>(null)
+  const [apps, setApps] = useState<Apps | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [q, setQ] = useState('')
 
@@ -50,7 +51,7 @@ export default function Browse({ lang }: { lang: Lang }) {
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error('catalog.json: ' + r.status))))
       .then((c) => {
         setScenes(c.scenes ?? [])
-        setApp(c.app ?? null)
+        setApps(c.app ?? null)
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'could not load the catalog'))
   }, [])
@@ -109,15 +110,33 @@ export default function Browse({ lang }: { lang: Lang }) {
         }>
           {/* The app's own names stay in English in both languages, because the app is -
               and they are marked as English, because a section that says it is Japanese
-              hands them to a Japanese voice otherwise. Same reason the document is not. */}
+              hands them to a Japanese voice otherwise. Same reason the document is not.
+              Step 01 differs per platform; both are listed so a wrong OS guess never sends
+              someone to a download that cannot run. */}
+          {/* One step, two platforms. Numbering them both 01 read as a mistake, and
+              giving the Mac its own number would say there are five steps when there are
+              four - the count is what tells a reader how long this is going to take. */}
           <Step n="01">
-            {t.step1a}
-            <Name>VDGS.exe</Name>
-            {t.step1b}
-            <Name>More info</Name>
-            {t.step1c}
-            <Name>Run anyway</Name>
-            {t.step1d}
+            <span className="block">
+              {t.windows}
+              {': '}
+              {t.step1a}
+              <Name>VDGS.exe</Name>
+              {t.step1b}
+              <Name>More info</Name>
+              {t.step1c}
+              <Name>Run anyway</Name>
+              {t.step1d}
+            </span>
+            <span className="mt-1 block">
+              {t.macos}
+              {': '}
+              {t.macStep1a}
+              <Name>VDGS Companion</Name>
+              {t.macStep1b}
+              <Name>Applications</Name>
+              {t.macStep1c}
+            </span>
           </Step>
           <Step n="02">
             {t.step2a}
@@ -138,27 +157,51 @@ export default function Browse({ lang }: { lang: Lang }) {
           </Step>
         </ol>
 
-        <div className="mt-6 flex flex-wrap items-center gap-4">
-          {app ? (
-            <Button
-              size="lg"
-              // Latin micro-caps tracking on a Japanese label spaces kanji apart the way
-              // the section heading did before it was fixed - and this is the page's
-              // biggest button.
-              className={ja ? 'font-mono' : 'font-mono tracking-[0.2em] uppercase'}
-              asChild
-            >
-              <a href={app.url}>{t.download}</a>
-            </Button>
+        {/* Both platforms side by side when present. No OS sniffing: a wrong guess is a
+            download that cannot run, and the cost of showing two buttons is nil. */}
+        <div className="mt-6 flex flex-wrap items-start gap-6">
+          {apps?.windows ? (
+            <div className="flex flex-col gap-2">
+              <Button
+                size="lg"
+                // Latin micro-caps tracking on a Japanese label spaces kanji apart the way
+                // the section heading did before it was fixed - and this is the page's
+                // biggest button.
+                className={ja ? 'font-mono' : 'font-mono tracking-[0.2em] uppercase'}
+                asChild
+              >
+                <a href={apps.windows.url}>
+                  {t.download} {t.windows}
+                </a>
+              </Button>
+              <span className="font-mono text-[11px] text-muted-foreground">
+                {apps.windows.version}
+                <span className="mx-2 text-rule">/</span>
+                {formatBytes(apps.windows.bytes) ?? '—'}
+                <span className="mx-2 text-rule">/</span>
+                {t.windows}
+              </span>
+            </div>
           ) : null}
-          {app ? (
-            <span className="font-mono text-[11px] text-muted-foreground">
-              {app.version}
-              <span className="mx-2 text-rule">/</span>
-              {formatBytes(app.bytes) ?? '—'}
-              <span className="mx-2 text-rule">/</span>
-              windows
-            </span>
+          {apps?.macos ? (
+            <div className="flex flex-col gap-2">
+              <Button
+                size="lg"
+                className={ja ? 'font-mono' : 'font-mono tracking-[0.2em] uppercase'}
+                asChild
+              >
+                <a href={apps.macos.url}>
+                  {t.download} {t.macos}
+                </a>
+              </Button>
+              <span className="font-mono text-[11px] text-muted-foreground">
+                {apps.macos.version}
+                <span className="mx-2 text-rule">/</span>
+                {formatBytes(apps.macos.bytes) ?? '—'}
+                <span className="mx-2 text-rule">/</span>
+                {t.macos}
+              </span>
+            </div>
           ) : null}
         </div>
 
@@ -173,7 +216,16 @@ export default function Browse({ lang }: { lang: Lang }) {
             href="https://github.com/BepInEx/BepInEx/releases/tag/v5.4.23.5"
             className="text-foreground underline underline-offset-4 hover:text-signal"
           >
-            BepInEx 5.4.23.5 (win_x64)
+            win_x64
+          </a>
+          {t.loaderMid}
+          {/* Not the official macOS build: that one's preloader dies on arm64 before it
+              loads anything, so the Mac companion installs a patched fork instead. */}
+          <a
+            href="https://github.com/Saqoosha/BepInEx/releases/tag/v5.4.23.5-vdgs.1"
+            className="text-foreground underline underline-offset-4 hover:text-signal"
+          >
+            macos_universal
           </a>
           {t.loaderB}
         </p>
@@ -194,11 +246,16 @@ function Name({ children }: { children: ReactNode }) {
   )
 }
 
+/**
+ * The number sits beside the text rather than above it, and stays put when a step runs to
+ * more than one line - step 01 carries a line per platform, and an inline number would
+ * otherwise leave the second line hanging under the digit.
+ */
 function Step({ n, children }: { n: string; children: ReactNode }) {
   return (
-    <li>
-      <span className="mr-3 font-mono text-[11px] text-signal">{n}</span>
-      {children}
+    <li className="flex gap-3">
+      <span className="shrink-0 font-mono text-[11px] leading-[1.9] text-signal">{n}</span>
+      <span>{children}</span>
     </li>
   )
 }

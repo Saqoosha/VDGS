@@ -10,9 +10,11 @@
 # before running, or rely on the default below:
 #   export APPLE_SIGNING_IDENTITY="Developer ID Application: Tomohiko Koyama (VCFY2GFR89)"
 #
-# Notarization needs a notarytool keychain profile named vdgs-notary. Create once:
-#   xcrun notarytool store-credentials vdgs-notary \
-#     --apple-id <apple-id> --team-id VCFY2GFR89
+# Notarization uses the notarytool keychain profile named notarytool-profile, the same
+# one Canopy submits under - same Developer ID team (VCFY2GFR89), so there is nothing to
+# create here. If it is ever missing:
+#   xcrun notarytool store-credentials notarytool-profile \
+#     --apple-id <apple-id> --team-id VCFY2GFR89 --password <app-specific password>
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -94,13 +96,13 @@ say "building the companion"
 # Emptied first: the DMG is found by globbing this directory afterwards, and a leftover
 # from an earlier version is otherwise what gets notarized and published.
 rm -rf "$ROOT/companion-tauri/src-tauri/target/release/bundle"
-( cd "$ROOT/companion-tauri/src-tauri" && cargo tauri build --bundles app,dmg )
+# Only the .app. The disk image is built further down, from an app that has already been
+# notarized and stapled - a DMG made now would carry an app with no ticket of its own, and
+# a copy dragged out of it cannot be verified offline.
+( cd "$ROOT/companion-tauri/src-tauri" && cargo tauri build --bundles app )
 APP="$ROOT/companion-tauri/src-tauri/target/release/bundle/macos/VDGS Companion.app"
-DMG="$(ls "$ROOT"/companion-tauri/src-tauri/target/release/bundle/dmg/*.dmg 2>/dev/null | head -1)"
 [ -d "$APP" ] || { echo "no .app produced" >&2; exit 1; }
-[ -n "$DMG" ] && [ -f "$DMG" ] || { echo "no .dmg produced" >&2; exit 1; }
 echo "   app ok: $APP"
-echo "   dmg ok: $DMG"
 
 # Signing is done by Tauri via APPLE_SIGNING_IDENTITY during the build above. Checked
 # here so an unsigned app stops now rather than being uploaded and rejected by Apple
@@ -112,10 +114,50 @@ codesign --verify --deep --strict "$APP" || {
 codesign -dv --verbose=2 "$APP" 2>&1 | grep -E 'Authority=|Identifier='
 
 # ---------------------------------------------------------------- notarize
-# Profile: xcrun notarytool store-credentials vdgs-notary --apple-id ... --team-id VCFY2GFR89
-say "notarizing"
-xcrun notarytool submit "$DMG" --keychain-profile vdgs-notary --wait
+# Profile: notarytool-profile (shared with Canopy; same Developer ID team VCFY2GFR89).
+#
+# The app is notarized and stapled BEFORE the image is built, then the image is notarized
+# too. Both halves are needed: the image's ticket is what lets someone open the download
+# offline, and the app's own ticket is what survives being dragged to Applications.
+#
+# Everything happens in /tmp on purpose. notarytool mounts the image it is checking, and a
+# mount left attached by an earlier run - or by a run that died - makes the next submit
+# hang in xar_open_digest_verify with nothing reaching Apple. Canopy documents the whole
+# failure; the short version is that /tmp keeps this away from Time Machine's locks, and
+# the sweep below keeps it away from our own leftovers.
+say "notarizing the app"
+WORK="$(mktemp -d /tmp/vdgs-notarize.XXXXXX)"
+cleanup() {
+  # Detach before deleting: an attached image outlives its backing file, and the orphaned
+  # helper then holds the next submit forever.
+  for dev in $(hdiutil info | awk -v d="$WORK" '$0 ~ "image-path.*"d {f=1} f && /^\/dev\/disk/ {print $1; f=0}'); do
+    hdiutil detach "$dev" -quiet 2>/dev/null || hdiutil detach "$dev" -force -quiet 2>/dev/null || true
+  done
+  rm -rf "$WORK"
+}
+trap cleanup EXIT INT TERM
+
+ditto -c -k --keepParent "$APP" "$WORK/app.zip"
+xcrun notarytool submit "$WORK/app.zip" --keychain-profile notarytool-profile --wait
+xcrun stapler staple "$APP"
+xcrun stapler validate "$APP"
+
+say "building the disk image"
+STAGE="$WORK/stage"
+mkdir -p "$STAGE"
+ditto "$APP" "$STAGE/VDGS Companion.app"
+ln -s /Applications "$STAGE/Applications"
+DMG="$WORK/VDGS-Companion-$VER-macos.dmg"
+hdiutil create -volname "VDGS Companion" -srcfolder "$STAGE" -ov -format UDZO "$DMG"
+codesign --sign "$APPLE_SIGNING_IDENTITY" "$DMG"
+
+say "notarizing the disk image"
+xcrun notarytool submit "$DMG" --keychain-profile notarytool-profile --wait
 xcrun stapler staple "$DMG"
+
+# What a downloader will see, asserted rather than assumed.
+spctl -a -vvv -t install "$DMG" 2>&1 | grep -q "source=Notarized Developer ID" || {
+  echo "the dmg is not notarized as far as Gatekeeper is concerned" >&2; exit 1; }
 
 DEST="$OUT/VDGS-Companion-$VER-macos.dmg"
 cp "$DMG" "$DEST"

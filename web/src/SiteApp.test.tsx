@@ -69,4 +69,47 @@ describe('the public page', () => {
     expect(screen.getByRole('button', { name: 'en' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'ja' })).toBeInTheDocument()
   })
+
+  // The catalog shape is free: nothing but this page reads `app`, so both platforms
+  // land as siblings and the page must offer whichever is present - never guess OS.
+  it('offers both companions when the catalog has both', async () => {
+    serve({
+      formatVersion: 1,
+      scenes: [],
+      app: {
+        windows: { version: '2026.09.02', url: '/app/win.zip', bytes: 12_000_000 },
+        macos: { version: '2026.09.02', url: '/app/mac.dmg', bytes: 18_000_000 },
+      },
+    })
+    render(<SiteApp />)
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: 'Download the companion Windows' })).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: 'Download the companion macOS' })).toBeInTheDocument()
+    })
+  })
+
+  it('offers only the platform the catalog has', async () => {
+    serve({
+      formatVersion: 1,
+      scenes: [],
+      app: {
+        windows: { version: '2026.09.02', url: '/app/win.zip', bytes: 12_000_000 },
+      },
+    })
+    render(<SiteApp />)
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: 'Download the companion Windows' })).toBeInTheDocument()
+    })
+    expect(screen.queryByRole('link', { name: 'Download the companion macOS' })).not.toBeInTheDocument()
+  })
+
+  // A missing `app` used to be a silent empty button area; the how-to still has to render.
+  it('survives a catalog with no companion', async () => {
+    vi.spyOn(navigator, 'language', 'get').mockReturnValue('en-GB')
+    serve(empty)
+    render(<SiteApp />)
+    await waitFor(() => expect(screen.getByText('how')).toBeInTheDocument())
+    expect(screen.queryByRole('link', { name: /Download the companion/ })).not.toBeInTheDocument()
+    expect(screen.getByText(/Open the \.dmg/)).toBeInTheDocument()
+  })
 })
