@@ -776,6 +776,31 @@ fn dispatch(host: tauri::State<'_, Arc<Host>>, cmd: String, id: Option<String>) 
 
 pub fn run() {
     tauri::Builder::default()
+        // Registered before anything else, because a second launch has to be turned away
+        // before it starts building state of its own.
+        //
+        // Two windows are two answers to the same questions. Both scan for the game, both
+        // offer to install over each other, and installing from one while the other is
+        // mid-download writes the same folder twice. The C# companion held a named mutex
+        // for exactly this and handed the existing window back instead of refusing, which
+        // is the right shape: the second launch is nearly always someone who lost the
+        // first window behind the game.
+        //
+        // The command line is safe from this. `main` answers --export-track and
+        // --check-catalog and exits before the builder runs, so a second invocation that
+        // carries one of them never reaches the plugin and is never redirected into the
+        // running window.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            let Some(w) = app.get_webview_window("main") else {
+                return;
+            };
+            // Unminimise first. Asking for focus on a minimised window flashes the taskbar
+            // and leaves it minimised, which reads as the click having done nothing - the
+            // same order the C# used, for the same reason.
+            let _ = w.unminimize();
+            let _ = w.show();
+            let _ = w.set_focus();
+        }))
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let resource_dir = resolve_resource_dir(app.handle());
