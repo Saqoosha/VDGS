@@ -22,7 +22,11 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 [ -f "$ROOT/tools/local.env" ] && . "$ROOT/tools/local.env"
 
 OUT="$ROOT/build/release"
-VER="${1:-${VDGS_VERSION:-$(sed -n 's/.*<Version>\(.*\)<\/Version>.*/\1/p' "$ROOT/src/VDGS/VDGS.csproj" | head -1)}}"
+# Today's date, the same default make-release.sh uses. It used to fall back to the csproj,
+# which holds 0.1.0 as a placeholder for dev builds - so running this without an argument
+# on the same day as a Windows release produced a DMG called 0.1.0 sitting beside a zip
+# called 2026.09.03, and the catalog then advertised two different versions of one release.
+VER="${1:-${VDGS_VERSION:-$(date +%Y.%m.%d)}}"
 [ -n "$VER" ] || { echo "no version: pass one, set VDGS_VERSION, or put <Version> in VDGS.csproj" >&2; exit 1; }
 
 # Prefer Tauri's built-in signing over a manual codesign after the fact.
@@ -87,12 +91,31 @@ echo "   payload ok: $(find "$PAY" -type f | wc -l | tr -d ' ') files"
 
 # ---------------------------------------------------------------- app
 say "building the companion"
-# The version inside the bundle is left as tauri.conf.json has it. Writing $VER there was
-# tried and taken back out: this project's releases are CalVer with leading zeros
-# (vdgs-companion-2026.09.02.zip), Tauri parses that field as SemVer, and a leading zero in
-# a numeric identifier is rejected - so stamping it would fail the real release build while
-# fixing only the version string in Get Info. Mapping CalVer onto SemVer is its own
-# decision and belongs with whoever makes it.
+# The version goes into tauri.conf.json, or the bundle keeps calling itself 0.1.0 while
+# the DMG beside it is named for the day it was built.
+#
+# It cannot go in verbatim. Releases here are CalVer - 2026.09.03, and 2026.09.01.3 for a
+# fourth build in one day - and Tauri parses that field as SemVer, which forbids a leading
+# zero in a numeric identifier ("must be a semver string", measured). So the zeros come
+# off and a fourth component becomes build metadata:
+#
+#   2026.09.03   -> 2026.9.3
+#   2026.09.01.3 -> 2026.9.1+3
+#
+# Dropping the fourth part instead was rejected: 2026.09.01 and 2026.09.01.3 would both
+# then call themselves 2026.9.1, and two different downloads claiming one version is worse
+# than a version that reads oddly.
+SEMVER="$(python3 "$ROOT/tools/calver_to_semver.py" "$VER")"
+python3 - "$ROOT/companion-tauri/src-tauri/tauri.conf.json" "$SEMVER" <<'PY'
+import json, sys
+path, ver = sys.argv[1], sys.argv[2]
+conf = json.load(open(path))
+if conf.get("version") != ver:
+    conf["version"] = ver
+    json.dump(conf, open(path, "w"), indent=2)
+    open(path, "a").write("\n")
+PY
+echo "   bundle version: $SEMVER (from $VER)"
 # Emptied first: the DMG is found by globbing this directory afterwards, and a leftover
 # from an earlier version is otherwise what gets notarized and published.
 rm -rf "$ROOT/companion-tauri/src-tauri/target/release/bundle"
