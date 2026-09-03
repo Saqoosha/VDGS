@@ -2,6 +2,7 @@
 
 pub mod bepinex;
 pub mod catalog;
+pub mod cli;
 pub mod game;
 pub mod launch;
 pub mod settings;

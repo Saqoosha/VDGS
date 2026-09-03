@@ -39,6 +39,13 @@ VDGS.exe --export-track --list
 # [server] scene  33  ...
 ```
 
+**macOS でも同じことができる**（companion が 1 本になったときに移した。C# 版は Windows
+専用だった）。`.app` の中の実行ファイルを直に叩く：
+
+```bash
+"/Applications/VDGS Companion.app/Contents/MacOS/VDGS Companion" --export-track --list
+```
+
 **いま公開している VDGS のトラックは 3 本とも `scene 16`。** 番号がインストール間で同じかは
 未検証なので、**番号ではなく `--list` で自分の環境の実物を見る**こと。
 

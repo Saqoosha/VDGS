@@ -1,5 +1,10 @@
 # Companion (Tauri, macOS) Implementation Plan
 
+
+> **Note (2026-09-03):** the C# companion this plan points into (`companion/*.cs`,
+> with line numbers) has since been deleted. Those references are a record of the
+> implementation that was being copied, not a path you can open today — read them
+> through `git show master:companion/<file>` if you need them.
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A signed macOS app that installs BepInEx + the VDGS mod into the Mac VelociDrone, fetches captures and tracks from the catalog, and launches the game with Doorstop injected — the same four clicks the Windows companion gives.

@@ -120,37 +120,31 @@ rm -f "$MOD_ZIP"
 echo "-> $MOD_ZIP  ($(du -h "$MOD_ZIP" | cut -f1))"
 
 # ---------------------------------------------------------------- companion
-# Built after the mod, not before: the app carries that staged tree as its payload, so
+# Built after the mod, not before: the app carries that same tree as its payload, so
 # building it first would ship whatever the last run left behind.
-say "building the companion"
-dotnet build "$ROOT/companion/VDGSCompanion.csproj" -c Release | tail -2
-APP_DIR="$ROOT/companion/bin/Release/net48"
-[ -f "$APP_DIR/VDGS.exe" ] || { echo "no VDGS.exe produced" >&2; exit 1; }
-[ -f "$APP_DIR/mod/BepInEx/plugins/VDGS.dll" ] || {
-  echo "the app was built without its mod payload - it cannot install anything" >&2; exit 1; }
-[ -f "$APP_DIR/ui/companion.html" ] || {
-  echo "the app was built without its interface" >&2; exit 1; }
+#
+# The work happens in make-win-app.sh, which needs a Windows box with a Rust toolchain -
+# the app is Tauri now, and nothing on a Mac can link a Windows binary. It is a separate
+# script for the same reason make-mac-app.sh is: one machine per target, and each is
+# runnable on its own when only that half needs rebuilding.
+#
+# The asset-count check that used to live here is gone with the C# app. It existed because
+# the csproj's Copy targets appended into a folder they never emptied, so two builds left
+# 94 fingerprinted asset files where 38 were current. make-win-app.sh stages its payload
+# into a directory it removes first, so there is nothing to accumulate.
+if [ -n "${VDGS_WIN_BUILD_HOST:-}" ]; then
+  say "building the Windows companion"
+  bash "$ROOT/tools/make-win-app.sh" "$VERSION"
+else
+  say "skipping the Windows companion"
+  # Not fatal. The mod archive above is the part that has to exist for a release, and
+  # someone rebuilding only a scene should not need a second Windows machine powered on.
+  # Said out loud, though: silently publishing a catalog whose Windows entry is whatever
+  # zip an earlier run left in build/release is how a release ships last month's app.
+  echo "   VDGS_WIN_BUILD_HOST is not set - no new vdgs-companion-$VERSION.zip will be"
+  echo "   produced, and make-catalog.sh will pick the newest zip already in build/release."
+fi
 
-# Both interface folders are copies of web/dist, file for file. Vite fingerprints every
-# asset, so a copy step that does not delete first leaves each build's assets beside the
-# last one's - which happened twice, once in the payload and once in the window's own ui,
-# and shipped 94 asset files where 38 were current. Nothing broke either time: the html
-# names only the live chunks. Counting is the only thing that notices.
-SRC_N=$(find "$ROOT/web/dist/assets" -type f | wc -l | tr -d ' ')
-for d in ui mod/vdgs/ui; do
-  [ -d "$APP_DIR/$d/assets" ] || continue
-  GOT_N=$(find "$APP_DIR/$d/assets" -type f | wc -l | tr -d ' ')
-  [ "$GOT_N" = "$SRC_N" ] || {
-    echo "$d/assets has $GOT_N files, web/dist/assets has $SRC_N - stale assets are piling up" >&2
-    echo "       (the Copy targets in companion/VDGSCompanion.csproj must empty first)" >&2
-    exit 1; }
-done
-echo "   assets ok: $SRC_N in web/dist, same in both copies"
-
-APP_ZIP="$OUT/vdgs-companion-$VERSION.zip"
-rm -f "$APP_ZIP"
-( cd "$APP_DIR" && zip -qr "$APP_ZIP" . )
-echo "-> $APP_ZIP  ($(du -h "$APP_ZIP" | cut -f1))"
 else
   STAGE="$OUT"
   echo "(--scene-only: no mod archive)"

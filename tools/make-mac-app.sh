@@ -71,6 +71,10 @@ say "building the control UI"
 ( cd "$ROOT/web" && bun install --frozen-lockfile && bun run build ) | tail -2
 [ -f "$ROOT/web/dist/index.html" ] || { echo "no web/dist produced" >&2; exit 1; }
 
+# ---------------------------------------------------------------- bepinex pin
+say "checking the BepInEx pin"
+( cd "$ROOT/companion-tauri/src-tauri" && cargo test --quiet -- --ignored the_pinned_release_is_still_there )
+
 # ---------------------------------------------------------------- payload
 # Staged under companion-tauri resources so the app ships what Install mod installs.
 say "staging the mod payload"
@@ -88,6 +92,7 @@ VDGS mod $VER for macOS.
 Installed by the companion; nothing here is meant to be copied by hand.
 EOF
 echo "   payload ok: $(find "$PAY" -type f | wc -l | tr -d ' ') files"
+bash "$ROOT/tools/check-payload.sh" "$PAY"
 
 # ---------------------------------------------------------------- app
 say "building the companion"

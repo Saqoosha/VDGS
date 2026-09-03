@@ -156,6 +156,17 @@ if windows:
 macos = newest_app("VDGS-Companion-", "-macos.dmg")
 if macos:
     app["macos"] = macos
+# newest_app picks by mtime, so when a platform's app was not rebuilt this run, the
+# previous release's artifact is silently chosen and published under the new release's
+# name. Two apps claiming different versions in one catalog is the observable symptom of
+# that, and it is cheap to refuse.
+if windows and macos and windows["version"] != macos["version"]:
+    print(
+        "windows and macos apps disagree on version: %s vs %s"
+        % (windows["version"], macos["version"]),
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
 catalog = {
     "formatVersion": 1,
