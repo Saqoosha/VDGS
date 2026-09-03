@@ -116,6 +116,38 @@ sha256 を固定して。**「先に BepInEx を入れて」は全インスト�
 （`scenes` しか見ない）ので、形を変えても既存のアプリは壊れなかった。読むのはサイトだけで、
 サイトはカタログと一緒に deploy される。
 
+**Windows の companion は Tauri になった。焼くのは `tools/make-win-app.sh`。**
+`make-release.sh` がこれを呼ぶ（`VDGS_WIN_BUILD_HOST` が設定されているときだけ。無ければ
+**黙って飛ばさず**、古い zip がカタログに載ると言って続行する）。macOS 側の
+`make-mac-app.sh` と対になる形で、**1 ターゲットにつき 1 台**：
+
+| 変数 | どの機械 | 何をする |
+|---|---|---|
+| `VDGS_HOST` | ゲーム機 | VelociDrone と Unity。D3D12 シェーダーを焼く。**Rust は無い** |
+| `VDGS_WIN_BUILD_HOST` | ビルド機 | Rust（`x86_64-pc-windows-msvc`）+ VS のリンカ + `cargo-tauri` |
+
+出すのは**素の exe を zip**（`--no-bundle`）で、`VDGS.exe` と `resources/` の 2 つ。名前も
+形も C# 版と同じなので、`make-catalog.sh` から下は何も変わらない。**`resources/` を入れ忘れると
+アプリは開いて「mod ペイロードを持っていない」と言う。** NSIS インストーラも焼けるが、
+未署名では SmartScreen が同じように出るので今は得が無い。
+
+**踏むと高くつく罠が 4 つあり、全部スクリプトに埋めてある：**
+
+- **ペイロードは毎回 `rm -rf` してから組む。** `resources/mod` は macOS ビルドと**共有**して
+  いて、`make-mac-app.sh` は Metal 版のバンドルをそこに置く。残っていると
+  **エラーを 1 行も出さずに死んだシェーダーを配る**。最後の砦がサイズ検査（1MB 未満で停止。
+  D3D12 は約 1.5MB、Metal は約 437KB）
+- **`beforeBuildCommand` を空にして送る。** ビルド機に bun も node も要らなくなる。理由は
+  綺麗さではない —— **`cmd.exe` の PATH 上限 8191 文字**で子プロセスの PATH が切り詰められ、
+  `bun` が見つからなくなる。症状は「ツールが入っていない」に見える。同じ理由で、
+  ビルド時の PATH も**短いものを自分で組んで渡す**
+- **`COPYFILE_DISABLE=1` で tar する。** macOS の tar が `._*` を作り、Tauri が
+  `capabilities\._default.json` を「不正な UTF-8」で拒否して止まる。**誰も書いていない
+  ファイルでビルドが落ちる**
+- **持ち帰った zip を開いて検算する。** 上の全部が成功しても zip が間違っていることはある
+  （古い exe、macOS 向けのペイロード）。`VDGS.exe`・プラグイン・**staging したのと同じ
+  バイト数の**シェーダーバンドルがあることを確かめてから終わる
+
 `make-catalog.sh` は `build/release` から拾う：Windows は `vdgs-companion-*.zip`、macOS は
 `VDGS-Companion-*-macos.dmg`。どちらも**名前順ではなく mtime で最新**を選ぶ（`2026.09.01.1`
 は名前順だと `2026.09.01` より古く見える）。`publish.sh` はカタログが名指しした**全部**を
