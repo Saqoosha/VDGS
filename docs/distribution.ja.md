@@ -1,4 +1,4 @@
-# 配布は companion アプリ（`companion/`）
+# 配布は companion アプリ（`companion-tauri/`）
 
 *[English](distribution.md)*
 
@@ -16,30 +16,35 @@
 
 **mod を配る道具で、人がやることは 4 クリックだけ。** BepInEx の取得、mod の導入・削除、
 キャプチャのダウンロードと導入、トラックの DB 登録と紐付け、`-force-d3d12` 付きの起動 —
-全部これで済む。.NET Framework 4.8 + WinForms、中身は **WebView2 で `web/` の React を
-描いている**（`companion.html`）。操作 UI と同じテーマ・同じコンポーネント・同じフォントで、
+全部これで済む。**Tauri 2 + Rust の 1 本**で、中身は `web/` の React を描いている
+（`companion.html`）。操作 UI と同じテーマ・同じコンポーネント・同じフォントで、
 **別製品に見せない**ため。
 
 ```
-companion/
-  Program.cs      GUI 起動と CLI（--export-track / --check-catalog）
-  MainForm.cs     WebView2 ホスト、postMessage のブリッジ、重い処理の別スレッド化
-  GameInstall.cs  ゲーム発見・走査、mod の導入/削除、zip 展開、bindings 書き込み
-  BepInEx.cs      ローダーの取得（版と digest を固定）
-  TrackStore.cs   user11.db の読み書き
-  Catalog.cs      公開カタログの取得・検証・ダウンロード
-  Settings.cs     ゲームパスとカタログ URL を %LOCALAPPDATA% に記憶
-  tests/          実データ寄りのテスト（Mac で走る）
+companion-tauri/src-tauri/src/
+  lib.rs       ウィンドウ、dispatch、重い処理の別スレッド化
+  cli.rs       窓を開かない 2 つ（--export-track / --check-catalog）
+  game.rs      ゲーム発見・走査、mod の導入/削除、zip 展開、bindings 書き込み
+  bepinex.rs   ローダーの取得（版と digest を固定）
+  tracks.rs    user11.db の読み書き
+  catalog.rs   公開カタログの取得・検証・ダウンロード
+  settings.rs  ゲームパスとカタログ URL を記憶（Windows は %LOCALAPPDATA%）
+  launch.rs    ゲームの起動と生存確認
+  state.rs     ページに送る状態の組み立て
 ```
 
-**payload は毎回空にしてから詰める。** csproj の `CopyMod` は `Copy` タスクで、消す働きが
-無い。web の資産はビルドごとに名前が変わるので、**入れ直すたびに前回のぶんが隣に残る** —
-2026-09-01 に数えたら payload が 23 本、元は 5 本だった。全部 zip に入り、利用者の
-`vdgs/ui` にも配られていた。`index.html` は現行の 2 本しか名指ししないので**何も壊れず**、
-5 リリース気づかれなかった。ハーネスが数を見張っている。
+**かつて Windows は別実装だった**（`companion/`、.NET Framework 4.8 + WinForms + WebView2）。
+同じ 10 コマンドを 2 回書いて 1 対 1 で保つ期間があり、いまは終わって削除済み。
+`bridge.ts` の `chrome.webview` 経路もそれと一緒に消えた。
 
-**mod はアプリの中に同梱する**（`mod/` フォルダ、`make-release.sh` が組んだ木をビルド時に
-コピー）。ボタンは自分の仕事を名乗る — `INSTALL MOD` / `REINSTALL MOD` /
+**payload は毎回空にしてから詰める。** これは C# 時代からの規則で、理由も同じ —— web の資産は
+ビルドごとに名前が変わるので、**入れ直すたびに前回のぶんが隣に残る**。2026-09-01 に数えたら
+payload が 23 本、元は 5 本だった。全部 zip に入り、利用者の `vdgs/ui` にも配られていた。
+`index.html` は現行の 2 本しか名指ししないので**何も壊れず**、5 リリース気づかれなかった。
+いまは `make-win-app.sh` / `make-mac-app.sh` が `resources/mod` を `rm -rf` してから組む。
+
+**mod はアプリの中に同梱する**（`resources/mod`、リリーススクリプトが組んだ木をビルド時に
+バンドル）。ボタンは自分の仕事を名乗る — `INSTALL MOD` / `REINSTALL MOD` /
 `UPDATE TO <版>` / `NO MOD PAYLOAD`。**押してみないと分からない、をやらせない**ため。
 
 **BepInEx も自分で取ってくる**（無いときだけ）。同梱ではなく本家リリースから、URL・サイズ・
@@ -63,6 +68,9 @@ sha256 を固定して。**「先に BepInEx を入れて」は全インスト�
 
 ## 踏むと高い罠
 
+（WebView2 ホストがファイルを掴んで配備が半分だけ通る話と、`BaseDirectory` の `ui/` を
+`file://` で読めない話は、C# 版と一緒に消えた。どちらも WinForms ホスト固有だった。）
+
 - **`scp host:relative` が exit 0 のまま何も転送しないことがある。** `-v` を見ると
   `Executing: cp --` ＝ **ローカルコピーだと判定されている**（ホスト名が 1 文字だと
   ドライブレターに見える）。`scp host:/C:/Users/<you>/name` と**絶対パスにする**
@@ -78,12 +86,6 @@ sha256 を固定して。**「先に BepInEx を入れて」は全インスト�
   かつ **`-ArgumentList` は空白を含む引数を勝手に引用しない**ので自分で `'"..."'` にする
 - **`Get-Process VDGS` は配列を返しうる。** 2 つ動いていると `AppActivate($p.Id)` が
   `DISP_E_TYPEMISMATCH` で落ちる。`Select-Object -First 1` を挟む
-- **WebView2 ホストを殺しても `msedgewebview2.exe` がファイルを掴んだままの瞬間がある。**
-  フォルダごと消してから展開する配備は、そこで 1 ファイルだけ失敗して**半分だけ新しい木**
-  になる。リトライを入れる
-- **`AppDomain.CurrentDomain.BaseDirectory` に置いた `ui/` を `file://` では読めない。**
-  ES モジュールが読み込まれない。`SetVirtualHostNameToFolderMapping` で
-  `http://vdgs.invalid/` を生やして読む（ポートは開かない）
 - **`.gitignore` に `web/` があると `web/` 配下の新規ファイルが `git add` で消える。**
   React 化前の名残。マージで一度復活し、コミットが自分のソースを半分置き去りにしかけた
 - **macOS では `site.tsx` と `Site.tsx` が同じファイル。** 両方書くと後から書いた方だけが

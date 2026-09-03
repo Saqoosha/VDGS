@@ -545,16 +545,33 @@ F5・F6・F7・F8 は**使っていない**。操作は Web UI から。
 
 **mod を配る道具で、人がやることは 4 クリックだけ。** BepInEx の取得、mod の導入・削除、
 キャプチャのダウンロードと導入、トラックの DB 登録と紐付け、ゲームの起動 — 全部これで済む。
-**両方とも `web/` の同じ React を描く**（`bridge.ts` が host を 3 択にしている）。
+**`companion-tauri/` の 1 本だけ**（Tauri 2 + Rust）で、`web/` の React を描く。
 
-| | 実装 | 起動のしかた |
-|---|---|---|
-| `companion/` | .NET Framework 4.8 + WinForms + WebView2 | `velocidrone.exe -force-d3d12` |
-| `companion-tauri/` | Tauri 2 + Rust（macOS 先行） | `DYLD_INSERT_LIBRARIES` + `DOORSTOP_*` を付けて `arch -arm64` で exec |
+| OS | 起動のしかた |
+|---|---|
+| Windows | `velocidrone.exe -force-d3d12` |
+| macOS | `DYLD_INSERT_LIBRARIES` + `DOORSTOP_*` を付けて `arch -arm64` で exec |
 
-**Windows 版もいずれ Tauri に移す**（そのとき `companion/` を消す）。それまでは C# と Rust が
-同じ仕事を 2 回書いている状態で、**Rust は C# を 1 対 1 で写している** — 挙動を変えるときは
-`companion/*.cs` が正解の側。設計は docs/superpowers/specs/2026-09-02-companion-tauri-design.md。
+**C# 版（`companion/`、.NET Framework 4.8 + WinForms + WebView2）は削除済み。** 同じ仕事を
+2 回書いて 1 対 1 で保つ期間は終わった。当時の設計は
+docs/superpowers/specs/2026-09-02-companion-tauri-design.md、Windows 移植の判断は
+docs/superpowers/specs/2026-09-03-companion-tauri-windows.md に残してある。
+**そこにある `companion/*.cs` への参照は歴史的な記録** — 現物はもう無い。
+
+**窓を開かない仕事が 2 つある**（`cli.rs`。C# の `Program.cs` から移植し、**両 OS で動く** —
+C# 版は Windows 専用だった）：
+
+```
+VDGS --export-track --list                     # user11.db のトラック一覧
+VDGS --export-track "<名前>" [out.track.json]   # 公開用に書き出す（公式サーバー由来は拒否）
+VDGS --check-catalog [url]                     # アプリがそのカタログを読めるか
+```
+
+**GUI サブシステムの exe なので、そのままでは標準出力がどこにも出ない。** `AttachConsole` で
+親のコンソールを借りるが、**既に有効なハンドルがあるなら触らない** — パイプやファイルへの
+リダイレクトをコンソールで上書きすると、呼んだ側に何も届かず、誰も見ていない端末に出る。
+そして `std::process::exit` は**フラッシュしない**ので、明示的に流す。**どちらも「終了コード
+だけ正しくて出力が空」という形で出る**（端末は行バッファなので気づけない）。
 
 **macOS 版で踏んだ罠 3 つ。全部エラーが 1 行も出ない：**
 
@@ -767,8 +784,6 @@ docs/superpowers/specs/2026-08-18-splat-collision-design.md。
 - **空マスクは実施済みで、道具は `tools/sky_person_mask.py`。** 空・雲・人を SegFormer で
   切って AirVis の自動マスク（自撮り棒とマウント）と論理積する。閾値と根拠は
   docs/airvis.ja.md。**まだ効果を出しきれていないのは 360 単独の走行だけ**（下）
-- **Windows の companion を Tauri に移す。** いまは C# と Rust が同じ仕事を 2 回書いている。
-  移したら `companion/` を消す
 - **True Lens の下でも描けるようにするか**（[#27](https://github.com/Saqoosha/VDGS/issues/27)）。
   いまの答えは「切ってもらう」で、companion が FLY の手前でそう言う。5 面それぞれに合成して
   歪みの前に届ける必要があり、**そもそも届く場所があるかを見ていない**

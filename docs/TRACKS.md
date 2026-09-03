@@ -42,6 +42,13 @@ VDGS.exe --export-track --list
 # [server] scene  33  ...
 ```
 
+**The same works on macOS** — it moved across when the two companions became one; the C#
+version was Windows-only. Call the binary inside the bundle:
+
+```bash
+"/Applications/VDGS Companion.app/Contents/MacOS/VDGS Companion" --export-track --list
+```
+
 **All three published VDGS tracks sit on `scene 16`.** Whether that number is the same
 across installs is not verified here, so **read your own list rather than trusting the
 number**.

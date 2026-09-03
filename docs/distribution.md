@@ -1,4 +1,4 @@
-# Shipping it: the companion app (`companion/`)
+# Shipping it: the companion app (`companion-tauri/`)
 
 *[日本語版](distribution.ja.md)*
 
@@ -19,30 +19,37 @@ else.
 **It is the tool that ships the mod, and it asks four clicks of a person.** Fetching
 BepInEx, installing and removing the mod, downloading and installing a capture,
 registering a track in the game's database and binding it, launching with
-`-force-d3d12` — all of it happens here. .NET Framework 4.8 + WinForms, drawing the
-`web/` React app in a WebView2 (`companion.html`). Same theme, same components, same
-fonts as the in-game control UI, so that it **does not read as a different product**.
+`-force-d3d12` — all of it happens here. **One app, Tauri 2 + Rust**, drawing the `web/`
+React app (`companion.html`). Same theme, same components, same fonts as the in-game
+control UI, so that it **does not read as a different product**.
 
 ```
-companion/
-  Program.cs      GUI entry and CLI (--export-track / --check-catalog)
-  MainForm.cs     WebView2 host, the postMessage bridge, heavy work off the UI thread
-  GameInstall.cs  finding and scanning the game, install/remove, unzip, writing bindings
-  BepInEx.cs      fetching the loader (version and digest pinned)
-  TrackStore.cs   reading and writing user11.db
-  Catalog.cs      fetching, validating and downloading the published catalog
-  Settings.cs     remembers the game path and catalog URL under %LOCALAPPDATA%
-  tests/          tests against realistic data (they run on macOS)
+companion-tauri/src-tauri/src/
+  lib.rs       the window, dispatch, heavy work off the UI thread
+  cli.rs       the two things that open no window (--export-track / --check-catalog)
+  game.rs      finding and scanning the game, install/remove, unzip, writing bindings
+  bepinex.rs   fetching the loader (version and digest pinned)
+  tracks.rs    reading and writing user11.db
+  catalog.rs   fetching, validating and downloading the published catalog
+  settings.rs  remembers the game path and catalog URL (%LOCALAPPDATA% on Windows)
+  launch.rs    starting the game and telling whether it is up
+  state.rs     assembling the state the page is sent
 ```
 
-**Empty the payload before refilling it.** The csproj's `CopyMod` is a `Copy` task, and
-`Copy` does not delete. Web assets get a fresh content hash on every build, so **each
-refill leaves the previous one lying next to it** — a count on 2026-09-01 found 23 files
-in a payload whose source had 5. All of them went into the zip and out to users' `vdgs/ui`.
-Because `index.html` names only the two current files, **nothing broke**, and it went
-unnoticed across five releases. The harness now watches the count.
+**Windows used to be a second implementation** (`companion/`, .NET Framework 4.8 +
+WinForms + WebView2). The same ten commands were written twice and kept one for one for a
+while; that is over and the C# is deleted. `bridge.ts` lost its `chrome.webview`
+transport at the same time.
 
-**The mod ships inside the app** (a `mod/` folder — the tree `make-release.sh` assembles,
+**Empty the payload before refilling it.** A rule inherited from the C# days, for the same
+reason: web assets get a fresh content hash on every build, so **each refill leaves the
+previous one lying next to it** — a count on 2026-09-01 found 23 files in a payload whose
+source had 5. All of them went into the zip and out to users' `vdgs/ui`. Because
+`index.html` names only the two current files, **nothing broke**, and it went unnoticed
+across five releases. `make-win-app.sh` and `make-mac-app.sh` now `rm -rf` `resources/mod`
+before staging into it.
+
+**The mod ships inside the app** (`resources/mod` — the tree the release scripts assemble,
 copied in at build time). Buttons say what they will actually do: `INSTALL MOD` /
 `REINSTALL MOD` / `UPDATE TO <version>` / `NO MOD PAYLOAD`. Nobody should have to press a
 button to find out what it does.
@@ -72,6 +79,10 @@ user are the only options.
 
 ## Traps that cost real time
 
+(The one about the WebView2 host holding files so a deploy lands half-new, and the one
+about a `ui/` under `BaseDirectory` being unreadable over `file://`, went with the C#
+app. Both were specific to the WinForms host.)
+
 - **`scp host:relative` can exit 0 having transferred nothing.** `-v` shows
   `Executing: cp --` — **it decided this was a local copy** (a one-character hostname
   looks like a drive letter). Use an absolute path: `scp host:/C:/Users/<you>/name`
@@ -88,12 +99,6 @@ user are the only options.
   containing spaces for you** — write `'"..."'` yourself
 - **`Get-Process VDGS` can return an array.** With two running, `AppActivate($p.Id)` fails
   with `DISP_E_TYPEMISMATCH`. Put a `Select-Object -First 1` in the way
-- **Killing the WebView2 host leaves a moment where `msedgewebview2.exe` still holds
-  files.** A deploy that deletes the folder and unpacks into it fails on exactly one file
-  there and produces **a tree that is half new**. Retry
-- **A `ui/` under `AppDomain.CurrentDomain.BaseDirectory` cannot be read over `file://`** —
-  ES modules will not load. Serve it through `SetVirtualHostNameToFolderMapping` as
-  `http://vdgs.invalid/` (no port is opened)
 - **With `web/` in `.gitignore`, new files under `web/` vanish on `git add`.** A leftover
   from before the React rewrite. It came back once through a merge, and a commit nearly
   left half its own source behind

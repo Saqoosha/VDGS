@@ -4,9 +4,12 @@ import type { SetupState } from './types'
  * The transport for the companion window.
  *
  * The setup page runs before the game does, so there is no plugin and no HTTP server to
- * talk to - the host is the C# app around the WebView, reached over
- * chrome.webview.postMessage. Commands are fire-and-forget: every one of them ends with
- * the host pushing fresh state, so there is nothing to correlate a reply against.
+ * talk to - the host is the Tauri app around the webview, reached over its invoke channel.
+ * Commands are fire-and-forget: every one of them ends with the host pushing fresh state,
+ * so there is nothing to correlate a reply against.
+ *
+ * There was a second transport here, chrome.webview.postMessage, for the C# app that used
+ * to be the Windows half. That app is gone and both platforms are Tauri now.
  */
 type Push =
   | ({ type: 'state' } & SetupState)
@@ -21,12 +24,6 @@ type Push =
   // asked - nobody presses refresh to tell the app they quit VelociDrone.
   | { type: 'running'; running: boolean }
 
-type WebViewHost = {
-  postMessage: (message: unknown) => void
-  addEventListener: (type: 'message', fn: (e: { data: Push }) => void) => void
-  removeEventListener: (type: 'message', fn: (e: { data: Push }) => void) => void
-}
-
 type TauriGlobal = {
   core: { invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown> }
   event: {
@@ -34,12 +31,9 @@ type TauriGlobal = {
   }
 }
 
-const webview: WebViewHost | undefined = (
-  window as unknown as { chrome?: { webview?: WebViewHost } }
-).chrome?.webview
 const tauri: TauriGlobal | undefined = (window as unknown as { __TAURI__?: TauriGlobal }).__TAURI__
 
-export const hosted = !!webview || !!tauri
+export const hosted = !!tauri
 
 export type Command =
   | 'refresh'
@@ -62,32 +56,25 @@ export type Command =
 let listening: Promise<unknown> | null = null
 
 export function send(cmd: Command, id?: string): void {
-  if (tauri) {
-    const invoke = () => tauri.core.invoke('dispatch', { cmd, id: id ?? null })
-    void (listening ? listening.then(invoke, invoke) : invoke())
-  } else if (webview) webview.postMessage({ cmd, id })
-  else devSend(cmd, id)
+  if (!tauri) return devSend(cmd, id)
+  const invoke = () => tauri.core.invoke('dispatch', { cmd, id: id ?? null })
+  void (listening ? listening.then(invoke, invoke) : invoke())
 }
 
 export function subscribe(fn: (m: Push) => void): () => void {
-  if (tauri) {
-    let off: (() => void) | null = null
-    let gone = false
-    const ready = tauri.event.listen('push', (e) => fn(e.payload)).then((u) => {
-      if (gone) u()
-      else off = u
-    })
-    listening = ready
-    void ready
-    return () => {
-      gone = true
-      off?.()
-    }
+  if (!tauri) return devSubscribe(fn)
+  let off: (() => void) | null = null
+  let gone = false
+  const ready = tauri.event.listen('push', (e) => fn(e.payload)).then((u) => {
+    if (gone) u()
+    else off = u
+  })
+  listening = ready
+  void ready
+  return () => {
+    gone = true
+    off?.()
   }
-  if (!webview) return devSubscribe(fn)
-  const listener = (e: { data: Push }) => fn(e.data)
-  webview.addEventListener('message', listener)
-  return () => webview.removeEventListener('message', listener)
 }
 
 // ---------------------------------------------------------------- dev stand-in
