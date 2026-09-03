@@ -777,6 +777,14 @@ pub fn run() {
                     child: None,
                 }),
             });
+            // Managed before anything else is started. The page asks for state exactly
+            // once, on subscribe, and `bridge.ts` voids the rejection — so a `refresh` that
+            // lands before the state is managed fails, is dropped, and is never retried:
+            // an empty window with nothing to say why. The window is created before this
+            // hook runs, so that race is real, and it widens with however long the drive
+            // probing in `find` took above.
+            app.manage(Arc::clone(&host));
+
             #[cfg(windows)]
             let find_later = Arc::clone(&host);
             let watch = Arc::clone(&host);
@@ -804,7 +812,6 @@ pub fn run() {
             });
             #[cfg(windows)]
             find_later.find_game_if_missing();
-            app.manage(host);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![dispatch])

@@ -109,9 +109,20 @@ pub(crate) fn is_live_game_process(name: &std::ffi::OsStr, _status: ProcessStatu
     let Some(name) = name.to_str() else {
         return false;
     };
+    // `name.get(cut..)`, never `name[cut..]`: the index is in bytes, and `is_running`
+    // feeds this every process on the machine. A two-character CJK name reported without
+    // an extension puts `len - 4` inside a UTF-8 sequence and the slice panics — measured,
+    // `"日本"` is six bytes and cuts at two, inside the first character. That panic would
+    // land on the startup thread, where it means the app does not open, and on the
+    // two-second watcher, where it kills the running flag for the session and says nothing.
+    // `get` returns None on a boundary it cannot split, so such a name simply fails the
+    // suffix test and is compared whole.
     let stem = match name.len().checked_sub(4) {
-        Some(cut) if name[cut..].eq_ignore_ascii_case(".exe") => &name[..cut],
-        _ => name,
+        Some(cut) => match name.get(cut..) {
+            Some(tail) if tail.eq_ignore_ascii_case(".exe") => &name[..cut],
+            _ => name,
+        },
+        None => name,
     };
     stem.eq_ignore_ascii_case("velocidrone")
 }
@@ -164,5 +175,9 @@ mod tests {
         }
         assert!(!is_live_game_process(OsStr::new("other.exe"), ProcessStatus::Run));
         assert!(!is_live_game_process(OsStr::new("exe"), ProcessStatus::Run));
+        // Names the byte index cannot split. These panicked before `get`.
+        for name in ["日本", "记事本", "日本語", "é"] {
+            assert!(!is_live_game_process(OsStr::new(name), ProcessStatus::Run), "{name}");
+        }
     }
 }

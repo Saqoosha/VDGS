@@ -19,7 +19,7 @@ C# は消さない。実機で通し確認が済んだ次のコミットで消�
 | `is_game(p)` | `p/Contents/MacOS/velocidrone` が実在 | `p/velocidrone.exe` が実在 |
 | `root(p)` | `p.parent()`（`.app` の親） | **`p` 自身** |
 | `exe(p)` | `p/Contents/MacOS/velocidrone` | `p/velocidrone.exe` |
-| `has_bepinex(root)` | `libdoorstop.dylib` + `BepInEx/core/BepInEx.Preloader.dll` | `winhttp.dll` + `BepInEx/` ディレクトリ（`GameInstall.HasBepInEx`） |
+| `has_bepinex(root)` | `libdoorstop.dylib` + `BepInEx/core/BepInEx.Preloader.dll` | `winhttp.dll` + `BepInEx/core/BepInEx.Preloader.dll`（下記） |
 
 Windows の `find()` は `GameInstall.FindGame` の写し。候補リストを順に見て、各候補は
 **そのままと `app` サブフォルダの 2 回**試す。候補 = 名前つき + ドライブごと：
@@ -58,7 +58,9 @@ sha256 = "82f9878551030f54657792c0740d9d51a09500eeae1fba21106b0c441e6732c4"
   区別する必要が無い。
 - **`strip_quarantine` は macOS のみ。** `xattr` を Windows で呼ばない。
 - `uninstall` が消す名前は Windows では `BepInEx` `winhttp.dll` `doorstop_config.ini`
-  `changelog.txt`（`libdoorstop.dylib` / `run_bepinex.sh` は macOS のみ）。
+  `.doorstop_version`（`libdoorstop.dylib` / `run_bepinex.sh` は macOS のみ）。
+  **`changelog.txt` を入れない** — top-level の `.txt` は `catalog::is_note` が導入時に
+  落とすので、そもそも置かれていない。逆に `.doorstop_version` は置かれる。
 - **`write_logging_config` は Windows 版が長い。** `BepInEx.cs::WriteLoggingConfig` の
   内容をそのまま出す（`UnityLogListening = false` + `[Logging.Disk] Enabled = true` +
   `LogLevel`）。macOS 版は現状のまま短いのを維持 — 既にコメントで理由が書いてある。
@@ -70,8 +72,10 @@ sha256 = "82f9878551030f54657792c0740d9d51a09500eeae1fba21106b0c441e6732c4"
   引数 `-force-d3d12`、`current_dir(game)`。stdin/stdout/stderr は null のまま。
   **`-force-d3d12` は削らない** — これが無いと splat シェーダーが unsupported になり、
   ログにも画面にも理由が出ない。
-- `is_live_game_process` の名前判定は Windows では `velocidrone.exe`。
-  ゾンビ判定は Unix のみ意味があるので、Windows では名前一致だけでよい。
+- `is_live_game_process` は Windows では末尾の `.exe` を**大文字小文字を無視して外して**から
+  比較する（`GetProcessesByName("velocidrone")` と同じ意味にする）。ゾンビ判定は Unix のみ。
+  **バイト添字で切らないこと** — `is_running` は機械上の全プロセス名を通すので、
+  `日本` のような名前では `len - 4` が UTF-8 の途中に落ちて panic する。`str::get` を使う。
 
 ### `tracks.rs`
 
@@ -91,9 +95,12 @@ macOS は現状（`data_dir()` = Application Support）のまま。
 - `resolve_picked_game` — Windows は `is_game(path)` のみ（`.app` のネストは無い）。
 - `pick_game` の警告文 — Windows は `"No velocidrone.exe in that folder."`。
   フォルダ選択の説明も `MainForm.cs:686` に合わせる。
-- **`local_hms` の `#[cfg(not(unix))]` が 1970 固定になっている。**
-  ログ行のタイムスタンプが全部 `00:00:00` になるので、Windows 実装を書く。
-  `kernel32` の `GetLocalTime`（`SYSTEMTIME`）を `extern "system"` で呼ぶ。新しい依存は足さない。
+- **時計は `tracks.rs` に 1 本だけ置く。** `lib.rs::local_hms` と
+  `tracks.rs::local_ymdhms_at` は同じ `localtime_r` を 2 回書いていて、どちらも
+  `#[cfg(not(unix))]` で Windows を取りこぼしていた。`tracks` 側に `GetLocalTime`
+  （`SYSTEMTIME` を `extern "system"`、新しい依存は足さない）を書き、`lib.rs` は自分の
+  複製を捨てて `tracks::local_ymdhms()` を呼ぶ。**`lib.rs` だけ直すと `date` 列と
+  バックアップ名が UTC のまま残る**（JST で 9 時間ずれ、エラーは出ない）。
 - `resolve_resource_dir` は現状のロジックのままで Windows でも通る（`resource_dir/mod` を先に見る）。
 
 ### `catalog.rs`
@@ -110,6 +117,26 @@ macOS は現状（`data_dir()` = Application Support）のまま。
 
 配布は**素の exe を zip**（`vdgs-companion-<ver>.zip`、今と同じ名前規約）。
 `make-catalog.sh` / `publish.sh` / サイトは触らない。nsis は焼けるようにだけしておく。
+
+## 実装で仕様から変わった点
+
+レビューと実機テストで決まったもの。**コードが正、この節が理由**。
+
+- **Windows の `has_bepinex` は `GameInstall.HasBepInEx` より厳しい。** C# は
+  「`BepInEx` という名前のフォルダがあるか」しか見ないが、それでは AV が
+  `BepInEx/core` を隔離した機械が「導入済み」と報告し、**修理ボタンが「直すものは無い」と
+  言う**。macOS 側が既に書いている不変条件の片割れで、OS 固有の話ではない
+- **`is_reparse_point` は `symlink_metadata`。** `fs::metadata` は reparse point を辿って
+  **リンク先**の属性を返すので、ビットは決して立たずガードが無効だった。Windows は
+  `C:\Users\All Users` → ProgramData のような junction を標準で持つので、
+  スキップリストで避けたはずの木に降りていた。C# の `DirectoryInfo` は辿らない
+- **スキップリストは大文字小文字を無視して照合する**（C# は `OrdinalIgnoreCase`）
+- **`find_game_if_missing` はまだ `setup()` から呼ぶ。** C# は `NavigationCompleted` から
+  呼ぶので、こちらは**開始時のログ行がページの購読前に emit されて捨てられる**。
+  直していないが、doc コメントがそう明記している（可視性を約束していた文を消した）
+- **`app.manage` は Host を作った直後に呼ぶ。** ページは `refresh` を一度しか送らず
+  `bridge.ts` は拒否を握り潰すので、manage 前に届いた `refresh` は失敗して二度と来ない
+  ＝ 理由の出ない空の窓になる
 
 ## 守ること
 

@@ -226,10 +226,12 @@ pub fn scan_roots(
                 if !path.is_dir() {
                     continue;
                 }
-                let name = match entry.file_name().into_string() {
-                    Ok(n) => n,
-                    Err(_) => continue,
-                };
+                // Lossy, not rejected: the name is only ever used for the two comparisons
+                // below, and a lossy one never accidentally equals `windows` or starts with
+                // a dot. Windows filenames are UTF-16 and may hold unpaired surrogates, so
+                // `into_string` rejecting one dropped that whole subtree — a game installed
+                // under it was unfindable and the scan said it was not on any disk.
+                let name = entry.file_name().to_string_lossy().into_owned();
                 if name.starts_with('.') || skip.contains(name.to_ascii_lowercase().as_str()) {
                     continue;
                 }
