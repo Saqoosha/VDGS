@@ -280,4 +280,17 @@ mod tests {
         std::fs::remove_file(root.join("BepInEx/core/BepInEx.Preloader.dll")).unwrap();
         assert!(!is_ours(&root), "a quarantined preloader is repairable, not ready");
     }
+
+    /// The URL, byte count and sha256 in `release()` can rot without anybody touching this
+    /// code — GitHub re-tagging a release, or an asset being replaced — and the first person
+    /// to find out would otherwise be a user whose INSTALL BEPINEX button fails. It is
+    /// `#[ignore]` because it needs the network, which mirrors how the deleted C# kept it in
+    /// a separate opt-in test project rather than the default run.
+    #[test]
+    #[ignore = "reaches the network; run with --ignored at release time"]
+    fn the_pinned_release_is_still_there() {
+        let dir = tmp();
+        let path = crate::catalog::download(&release(), &dir, &mut |_| {}).expect("pin still fetches");
+        let _ = std::fs::remove_file(path);
+    }
 }

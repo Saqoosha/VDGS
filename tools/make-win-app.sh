@@ -106,6 +106,7 @@ VDGS mod $VER for Windows.
 Installed by the companion; nothing here is meant to be copied by hand.
 EOF
 echo "   payload ok: $(find "$PAY" -type f | wc -l | tr -d ' ') files"
+bash "$ROOT/tools/check-payload.sh" "$PAY"
 
 # ---------------------------------------------------------------- version
 # Same mapping make-mac-app.sh uses, and it has to be the same value: releases here are
@@ -174,6 +175,11 @@ ssh -o BatchMode=yes "$BUILD_HOST" "
   tar xzf (Join-Path \$root 'companion-win.tgz')
   \$env:PATH = \"\$env:USERPROFILE\\.cargo\\bin;C:\\Windows\\system32;C:\\Windows;C:\\Windows\\System32\\Wbem;C:\\Windows\\System32\\WindowsPowerShell\\v1.0\"
   Set-Location (Join-Path \$work 'companion-tauri\\src-tauri')
+  # The pin check runs here and not on the Mac that drives this script. release() is
+  # #[cfg]-split, so a `cargo test` on macOS fetches the macOS loader - it would have
+  # reported the Windows pin healthy while never having looked at it.
+  cargo test -- --ignored the_pinned_release_is_still_there
+  if (\$LASTEXITCODE -ne 0) { throw 'the pinned BepInEx release did not fetch' }
   cargo-tauri.exe build --no-bundle
   if (\$LASTEXITCODE -ne 0) { throw 'cargo tauri build failed' }
 " > "$WORK/build.log" 2>&1
