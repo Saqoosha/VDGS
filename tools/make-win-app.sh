@@ -47,8 +47,16 @@ say "fetching the D3D12 shader bundle"
 # Same two sources make-release.sh uses, in the same order.
 BUNDLE="$ROOT/build/bundles/Windows/vdgs-shaders"
 mkdir -p "$(dirname "$BUNDLE")"
+# The remote game folder, honouring VDGS_GAME the way bake-shaders.sh and launch-win.sh do.
+# There is no default install location for VelociDrone - the zip lands wherever it was
+# unpacked - so the Downloads path is one machine's answer, not the answer.
+REMOTE_GAME_REL="Downloads/Velocidrone\\ Windows\\ Launcher/app"
+if [ -n "${VDGS_GAME:-}" ]; then
+  # An absolute Windows path: scp wants it forward-slashed and with the drive kept.
+  REMOTE_GAME_REL="$(printf '%s' "$VDGS_GAME" | tr '\\\\' '/' | sed 's/ /\\\\ /g')"
+fi
 if [ -n "${VDGS_HOST:-}" ] && scp -o BatchMode=yes -o ConnectTimeout=8 -q \
-     "$VDGS_HOST:Downloads/Velocidrone\\ Windows\\ Launcher/app/vdgs/vdgs-shaders" \
+     "$VDGS_HOST:$REMOTE_GAME_REL/vdgs/vdgs-shaders" \
      "$BUNDLE" 2>/dev/null; then
   echo "   from the game box"
 elif [ -f "$BUNDLE" ]; then
@@ -155,6 +163,7 @@ say "building on $BUILD_HOST"
 # cmd.exe, whose limit is 8191 characters, and a box whose PATH exceeds that hands its
 # children a truncated one - far enough truncated that powershell.exe itself goes missing.
 # The user's environment is not touched; this only shapes what this build sees.
+set +e
 ssh -o BatchMode=yes "$BUILD_HOST" "
   \$ErrorActionPreference = 'Stop'
   \$root = $REMOTE_ROOT_PS
@@ -167,7 +176,24 @@ ssh -o BatchMode=yes "$BUILD_HOST" "
   Set-Location (Join-Path \$work 'companion-tauri\\src-tauri')
   cargo-tauri.exe build --no-bundle
   if (\$LASTEXITCODE -ne 0) { throw 'cargo tauri build failed' }
-" 2>&1 | quiet | grep -E "Compiling vdgs-companion|Finished|Built application|^error|warning:" || true
+" > "$WORK/build.log" 2>&1
+BUILD_STATUS=$?
+set -e
+# ssh's own status, taken before anything else runs. This was a pipeline ending in
+# `|| true` - grep exits 1 when it matches nothing - and that `true` swallowed a failed
+# build along with it. PIPESTATUS does not rescue it either: `|| true` runs `true`, and
+# `true` is what PIPESTATUS then describes. Measured, with a stand-in that exits 3.
+#
+# It matters because failing quietly here is not inert. `Remove-Item` on the work
+# directory is best-effort, so the previous run's exe can still be sitting in
+# target\release, and the packaging step below would zip that as this build's output. The
+# checks at the end confirm the shape of what came back, not that it came from this source.
+[ "$BUILD_STATUS" = 0 ] || {
+  echo "the build on $BUILD_HOST failed (exit $BUILD_STATUS). Last lines:" >&2
+  tail -20 "$WORK/build.log" >&2
+  exit 1; }
+quiet < "$WORK/build.log" \
+  | grep -E "Compiling vdgs-companion|Finished|Built application|^error|warning:" || true
 
 # ---------------------------------------------------------------- package
 say "packaging"

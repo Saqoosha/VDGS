@@ -340,8 +340,10 @@ Y オフセットで持ち上げても直らない（位置の問題ではない
 
 ### AirVis Studio で作る（全文は docs/airvis.ja.md）
 
-**中身は COLMAP 大域 mapper ＋ MCMC で新規性は無く、差がつくのは設定。** そして設定は
-アプリが `airvisstudio-*.json` に全部書き残すので、**推測せず読む。**
+**中身は COLMAP 4.2（private fork）＋ MCMC で、アルゴリズムに新規性は無い。** 差がつくのは
+設定と、彼らが足した Vulkan の抽出・照合・Caspar。設定はアプリが `airvisstudio-*.json` に、
+COLMAP の出どころは `third_party\colmap-runtime\airvis-colmap-runtime.json` に全部書き残す
+ので、**推測せず読む。**
 
 - **360 動画は解像度の役ではなく、地面の被覆の役。** 仮想ビューは 90° を 1600px で
   17.8 px/度、DJI は 63.3 px/度で **3.6 倍粗い**。360 カメラが同じ画素数を球に配る以上、
@@ -351,9 +353,15 @@ Y オフセットで持ち上げても直らない（位置の問題ではない
   生き残りは 70 倍大きくて不透明度 0.05** ＝ 霧。`tools/sky_person_mask.py` で空・雲・人を
   足し、AirVis のマスクと論理積する。**順番は Prepare → マスク → Train**（`Extracted/` は
   Prepare のたびに作り直される）
-- **`maxSplats` は疎点群の 2〜3 倍に置く。** 5.8 倍は無事、6.4 倍で崩壊した
+- **cap は学習器で上限が違い、trainer をまたいで比べない。** gsplat は 1440² で疎点群の
+  4 倍（1M）は無事、12 倍（3M）で崩壊、5M は CUDA エラー。AirVis の trainer は 6M でも
+  健全だが、**`--max-splats` を大きく取りすぎると preset が黙って `conservative` に落ちて
+  `scale_reg=0` になる**（11.1M で踏んだ。針だらけ・座標正規化・減衰の 3 症状）
 - **`Views` は 8 を選ばない。** 上向きと一緒に下向きも消えるのに、空は減らない
   （水平リングだけでも 45.8% が空）
+- **AirVis の SFM は飛ばせる。** trainer 単体（`AirVis-SplatTrainer.exe`）が標準 COLMAP
+  レイアウトを直接読むので、COLMAP 4.2 の `pycolmap.panorama` リグ（360 の登録 50% → 98.8%）
+  を食わせる。CUDA + Caspar 付き pycolmap のビルドと罠は docs/findings-2026-09-03.md
 
 ### 屋外キャプチャの掃除とコリジョン（全文は docs/cleanup.ja.md）
 
@@ -798,7 +806,8 @@ docs/superpowers/specs/2026-08-18-splat-collision-design.md。
   （数字は docs/ply-loading.ja.md）
 - **空マスクは実施済みで、道具は `tools/sky_person_mask.py`。** 空・雲・人を SegFormer で
   切って AirVis の自動マスク（自撮り棒とマウント）と論理積する。閾値と根拠は
-  docs/airvis.ja.md。**まだ効果を出しきれていないのは 360 単独の走行だけ**（下）
+  docs/airvis.ja.md。360 でも効く（下）が、**gsplat 側は損失から外す `mask_dir` と
+  アルファを押す `alpha_mask_dir` を分ける** —— 人はアルファを押すと歩いた道の下の地面が消える
 - **True Lens の下でも描けるようにするか**（[#27](https://github.com/Saqoosha/VDGS/issues/27)）。
   いまの答えは「切ってもらう」で、companion が FLY の手前でそう言う。5 面それぞれに合成して
   歪みの前に届ける必要があり、**そもそも届く場所があるかを見ていない**
@@ -819,9 +828,12 @@ docs/superpowers/specs/2026-08-18-splat-collision-design.md。
   いて、**残りは撮影密度の問題に見える** —— FDF と比べて写真が 4.6 分の 1（0.015 対
   0.070 枚/m²）、地面の被覆が 4 分の 1（p50 0.40 対 1.68）。**学習を厚くしても埋まらない**
   ことは確認済み（5M / 10 万反復にしても被覆は 0.40 → 0.35 で、細部だけが良くなった）
-- **Insta360 の地上映像は単独では使えず、追うのをやめた**（2026-09-01 の判断）。マスクと
-  cap を合わせて生存 52.9% まで戻したが、健全な走行の 89〜97% には届かない（詳細と残る
-  容疑者は docs/airvis.ja.md）。**DJI と 360 を 1 本の再構成に混ぜる案は未検証のまま終了。**
+- **Insta360 の地上映像は単独では使い物にならない。** AirVis の外で回せば指標は健全に
+  なる（生存 68%、masked PSNR 24.6）が、**品質は前より良いだけで、使えるレベルではなく、
+  DJI 版 JDL にも届かない**（2026-09-03 に目視で判定）。効いたのは COLMAP 4.2 の
+  panorama リグ（登録 50% → 98.8%）と空・人マスク、正則化。届かないのは 16 px/度と均一な
+  動きブレで、撮影の物理。**残る手は DJI と同じ COLMAP モデルに混ぜて地面の被覆だけ足す
+  合成で、道具は揃ったが未実施**（docs/airvis.ja.md「実測値」、docs/findings-2026-09-03.md）。
   配備中の `JDL-2026-R5-airvis` は DJI 456 枚だけで作られている
 ## 参考
 
