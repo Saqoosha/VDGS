@@ -121,10 +121,27 @@ sha256 を固定して。**「先に BepInEx を入れて」は全インスト�
 は名前順だと `2026.09.01` より古く見える）。`publish.sh` はカタログが名指しした**全部**を
 上げる — 1 つでも漏らすと 404 するボタンを公開することになる。
 
-**mod の版はリリースの日付で、`make-release.sh` だけが刻む**（`-p:Version=$VERSION`）。
-`src/VDGS/VDGS.csproj` の `<Version>0.1.0</Version>` は置き場所で、そのまま出るのは
-**dev ビルド**。companion の mod ボタンは導入済みの版と同梱の版を比べるので、
-**全ビルドが同じ 0.1.0.0 を名乗っている間は「Reinstall mod」しか出せない**。
+**版はリリースの日付で、`make-release.sh` と `make-mac-app.sh` が同じ既定を持つ**
+（引数無しなら `date +%Y.%m.%d`）。`src/VDGS/VDGS.csproj` の `<Version>0.1.0</Version>` は
+置き場所で、そのまま出るのは **dev ビルド**。companion の mod ボタンは導入済みの版と同梱の版を
+比べるので、**全ビルドが同じ 0.1.0.0 を名乗っている間は「Reinstall mod」しか出せない**。
+
+**既定が片方だけ csproj を見ていた時期があり、同じ日に両方焼くと `0.1.0` の DMG が
+`2026.09.03` の zip の隣に並んだ。** 揃えてある。
+
+**macOS の bundle に刻む版は SemVer に写す必要がある**（`tools/calver_to_semver.py`）。
+Tauri は `tauri.conf.json` の `version` を SemVer として読み、**先頭ゼロを拒否する** —
+`2026.09.03` は `must be a semver string` で**ビルドごと落ちる**。ゼロを落とし、4 つ目は
+build metadata にする：
+
+```
+2026.09.03   -> 2026.9.3
+2026.09.01.3 -> 2026.9.1+3
+```
+
+**4 つ目を捨ててはいけない。** `2026.09.01` と `2026.09.01.3` が両方 `2026.9.1` を名乗り、
+**別物が同じ版を主張する**。Apple の `CFBundleShortVersionString` は仕様上「整数 3 つ」だが、
+**`+3` 付きで公証・staple・Gatekeeper すべて通ることは実測済み**。
 
 **カタログ側にバージョン要件は置かない。** 要るのは古い mod では描けないキャプチャを
 実際に公開したときで、そのときに設計する（[#4](https://github.com/Saqoosha/VDGS/issues/4)）。
@@ -148,7 +165,9 @@ sha256 を固定して。**「先に BepInEx を入れて」は全インスト�
 **同じ名前で中身を差し替えない。** 公開ファイルは `immutable, max-age=31536000` で配るので、
 上書きするとエッジは古い中身を 1 年出し続け、カタログは新しい digest を名乗る。
 **ダウンロードは完走して、そのあと展開が拒否される。** 版を上げて別名にする。
-2026-09-01 に `vdgs-companion-2026.09.01.zip` でこれをやりかけた。
+**`publish.sh` が実際に止めてくれる** — 「published with a different sha256 / Those names are
+spent」。二度やりかけて二度とも止まった（`vdgs-companion-2026.09.01.zip`、
+`VDGS-Companion-2026.09.03-macos.dmg`）ので、**この防具は効いている**。
 
 **見張りは digest で、サイズではない。** `publish.sh` は各オブジェクトに sha256 を user
 metadata として刻み、次回はそれと突き合わせる。同じ日の companion 3 版が
