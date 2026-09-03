@@ -203,6 +203,16 @@ impl Host {
                 return Ok(());
             };
             let mut i = host.inner.lock().unwrap();
+            // Checked again, under the lock, because the walk takes minutes and the folder
+            // picker stays live throughout it - `pick_game` does not go through `run_busy`,
+            // and its button is the one button on the page without `disabled={busy}`.
+            // Someone who gets tired of waiting and points at their game by hand had that
+            // choice overwritten by whichever velocidrone.exe the walk reached first, and
+            // every launch afterwards ran the wrong one.
+            if i.game.is_some() {
+                log("kept the folder you picked".into());
+                return Ok(());
+            }
             i.settings.game = Some(found.to_string_lossy().into_owned());
             i.settings.save();
             i.game = Some(found);
