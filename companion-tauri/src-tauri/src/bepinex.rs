@@ -1,12 +1,25 @@
-//! Install and uninstall the patched BepInEx loader.
+//! Install and uninstall the BepInEx loader.
 
 use std::path::Path;
-use std::process::Command;
 
 use crate::catalog;
 
+#[cfg(target_os = "macos")]
+use std::process::Command;
+
+/// macOS: the patched universal build, with the arm64 MonoMod fix.
+#[cfg(target_os = "macos")]
 pub const VERSION: &str = "5.4.23.5-vdgs.1";
 
+/// Windows: the official release, which needs no patch.
+///
+/// A log string only. `is_ours` does not compare against it, matching `MainForm.cs`, so an
+/// older BepInEx already on the machine is kept rather than upgraded — do not read this
+/// constant as a floor.
+#[cfg(windows)]
+pub const VERSION: &str = "5.4.23.5";
+
+#[cfg(target_os = "macos")]
 pub fn release() -> catalog::FileRef {
     catalog::FileRef {
         url: "https://github.com/Saqoosha/BepInEx/releases/download/v5.4.23.5-vdgs.1/BepInEx_macos_universal_5.4.23.5-vdgs.1.zip"
@@ -18,30 +31,55 @@ pub fn release() -> catalog::FileRef {
     }
 }
 
+#[cfg(windows)]
+pub fn release() -> catalog::FileRef {
+    catalog::FileRef {
+        url: "https://github.com/BepInEx/BepInEx/releases/download/v5.4.23.5/BepInEx_win_x64_5.4.23.5.zip"
+            .into(),
+        bytes: 639118,
+        sha256: Some(
+            "82f9878551030f54657792c0740d9d51a09500eeae1fba21106b0c441e6732c4".into(),
+        ),
+    }
+}
+
 /// Records which BepInEx this app put there.
 ///
-/// The loader's own files do not say. An official macOS BepInEx has the same dylib and the
-/// same preloader path as the patched one, so "is BepInEx here" cannot answer "is the
-/// preloader the one that survives arm64" - and the official one does not: it dies before
-/// the chainloader and the game starts with no plugins. Skipping the install on the
+/// macOS only. The loader's own files do not say. An official macOS BepInEx has the same
+/// dylib and the same preloader path as the patched one, so "is BepInEx here" cannot answer
+/// "is the preloader the one that survives arm64" - and the official one does not: it dies
+/// before the chainloader and the game starts with no plugins. Skipping the install on the
 /// strength of those files would drop our plugin into a loader that never runs it, and
-/// then report the machine ready.
+/// then report the machine ready. Windows uses the official release, so there is nothing to
+/// distinguish and no stamp is written.
+#[cfg(target_os = "macos")]
 fn stamp_path(root: &Path) -> std::path::PathBuf {
     root.join("BepInEx/vdgs-bepinex-version.txt")
 }
 
-/// Whether the loader here is the build this app installs, and is still all there.
+/// Whether a loader this app can work with is already here.
 ///
-/// Both halves are needed. Without the stamp, another BepInEx - the official release, an
-/// older fork, a hand-unzipped copy - passes as ours and is never replaced. Without the
-/// file check, a stamp that outlived the files it describes says the loader is fine while
-/// the game has nothing to load, and the install skips it, so the one button that could
-/// repair the machine is the one that reports there is nothing to repair.
+/// macOS: both halves are needed. Without the stamp, another BepInEx - the official
+/// release, an older fork, a hand-unzipped copy - passes as ours and is never replaced.
+/// Without the file check, a stamp that outlived the files it describes says the loader is
+/// fine while the game has nothing to load, and the install skips it, so the one button
+/// that could repair the machine is the one that reports there is nothing to repair.
+///
+/// Windows: `has_bepinex` alone. The official win_x64 zip is the correct loader, so a stamp
+/// that separates official from patched is not needed — but note what that leaves out: any
+/// BepInEx passes, including an older one, matching `GameInstall.HasBepInEx`. The file half
+/// of the invariant is kept, in `has_bepinex` itself.
+#[cfg(target_os = "macos")]
 pub fn is_ours(root: &Path) -> bool {
     crate::game::has_bepinex(root)
         && std::fs::read_to_string(stamp_path(root))
             .map(|s| s.trim() == VERSION)
             .unwrap_or(false)
+}
+
+#[cfg(windows)]
+pub fn is_ours(root: &Path) -> bool {
+    crate::game::has_bepinex(root)
 }
 
 pub fn install(
@@ -64,9 +102,13 @@ pub fn install(
             ));
         }
         catalog::extract(&zip, root, &["BepInEx.cfg"], log)?;
-        strip_quarantine(&root.join("libdoorstop.dylib"));
-        strip_quarantine(&root.join("BepInEx"));
+        #[cfg(target_os = "macos")]
+        {
+            strip_quarantine(&root.join("libdoorstop.dylib"));
+            strip_quarantine(&root.join("BepInEx"));
+        }
         write_logging_config(root)?;
+        #[cfg(target_os = "macos")]
         std::fs::write(stamp_path(root), VERSION)?;
         log(format!("installed BepInEx {VERSION}"));
         Ok(())
@@ -76,13 +118,20 @@ pub fn install(
 }
 
 pub fn uninstall(root: &Path, log: &mut dyn FnMut(String)) -> std::io::Result<()> {
-    for name in [
+    #[cfg(target_os = "macos")]
+    let names = [
         "BepInEx",
         "libdoorstop.dylib",
         "run_bepinex.sh",
         "README-vdgs.txt",
         "changelog.txt",
-    ] {
+    ];
+    // The top-level files the pinned win_x64 zip actually lays down. `changelog.txt` is not
+    // among them: `catalog::is_note` drops top-level `.txt` at install, so naming it here
+    // removed nothing, while `.doorstop_version` was installed and left behind.
+    #[cfg(windows)]
+    let names = ["BepInEx", "winhttp.dll", "doorstop_config.ini", ".doorstop_version"];
+    for name in names {
         let path = root.join(name);
         if path.is_dir() {
             std::fs::remove_dir_all(&path)?;
@@ -104,6 +153,7 @@ pub fn uninstall(root: &Path, log: &mut dyn FnMut(String)) -> std::io::Result<()
 /// there is no spam to suppress - and leaving the listener on is what puts the game's own
 /// messages in the log, which is the first thing anyone reads when a capture does not
 /// appear. AGENTS.md describes the Windows behaviour; this is the deliberate difference.
+#[cfg(target_os = "macos")]
 pub fn write_logging_config(root: &Path) -> std::io::Result<()> {
     let path = root.join("BepInEx/config/BepInEx.cfg");
     if path.exists() {
@@ -118,6 +168,37 @@ pub fn write_logging_config(root: &Path) -> std::io::Result<()> {
     )
 }
 
+/// BepInEx writes no config until the game has been run once, and its defaults are wrong
+/// for this game in a way that costs real disk.
+///
+/// Under `-force-d3d12` the game's own Auto Exposure throws every frame - a fault in the
+/// game, not the mod, and harmless to the picture. With Unity log listening on, that
+/// exception is copied into the BepInEx log until it reaches tens of megabytes; one session
+/// was measured at 64 MB. Turning listening off leaves the exceptions in Player.log where
+/// they belong. (Matches BepInEx.cs::WriteLoggingConfig.)
+#[cfg(windows)]
+pub fn write_logging_config(root: &Path) -> std::io::Result<()> {
+    let path = root.join("BepInEx/config/BepInEx.cfg");
+    if path.exists() {
+        return Ok(());
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(
+        path,
+        "[Logging]\r\n\
+         ## Whether to write the game's own Unity log into BepInEx's.\r\n\
+         UnityLogListening = false\r\n\
+         \r\n\
+         [Logging.Disk]\r\n\
+         Enabled = true\r\n\
+         LogLevel = Fatal, Error, Warning, Message, Info\r\n",
+    )
+}
+
+/// macOS only — `xattr` is not a Windows tool.
+#[cfg(target_os = "macos")]
 pub fn strip_quarantine(path: &Path) {
     let mut cmd = Command::new("xattr");
     if path.is_dir() {
@@ -157,6 +238,8 @@ mod tests {
         p
     }
 
+    /// macOS: stamp + files. Official-looking files alone must not count as ours.
+    #[cfg(target_os = "macos")]
     #[test]
     fn only_our_own_build_counts_as_installed() {
         let root = tmp();
@@ -178,5 +261,23 @@ mod tests {
         std::fs::write(stamp_path(&root), VERSION).unwrap();
         std::fs::remove_file(root.join("libdoorstop.dylib")).unwrap();
         assert!(!is_ours(&root), "the stamp alone is not the loader");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_ours_is_has_bepinex_alone() {
+        let root = tmp();
+        assert!(!is_ours(&root));
+        // A folder alone is not a loader: this is the shape an antivirus quarantine of
+        // BepInEx/core leaves behind, and it must not report as installed.
+        std::fs::create_dir_all(root.join("BepInEx/core")).unwrap();
+        std::fs::write(root.join("winhttp.dll"), b"x").unwrap();
+        assert!(!is_ours(&root), "an emptied BepInEx is not a loader");
+
+        std::fs::write(root.join("BepInEx/core/BepInEx.Preloader.dll"), b"x").unwrap();
+        assert!(is_ours(&root));
+
+        std::fs::remove_file(root.join("BepInEx/core/BepInEx.Preloader.dll")).unwrap();
+        assert!(!is_ours(&root), "a quarantined preloader is repairable, not ready");
     }
 }

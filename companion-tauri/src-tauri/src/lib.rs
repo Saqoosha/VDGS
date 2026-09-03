@@ -10,7 +10,7 @@ pub mod tracks;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use serde::Serialize;
 use serde_json::json;
@@ -151,14 +151,26 @@ impl Host {
     }
 
     fn pick_game(&self) {
-        let Some(picked) = self.app.dialog().file().blocking_pick_folder() else {
+        let mut picker = self.app.dialog().file();
+        #[cfg(windows)]
+        {
+            picker = picker.set_title("Select the folder holding velocidrone.exe");
+        }
+        #[cfg(target_os = "macos")]
+        {
+            picker = picker.set_title("Select the folder holding velocidrone.app");
+        }
+        let Some(picked) = picker.blocking_pick_folder() else {
             return;
         };
         let Ok(path) = picked.into_path() else {
             return;
         };
         let Some(app) = resolve_picked_game(path) else {
+            #[cfg(target_os = "macos")]
             self.warn_dialog("No velocidrone.app in that folder.");
+            #[cfg(windows)]
+            self.warn_dialog("No velocidrone.exe in that folder.");
             return;
         };
         {
@@ -168,6 +180,76 @@ impl Host {
             i.game = Some(app);
         }
         self.push();
+    }
+
+    /// Finds the game, after the page can already be talked to.
+    ///
+    /// Runs on a thread rather than in `setup` because both halves can be slow and neither
+    /// is worth an empty window: the guesses stat every drive letter on Windows, and the
+    /// walk below that reads the disk. `setup` keeps only the remembered path, which is one
+    /// stat, so the state is managed and answerable within microseconds either way.
+    ///
+    /// The guesses are silent — on a machine where one hits they take no time and a busy
+    /// label would only flicker. The walk is not, and says so.
+    fn locate_game(self: &Arc<Self>) {
+        if self.inner.lock().unwrap().game.is_some() {
+            return;
+        }
+        if let Some(found) = game::find() {
+            let mut i = self.inner.lock().unwrap();
+            // Re-read under the lock for the reason spelled out on the walk below: the
+            // folder picker is live the whole time this runs.
+            if i.game.is_none() {
+                i.settings.game = Some(found.to_string_lossy().into_owned());
+                i.settings.save();
+                i.game = Some(found);
+            }
+            drop(i);
+            self.push();
+            return;
+        }
+        #[cfg(windows)]
+        self.find_game_if_missing();
+        #[cfg(not(windows))]
+        self.push();
+    }
+
+    /// Walks the disk for the game, but only when the guesses found nothing.
+    ///
+    /// Windows only, and separate from `game::find` on purpose: the guesses run before the
+    /// page can draw anything and must stay cheap, while this one can take a while. The
+    /// busy label carries it, because that lives in `Inner` and the page's first `refresh`
+    /// reads it back. The log lines do not: this is called from `setup`, and a `post` made
+    /// before the page subscribes is dropped — the same `listen()` race the bridge gates
+    /// against. `MainForm.cs` calls its equivalent from `NavigationCompleted` instead, so
+    /// matching that is the fix; until then, do not read the log for evidence the walk ran.
+    /// Finding nothing is not a failure — plenty of people keep the game somewhere this
+    /// walk does not reach, and the folder picker is still there.
+    #[cfg(windows)]
+    fn find_game_if_missing(self: &Arc<Self>) {
+        if self.inner.lock().unwrap().game.is_some() {
+            return;
+        }
+        self.run_busy("looking for velocidrone", |host, log| {
+            let Some(found) = game::scan_for_game(log) else {
+                return Ok(());
+            };
+            let mut i = host.inner.lock().unwrap();
+            // Checked again, under the lock, because the walk takes minutes and the folder
+            // picker stays live throughout it - `pick_game` does not go through `run_busy`,
+            // and its button is the one button on the page without `disabled={busy}`.
+            // Someone who gets tired of waiting and points at their game by hand had that
+            // choice overwritten by whichever velocidrone.exe the walk reached first, and
+            // every launch afterwards ran the wrong one.
+            if i.game.is_some() {
+                log("kept the folder you picked".into());
+                return Ok(());
+            }
+            i.settings.game = Some(found.to_string_lossy().into_owned());
+            i.settings.save();
+            i.game = Some(found);
+            Ok(())
+        });
     }
 
     fn install_mod(self: &Arc<Self>) {
@@ -621,9 +703,13 @@ fn resolve_picked_game(path: PathBuf) -> Option<PathBuf> {
     if game::is_game(&path) {
         return Some(path);
     }
-    let nested = path.join("velocidrone.app");
-    if game::is_game(&nested) {
-        return Some(nested);
+    // macOS: the picker may land on the parent of the .app bundle.
+    #[cfg(target_os = "macos")]
+    {
+        let nested = path.join("velocidrone.app");
+        if game::is_game(&nested) {
+            return Some(nested);
+        }
     }
     None
 }
@@ -644,55 +730,13 @@ fn resolve_resource_dir(app: &tauri::AppHandle) -> PathBuf {
     base
 }
 
+/// The clock lives in `tracks`, which needs the same wall-clock answer for the `date`
+/// column and for backup filenames. Two copies of the same `localtime_r` block were here
+/// and there before the Windows port, and adding a second `GetLocalTime` beside them would
+/// have made it three.
 fn now_hms() -> String {
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-    let (_y, _mo, _d, h, mi, s) = local_hms(secs);
+    let (_y, _mo, _d, h, mi, s) = tracks::local_ymdhms();
     format!("{h:02}:{mi:02}:{s:02}")
-}
-
-#[cfg(unix)]
-fn local_hms(secs: i64) -> (i32, u32, u32, u32, u32, u32) {
-    #[repr(C)]
-    struct Tm {
-        tm_sec: i32,
-        tm_min: i32,
-        tm_hour: i32,
-        tm_mday: i32,
-        tm_mon: i32,
-        tm_year: i32,
-        tm_wday: i32,
-        tm_yday: i32,
-        tm_isdst: i32,
-        tm_gmtoff: i64,
-        tm_zone: *const i8,
-    }
-    extern "C" {
-        fn localtime_r(timep: *const i64, result: *mut Tm) -> *mut Tm;
-    }
-    unsafe {
-        let mut tm = std::mem::MaybeUninit::<Tm>::zeroed();
-        let ptr = localtime_r(&secs, tm.as_mut_ptr());
-        if ptr.is_null() {
-            return (1970, 1, 1, 0, 0, 0);
-        }
-        let tm = tm.assume_init();
-        (
-            tm.tm_year + 1900,
-            (tm.tm_mon + 1) as u32,
-            tm.tm_mday as u32,
-            tm.tm_hour as u32,
-            tm.tm_min as u32,
-            tm.tm_sec as u32,
-        )
-    }
-}
-
-#[cfg(not(unix))]
-fn local_hms(_secs: i64) -> (i32, u32, u32, u32, u32, u32) {
-    (1970, 1, 1, 0, 0, 0)
 }
 
 /// Every command the page can send.
@@ -734,23 +778,17 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let resource_dir = resolve_resource_dir(app.handle());
-            let mut settings = Settings::load();
-            let game = match settings
+            let settings = Settings::load();
+            // Only the remembered path is resolved here, and only because it costs one
+            // stat. Guessing is not: on Windows it probes every drive letter, and an empty
+            // removable drive or a mapped share that is no longer there answers on its own
+            // schedule. Everything on this line runs before the state is reachable, so a
+            // slow answer here is a window that never fills in.
+            let game = settings
                 .game
                 .as_ref()
                 .map(PathBuf::from)
-                .filter(|p| game::is_game(p))
-            {
-                Some(g) => Some(g),
-                None => {
-                    let found = game::find();
-                    if let Some(ref g) = found {
-                        settings.game = Some(g.to_string_lossy().into_owned());
-                        settings.save();
-                    }
-                    found
-                }
-            };
+                .filter(|p| game::is_game(p));
             let host = Arc::new(Host {
                 app: app.handle().clone(),
                 resource_dir,
@@ -765,6 +803,16 @@ pub fn run() {
                     child: None,
                 }),
             });
+            // Managed before anything else is started. The page asks for state exactly
+            // once, on subscribe, and `bridge.ts` voids the rejection — so a `refresh` that
+            // lands before the state is managed fails, is dropped, and is never retried:
+            // an empty window with nothing to say why. The window is created before this
+            // hook runs, so the race is real, and everything above this line is inside it.
+            app.manage(Arc::clone(&host));
+
+            let locate = Arc::clone(&host);
+            std::thread::spawn(move || locate.locate_game());
+
             let watch = Arc::clone(&host);
             std::thread::spawn(move || loop {
                 std::thread::sleep(Duration::from_secs(2));
@@ -788,7 +836,6 @@ pub fn run() {
                 }
                 watch.post(json!({"type":"running","running": now}));
             });
-            app.manage(host);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![dispatch])

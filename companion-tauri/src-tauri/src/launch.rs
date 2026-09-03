@@ -1,12 +1,16 @@
-//! Spawn the game through Doorstop and check if it is running.
+//! Spawn the game and check if it is running.
 
-use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
 use sysinfo::{ProcessRefreshKind, ProcessStatus, ProcessesToUpdate, System};
 
+#[cfg(target_os = "macos")]
+use std::collections::BTreeMap;
+
 /// Doorstop + dyld env matching `run_bepinex.sh` defaults (absolute target assembly).
+/// macOS only — Windows injects through `winhttp.dll` and needs no env.
+#[cfg(target_os = "macos")]
 pub fn doorstop_env(app: &Path) -> BTreeMap<String, String> {
     let root = app.parent().expect("game .app path has a parent");
     let mut e = BTreeMap::new();
@@ -35,6 +39,8 @@ pub fn doorstop_env(app: &Path) -> BTreeMap<String, String> {
     e
 }
 
+/// macOS: `arch -arm64` + Doorstop env. (Metal is the game's normal path; no D3D flag.)
+#[cfg(target_os = "macos")]
 pub fn spawn(app: &Path) -> std::io::Result<std::process::Child> {
     let root = app.parent().ok_or_else(|| {
         std::io::Error::new(
@@ -62,10 +68,63 @@ pub fn spawn(app: &Path) -> std::io::Result<std::process::Child> {
         .spawn()
 }
 
+/// Windows: `velocidrone.exe -force-d3d12`. Without that flag the splat shaders are
+/// unsupported and nothing says why. `winhttp.dll` injects Doorstop on its own.
+#[cfg(windows)]
+pub fn spawn(game: &Path) -> std::io::Result<std::process::Child> {
+    let exe = game.join("velocidrone.exe");
+    if !exe.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("missing {}", exe.display()),
+        ));
+    }
+    Command::new(&exe)
+        .arg("-force-d3d12")
+        .current_dir(game)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+}
+
 /// Whether a listed process counts as VelociDrone still running.
-/// Zombies are left behind when we spawn and never wait — they must not block installs.
+/// macOS: zombies are left behind when we spawn and never wait — they must not block installs.
+#[cfg(target_os = "macos")]
 pub(crate) fn is_live_game_process(name: &std::ffi::OsStr, status: ProcessStatus) -> bool {
     name == "velocidrone" && status != ProcessStatus::Zombie
+}
+
+/// Whether a listed process counts as VelociDrone still running.
+/// Windows: name match only — zombie status is a Unix concept.
+///
+/// The trailing `.exe` is stripped case-insensitively rather than matched, so that neither
+/// spelling nor casing of what sysinfo reports is something this depends on. The cost of
+/// getting it wrong is not silent here the way it is on macOS — Windows holds a lock on a
+/// running executable, so the install fails partway with a file-in-use error the person
+/// cannot act on — but a half-replaced loader is still worth not creating. Stripping makes
+/// every spelling mean what `GetProcessesByName("velocidrone")` means.
+#[cfg(windows)]
+pub(crate) fn is_live_game_process(name: &std::ffi::OsStr, _status: ProcessStatus) -> bool {
+    let Some(name) = name.to_str() else {
+        return false;
+    };
+    // `name.get(cut..)`, never `name[cut..]`: the index is in bytes, and `is_running`
+    // feeds this every process on the machine. A two-character CJK name reported without
+    // an extension puts `len - 4` inside a UTF-8 sequence and the slice panics — measured,
+    // `"日本"` is six bytes and cuts at two, inside the first character. That panic would
+    // land on the startup thread, where it means the app does not open, and on the
+    // two-second watcher, where it kills the running flag for the session and says nothing.
+    // `get` returns None on a boundary it cannot split, so such a name simply fails the
+    // suffix test and is compared whole.
+    let stem = match name.len().checked_sub(4) {
+        Some(cut) => match name.get(cut..) {
+            Some(tail) if tail.eq_ignore_ascii_case(".exe") => &name[..cut],
+            _ => name,
+        },
+        None => name,
+    };
+    stem.eq_ignore_ascii_case("velocidrone")
 }
 
 pub fn is_running() -> bool {
@@ -80,11 +139,12 @@ pub fn is_running() -> bool {
 mod tests {
     use super::*;
     use std::ffi::OsStr;
-    use std::path::PathBuf;
     use sysinfo::ProcessStatus;
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn env_for_doorstop() {
+        use std::path::PathBuf;
         let app = PathBuf::from("/tmp/Data/velocidrone.app");
         let e = doorstop_env(&app);
         assert_eq!(e["DOORSTOP_ENABLED"], "1");
@@ -96,6 +156,7 @@ mod tests {
         assert_eq!(e["DYLD_INSERT_LIBRARIES"], "libdoorstop.dylib");
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn zombie_velocidrone_is_not_running() {
         let name = OsStr::new("velocidrone");
@@ -103,5 +164,20 @@ mod tests {
         assert!(is_live_game_process(name, ProcessStatus::Run));
         assert!(is_live_game_process(name, ProcessStatus::Sleep));
         assert!(!is_live_game_process(OsStr::new("other"), ProcessStatus::Run));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_process_name_is_exe() {
+        // Every spelling counts - which one sysinfo reports is not ours to depend on.
+        for name in ["velocidrone.exe", "velocidrone", "VelociDrone.exe", "Velocidrone.Exe"] {
+            assert!(is_live_game_process(OsStr::new(name), ProcessStatus::Run), "{name}");
+        }
+        assert!(!is_live_game_process(OsStr::new("other.exe"), ProcessStatus::Run));
+        assert!(!is_live_game_process(OsStr::new("exe"), ProcessStatus::Run));
+        // Names the byte index cannot split. These panicked before `get`.
+        for name in ["日本", "记事本", "日本語", "é"] {
+            assert!(!is_live_game_process(OsStr::new(name), ProcessStatus::Run), "{name}");
+        }
     }
 }

@@ -108,7 +108,9 @@ pub fn build(i: Inputs) -> SetupState {
         let root = game::root(app);
         // The patched loader specifically. One that is merely present may be the official
         // build, which cannot load anything on Apple Silicon - reporting that as satisfied
-        // is how a machine ends up calling itself ready and drawing nothing.
+        // is how a machine ends up calling itself ready and drawing nothing. That argument
+        // is macOS's; on Windows the official release is the right loader and `is_ours`
+        // asks only whether a working one is there.
         if !bepinex::is_ours(&root) {
             missing.push("BepInEx".into());
         }
@@ -330,9 +332,14 @@ mod tests {
     #[test]
     fn build_marks_missing_and_bindings() {
         let root = tmp();
-        let app = root.join("velocidrone.app");
-        std::fs::create_dir_all(app.join("Contents/MacOS")).unwrap();
-        std::fs::write(app.join("Contents/MacOS/velocidrone"), b"").unwrap();
+        // Built through game::exe/root rather than spelled out, because the two layouts
+        // disagree: on macOS the game is a bundle inside the root, on Windows the game
+        // folder is the root. Hardcoding the macOS shape made this fail on Windows for a
+        // fixture reason rather than a behaviour one.
+        let app = fixture_game(&root);
+        let exe = game::exe(&app);
+        std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
+        std::fs::write(&exe, b"").unwrap();
         std::fs::create_dir_all(root.join("vdgs/a")).unwrap();
         std::fs::write(root.join("vdgs/a/meta.json"), r#"{"splatCount":3}"#).unwrap();
         game::bind(&root, "T", "a").unwrap();
@@ -358,6 +365,17 @@ mod tests {
         assert_eq!(t, vec![("T", true), ("U", false)]);
         assert!(s.unbound.is_empty());
         assert!(s.catalog.is_none());
+    }
+
+    /// The path `game::root` maps back to `root` on this platform.
+    #[cfg(target_os = "macos")]
+    fn fixture_game(root: &Path) -> PathBuf {
+        root.join("velocidrone.app")
+    }
+
+    #[cfg(windows)]
+    fn fixture_game(root: &Path) -> PathBuf {
+        root.to_path_buf()
     }
 
     fn entry(track_name: &str, install_as: Option<&str>) -> catalog::Entry {
