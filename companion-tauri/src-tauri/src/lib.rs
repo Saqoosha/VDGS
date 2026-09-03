@@ -182,6 +182,38 @@ impl Host {
         self.push();
     }
 
+    /// Finds the game, after the page can already be talked to.
+    ///
+    /// Runs on a thread rather than in `setup` because both halves can be slow and neither
+    /// is worth an empty window: the guesses stat every drive letter on Windows, and the
+    /// walk below that reads the disk. `setup` keeps only the remembered path, which is one
+    /// stat, so the state is managed and answerable within microseconds either way.
+    ///
+    /// The guesses are silent — on a machine where one hits they take no time and a busy
+    /// label would only flicker. The walk is not, and says so.
+    fn locate_game(self: &Arc<Self>) {
+        if self.inner.lock().unwrap().game.is_some() {
+            return;
+        }
+        if let Some(found) = game::find() {
+            let mut i = self.inner.lock().unwrap();
+            // Re-read under the lock for the reason spelled out on the walk below: the
+            // folder picker is live the whole time this runs.
+            if i.game.is_none() {
+                i.settings.game = Some(found.to_string_lossy().into_owned());
+                i.settings.save();
+                i.game = Some(found);
+            }
+            drop(i);
+            self.push();
+            return;
+        }
+        #[cfg(windows)]
+        self.find_game_if_missing();
+        #[cfg(not(windows))]
+        self.push();
+    }
+
     /// Walks the disk for the game, but only when the guesses found nothing.
     ///
     /// Windows only, and separate from `game::find` on purpose: the guesses run before the
@@ -746,23 +778,17 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let resource_dir = resolve_resource_dir(app.handle());
-            let mut settings = Settings::load();
-            let game = match settings
+            let settings = Settings::load();
+            // Only the remembered path is resolved here, and only because it costs one
+            // stat. Guessing is not: on Windows it probes every drive letter, and an empty
+            // removable drive or a mapped share that is no longer there answers on its own
+            // schedule. Everything on this line runs before the state is reachable, so a
+            // slow answer here is a window that never fills in.
+            let game = settings
                 .game
                 .as_ref()
                 .map(PathBuf::from)
-                .filter(|p| game::is_game(p))
-            {
-                Some(g) => Some(g),
-                None => {
-                    let found = game::find();
-                    if let Some(ref g) = found {
-                        settings.game = Some(g.to_string_lossy().into_owned());
-                        settings.save();
-                    }
-                    found
-                }
-            };
+                .filter(|p| game::is_game(p));
             let host = Arc::new(Host {
                 app: app.handle().clone(),
                 resource_dir,
@@ -781,12 +807,12 @@ pub fn run() {
             // once, on subscribe, and `bridge.ts` voids the rejection — so a `refresh` that
             // lands before the state is managed fails, is dropped, and is never retried:
             // an empty window with nothing to say why. The window is created before this
-            // hook runs, so that race is real, and it widens with however long the drive
-            // probing in `find` took above.
+            // hook runs, so the race is real, and everything above this line is inside it.
             app.manage(Arc::clone(&host));
 
-            #[cfg(windows)]
-            let find_later = Arc::clone(&host);
+            let locate = Arc::clone(&host);
+            std::thread::spawn(move || locate.locate_game());
+
             let watch = Arc::clone(&host);
             std::thread::spawn(move || loop {
                 std::thread::sleep(Duration::from_secs(2));
@@ -810,8 +836,6 @@ pub fn run() {
                 }
                 watch.post(json!({"type":"running","running": now}));
             });
-            #[cfg(windows)]
-            find_later.find_game_if_missing();
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![dispatch])
