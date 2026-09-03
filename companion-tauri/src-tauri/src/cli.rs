@@ -31,10 +31,35 @@ fn check_catalog(url: Option<&str>) -> i32 {
     let url = url.unwrap_or(catalog::DEFAULT_URL);
     match catalog::fetch(url) {
         Ok(entries) => {
-            println!("{} reads fine: {} entr{}", url, entries.len(),
-                     if entries.len() == 1 { "y" } else { "ies" });
+            // Every field the C# printed. Dropping to bare ids was a real loss: this is
+            // the one pass anyone makes before publishing, and `no licence` is the line it
+            // exists to surface - an absent licence is not permission. `install_as` is the
+            // directory a capture unpacks into, which is half of "the mod is installed and
+            // nothing appears", and the track line says whether an entry carries a course
+            // at all. A catalog that parses can still be all three of those things wrong.
+            println!("{}: {} capture(s)", url, entries.len());
             for e in &entries {
-                println!("  {}", e.id);
+                println!(
+                    "  {}  {}  {} splats  {} MB  {}",
+                    e.id,
+                    e.name,
+                    thousands(e.splats),
+                    e.scene.bytes / 1_048_576,
+                    e.licence.as_deref().unwrap_or("no licence"),
+                );
+                println!(
+                    "      scene -> {}  {}",
+                    e.install_as.as_deref().unwrap_or(&e.id),
+                    e.scene.url
+                );
+                match (&e.track, &e.track_name) {
+                    (Some(t), name) => println!(
+                        "      track -> {}  {}",
+                        name.as_deref().unwrap_or("(unnamed)"),
+                        t.url
+                    ),
+                    (None, _) => println!("      track -> none"),
+                }
             }
             0
         }
@@ -43,6 +68,19 @@ fn check_catalog(url: Option<&str>) -> i32 {
             1
         }
     }
+}
+
+/// `1234567` as `1,234,567`, the way the C# formatted it with "N0".
+fn thousands(n: u64) -> String {
+    let digits = n.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
 }
 
 fn export_track(rest: &[String]) -> i32 {
@@ -106,11 +144,14 @@ fn export_track(rest: &[String]) -> i32 {
             return 1;
         }
     };
+    let bytes = text.len();
     if let Err(e) = std::fs::write(&out, text.as_bytes()) {
         eprintln!("cannot write {}: {e}", out.display());
         return 1;
     }
-    let bytes = std::fs::metadata(&out).map(|m| m.len()).unwrap_or(0);
+    // The length we just wrote, not a fresh stat. `unwrap_or(0)` on a stat was the first
+    // version, and zero bytes is exactly what a failed export looks like - the fallback
+    // manufactured the most misleading line available.
     println!("wrote {} ({bytes} bytes)", out.display());
     0
 }
@@ -127,35 +168,31 @@ fn list_tracks(db: &Path) -> i32 {
         // scene_id is the scenery the course sits on, and a capture is placed relative to
         // that scenery's origin - so it is the number that decides whether a published
         // track lands where its capture is.
-        let where_from = if t.from_server { "[server]" } else { "[local] " };
-        println!("{where_from}  scene {:>3}  {}", t.scene_id, t.name);
+        // Spacing matches Program.cs, because the sample output in TRACKS.md was copied
+        // from it and would otherwise be one column out.
+        let where_from = if t.from_server { "[server] " } else { "[local]  " };
+        println!("{where_from}scene {:>3}  {}", t.scene_id, t.name);
     }
     0
 }
 
 /// A name that survives being a filename, matching Program.cs's SafeFileName.
+///
+/// Only the characters a filename genuinely cannot hold are replaced, and everything else
+/// — spaces, `+`, every non-ASCII character — is kept exactly as the database spelled it.
+/// The first version of this was stricter, folding anything outside `[A-Za-z0-9_-]` into a
+/// dash, collapsing runs and falling back to the word "track". That reads as tidier and is
+/// worse: `VDGS FDF`, `VDGS+FDF` and `VDGS-FDF` are three different rows in `user11.db`
+/// and all three collapsed onto one filename, while every all-Japanese name collapsed onto
+/// `track`. `fs::write` truncates, so exporting two of them in a row destroyed the first
+/// and printed `wrote ... (N bytes)` both times.
 fn safe_file_name(name: &str) -> String {
-    let cleaned: String = name
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
-        .collect();
-    // Runs of replacements collapse, so "VDGS FDF 2026" does not become "VDGS-FDF--2026"
-    // when the stored name already holds a separator the decode turned into a space.
-    let mut out = String::with_capacity(cleaned.len());
-    let mut last_dash = false;
-    for c in cleaned.chars() {
-        if c == '-' {
-            if !last_dash {
-                out.push('-');
-            }
-            last_dash = true;
-        } else {
-            out.push(c);
-            last_dash = false;
-        }
-    }
-    let trimmed = out.trim_matches('-');
-    if trimmed.is_empty() { "track".into() } else { trimmed.to_string() }
+    // The Windows set, which is the wider of the two - the C# this ports ran only there,
+    // and a name that is safe on Windows is safe on macOS.
+    const INVALID: &[char] = &['<', '>', ':', '"', '/', '\\', '|', '?', '*'];
+    name.chars()
+        .map(|c| if INVALID.contains(&c) || (c as u32) < 32 { '-' } else { c })
+        .collect()
 }
 
 /// Borrow the console of whoever launched this, on Windows.
@@ -209,9 +246,14 @@ fn attach_console() {
     }
 
     unsafe {
-        // Already going somewhere - a pipe, a file, an inherited console. Leave it.
-        let existing = GetStdHandle(STD_OUTPUT_HANDLE);
-        if !existing.is_null() && existing != INVALID_HANDLE_VALUE {
+        // Each handle is asked about separately. Probing stdout and then repointing both
+        // was the same bug one stream over: a caller that supplies a good stderr and no
+        // stdout would have had every error message moved into a console it is not
+        // reading, and the error messages are the whole reason a non-zero exit is useful.
+        let missing = |h: RawHandle| h.is_null() || h == INVALID_HANDLE_VALUE;
+        let want_out = missing(GetStdHandle(STD_OUTPUT_HANDLE));
+        let want_err = missing(GetStdHandle(STD_ERROR_HANDLE));
+        if !want_out && !want_err {
             return;
         }
         if AttachConsole(ATTACH_PARENT_PROCESS) == 0 {
@@ -228,8 +270,12 @@ fn attach_console() {
             std::ptr::null_mut(),
         );
         if h_out != INVALID_HANDLE_VALUE {
-            SetStdHandle(STD_OUTPUT_HANDLE, h_out);
-            SetStdHandle(STD_ERROR_HANDLE, h_out);
+            if want_out {
+                SetStdHandle(STD_OUTPUT_HANDLE, h_out);
+            }
+            if want_err {
+                SetStdHandle(STD_ERROR_HANDLE, h_out);
+            }
         }
         let h_in = CreateFileW(
             inp.as_ptr(), GENERIC_READ | GENERIC_WRITE,
@@ -262,10 +308,14 @@ mod tests {
     }
 
     #[test]
-    fn file_names_survive_a_track_name() {
-        assert_eq!(safe_file_name("VDGS FDF 2026-08-22"), "VDGS-FDF-2026-08-22");
-        assert_eq!(safe_file_name("Sols+Street+League+1"), "Sols-Street-League-1");
-        assert_eq!(safe_file_name("  ///  "), "track");
-        assert_eq!(safe_file_name("日本語"), "track");
+    fn file_names_keep_everything_a_filename_can_hold() {
+        // Kept, so that two rows that differ only in these characters do not land on one
+        // file and silently overwrite each other.
+        assert_eq!(safe_file_name("VDGS FDF 2026-08-22"), "VDGS FDF 2026-08-22");
+        assert_eq!(safe_file_name("Sols+Street+League+1"), "Sols+Street+League+1");
+        assert_eq!(safe_file_name("日本語"), "日本語");
+        // Replaced, because a filename cannot hold them.
+        assert_eq!(safe_file_name("a/b\\c:d"), "a-b-c-d");
+        assert_eq!(safe_file_name("q?*|<>\""), "q------");
     }
 }

@@ -33,6 +33,10 @@ companion-tauri/src-tauri/src/
   state.rs     ページに送る状態の組み立て
 ```
 
+テストは各ファイルの末尾の `#[cfg(test)] mod tests` にある（`cargo test`）。ページ側は
+`web/` の `bun run test`。**C# 時代の `companion/tests/` は削除済み**で、そこにしか無かった
+検査が何本か残っている（下の「残っている宿題」）。
+
 **かつて Windows は別実装だった**（`companion/`、.NET Framework 4.8 + WinForms + WebView2）。
 同じ 10 コマンドを 2 回書いて 1 対 1 で保つ期間があり、いまは終わって削除済み。
 `bridge.ts` の `chrome.webview` 経路もそれと一緒に消えた。

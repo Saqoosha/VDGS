@@ -42,10 +42,6 @@ unity/*/mono_crash.*.json
 .DS_Store
 
 # Companion app build output
-companion/bin/
-companion/obj/
-companion/tests/bin/
-companion/tests/obj/
 
 companion-tauri/src-tauri/target/
 companion-tauri/src-tauri/resources/mod/

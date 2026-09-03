@@ -36,6 +36,10 @@ companion-tauri/src-tauri/src/
   state.rs     assembling the state the page is sent
 ```
 
+Tests live in a `#[cfg(test)] mod tests` at the foot of each file (`cargo test`); the page
+has its own under `web/` (`bun run test`). **The C# `companion/tests/` is deleted**, and a
+few of its checks have no counterpart yet — see the note below.
+
 **Windows used to be a second implementation** (`companion/`, .NET Framework 4.8 +
 WinForms + WebView2). The same ten commands were written twice and kept one for one for a
 while; that is over and the C# is deleted. `bridge.ts` lost its `chrome.webview`
