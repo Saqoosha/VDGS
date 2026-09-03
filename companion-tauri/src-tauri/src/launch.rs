@@ -1,12 +1,16 @@
-//! Spawn the game through Doorstop and check if it is running.
+//! Spawn the game and check if it is running.
 
-use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
 use sysinfo::{ProcessRefreshKind, ProcessStatus, ProcessesToUpdate, System};
 
+#[cfg(target_os = "macos")]
+use std::collections::BTreeMap;
+
 /// Doorstop + dyld env matching `run_bepinex.sh` defaults (absolute target assembly).
+/// macOS only — Windows injects through `winhttp.dll` and needs no env.
+#[cfg(target_os = "macos")]
 pub fn doorstop_env(app: &Path) -> BTreeMap<String, String> {
     let root = app.parent().expect("game .app path has a parent");
     let mut e = BTreeMap::new();
@@ -35,6 +39,8 @@ pub fn doorstop_env(app: &Path) -> BTreeMap<String, String> {
     e
 }
 
+/// macOS: `arch -arm64` + Doorstop env. (Metal is the game's normal path; no D3D flag.)
+#[cfg(target_os = "macos")]
 pub fn spawn(app: &Path) -> std::io::Result<std::process::Child> {
     let root = app.parent().ok_or_else(|| {
         std::io::Error::new(
@@ -62,10 +68,46 @@ pub fn spawn(app: &Path) -> std::io::Result<std::process::Child> {
         .spawn()
 }
 
+/// Windows: `velocidrone.exe -force-d3d12`. Without that flag the splat shaders are
+/// unsupported and nothing says why. `winhttp.dll` injects Doorstop on its own.
+#[cfg(windows)]
+pub fn spawn(game: &Path) -> std::io::Result<std::process::Child> {
+    let exe = game.join("velocidrone.exe");
+    if !exe.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("missing {}", exe.display()),
+        ));
+    }
+    Command::new(&exe)
+        .arg("-force-d3d12")
+        .current_dir(game)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+}
+
 /// Whether a listed process counts as VelociDrone still running.
-/// Zombies are left behind when we spawn and never wait — they must not block installs.
+/// macOS: zombies are left behind when we spawn and never wait — they must not block installs.
+#[cfg(target_os = "macos")]
 pub(crate) fn is_live_game_process(name: &std::ffi::OsStr, status: ProcessStatus) -> bool {
     name == "velocidrone" && status != ProcessStatus::Zombie
+}
+
+/// Windows: name match only - zombie status is a Unix concept.
+///
+/// The trailing `.exe` is stripped rather than matched, because whether sysinfo reports it
+/// has changed between versions. Getting that wrong is silent and expensive: a running
+/// game reads as stopped, and the install goes ahead and replaces files the game has open.
+/// Stripping makes both spellings mean what `GetProcessesByName("velocidrone")` means.
+#[cfg(windows)]
+pub(crate) fn is_live_game_process(name: &std::ffi::OsStr, _status: ProcessStatus) -> bool {
+    let Some(name) = name.to_str() else {
+        return false;
+    };
+    let stem = name.strip_suffix(".exe").or_else(|| name.strip_suffix(".EXE")).unwrap_or(name);
+    stem.eq_ignore_ascii_case("velocidrone")
 }
 
 pub fn is_running() -> bool {
@@ -80,11 +122,12 @@ pub fn is_running() -> bool {
 mod tests {
     use super::*;
     use std::ffi::OsStr;
-    use std::path::PathBuf;
     use sysinfo::ProcessStatus;
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn env_for_doorstop() {
+        use std::path::PathBuf;
         let app = PathBuf::from("/tmp/Data/velocidrone.app");
         let e = doorstop_env(&app);
         assert_eq!(e["DOORSTOP_ENABLED"], "1");
@@ -96,6 +139,7 @@ mod tests {
         assert_eq!(e["DYLD_INSERT_LIBRARIES"], "libdoorstop.dylib");
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn zombie_velocidrone_is_not_running() {
         let name = OsStr::new("velocidrone");
@@ -103,5 +147,15 @@ mod tests {
         assert!(is_live_game_process(name, ProcessStatus::Run));
         assert!(is_live_game_process(name, ProcessStatus::Sleep));
         assert!(!is_live_game_process(OsStr::new("other"), ProcessStatus::Run));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_process_name_is_exe() {
+        // Both spellings count - which one sysinfo reports is not ours to depend on.
+        assert!(is_live_game_process(OsStr::new("velocidrone.exe"), ProcessStatus::Run));
+        assert!(is_live_game_process(OsStr::new("velocidrone"), ProcessStatus::Run));
+        assert!(is_live_game_process(OsStr::new("VelociDrone.exe"), ProcessStatus::Run));
+        assert!(!is_live_game_process(OsStr::new("other.exe"), ProcessStatus::Run));
     }
 }

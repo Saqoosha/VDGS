@@ -1,15 +1,18 @@
-//! Find the Mac VelociDrone and manage mod files beside it.
+//! Find VelociDrone and manage mod files beside it.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader};
 use std::path::{Path, PathBuf};
+#[cfg(target_os = "macos")]
 use std::time::SystemTime;
 
 use serde::Serialize;
 
 use crate::catalog;
 
+/// macOS: PatchKit's `Apps/<hash>/Data/velocidrone.app`, newest by mtime.
+#[cfg(target_os = "macos")]
 pub fn find() -> Option<PathBuf> {
     let home = dirs::home_dir()?;
     let apps = home.join("Library/Application Support/PatchKit/Apps");
@@ -32,25 +35,205 @@ pub fn find() -> Option<PathBuf> {
     best.map(|(_, p)| p)
 }
 
+/// Windows: the named + drive guesses only (GameInstall.FindGame).
+///
+/// The disk scan is deliberately not folded in here. This runs before the window exists,
+/// and a machine where none of the guesses hit is exactly the machine the scan walks for
+/// the longest - home plus every drive, five deep. Folding it in turns "we could not
+/// guess" into "the app does not open", with nothing on screen to say why. The scan is
+/// `scan_for_game`, run afterwards on a thread with the busy label showing.
+#[cfg(windows)]
+pub fn find() -> Option<PathBuf> {
+    for root in candidate_roots() {
+        if is_game(&root) {
+            return Some(root);
+        }
+        let app = root.join("app");
+        if is_game(&app) {
+            return Some(app);
+        }
+    }
+    None
+}
+
 pub fn is_game(app: &Path) -> bool {
     exe(app).is_file()
 }
 
+/// macOS: the `.app`'s parent (`Data/`) is GameRootPath.
+#[cfg(target_os = "macos")]
 pub fn root(app: &Path) -> PathBuf {
     app.parent()
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
+/// Windows: the folder holding `velocidrone.exe` is the root.
+#[cfg(windows)]
+pub fn root(app: &Path) -> PathBuf {
+    win_root(app)
+}
+
+#[cfg(target_os = "macos")]
 pub fn exe(app: &Path) -> PathBuf {
     app.join("Contents/MacOS/velocidrone")
 }
 
+#[cfg(windows)]
+pub fn exe(app: &Path) -> PathBuf {
+    win_exe(app)
+}
+
+/// macOS: doorstop dylib + preloader. (Official and patched look the same on disk.)
+#[cfg(target_os = "macos")]
 pub fn has_bepinex(root: &Path) -> bool {
     root.join("libdoorstop.dylib").is_file()
         && root
             .join("BepInEx/core/BepInEx.Preloader.dll")
             .is_file()
+}
+
+/// Windows: winhttp.dll proxy + BepInEx directory (GameInstall.HasBepInEx).
+#[cfg(windows)]
+pub fn has_bepinex(root: &Path) -> bool {
+    root.join("winhttp.dll").is_file() && root.join("BepInEx").is_dir()
+}
+
+/// Windows path: `velocidrone.exe` beside the game folder.
+pub fn win_exe(game: &Path) -> PathBuf {
+    game.join("velocidrone.exe")
+}
+
+/// Windows path: the game folder itself is the root (no `.app` parent).
+pub fn win_root(game: &Path) -> PathBuf {
+    game.to_path_buf()
+}
+
+/// Windows named install guesses (GameInstall.NamedRoots), apart from mounted drives.
+///
+/// There is no default to look up — VelociDrone ships as a zip with no installer — so this
+/// is a list of the locations the guide recommends. Program Files is deliberately absent.
+pub fn win_named_roots(home: &Path) -> Vec<PathBuf> {
+    vec![
+        PathBuf::from(r"C:\VelociDrone"),
+        home.join("Desktop").join("VelociDrone"),
+        home.join("Documents").join("VelociDrone"),
+        home.join("Downloads").join("VelociDrone"),
+        home.join("Downloads").join("Velocidrone Windows Launcher"),
+    ]
+}
+
+#[cfg(windows)]
+fn drive_roots() -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for letter in b'A'..=b'Z' {
+        let root = PathBuf::from(format!("{}:\\", letter as char));
+        if root.exists() {
+            out.push(root.join("VelociDrone"));
+        }
+    }
+    out
+}
+
+#[cfg(windows)]
+fn candidate_roots() -> Vec<PathBuf> {
+    let home = dirs::home_dir().unwrap_or_default();
+    let mut roots = win_named_roots(&home);
+    roots.extend(drive_roots());
+    roots
+}
+
+/// The fallback walk, for when every guess missed (GameInstall.ScanForGame).
+#[cfg(windows)]
+pub fn scan_for_game(log: &mut dyn FnMut(String)) -> Option<PathBuf> {
+    let mut roots = Vec::new();
+    if let Some(home) = dirs::home_dir() {
+        roots.push(home);
+    }
+    for letter in b'A'..=b'Z' {
+        let root = PathBuf::from(format!("{}:\\", letter as char));
+        if root.exists() {
+            roots.push(root);
+        }
+    }
+    scan_roots(roots, 5, log)
+}
+
+/// Bounded BFS for `velocidrone.exe` (GameInstall.ScanRoots).
+///
+/// A junction can point back up the tree and make this walk forever — reparse points are
+/// skipped on Windows. Unreadable folders are not where the game is.
+pub fn scan_roots(
+    roots: impl IntoIterator<Item = PathBuf>,
+    max_depth: u32,
+    log: &mut dyn FnMut(String),
+) -> Option<PathBuf> {
+    let skip: HashSet<&str> = [
+        "Windows",
+        "$Recycle.Bin",
+        "System Volume Information",
+        "ProgramData",
+        "AppData",
+        "node_modules",
+        ".git",
+        "WindowsApps",
+    ]
+    .into_iter()
+    .collect();
+
+    for root in roots {
+        log(format!("looking under {}", root.display()));
+        let mut queue: VecDeque<(PathBuf, u32)> = VecDeque::new();
+        queue.push_back((root, 0));
+        while let Some((dir, depth)) = queue.pop_front() {
+            if dir.join("velocidrone.exe").is_file() {
+                log(format!("found {}", dir.display()));
+                return Some(dir);
+            }
+            if depth >= max_depth {
+                continue;
+            }
+            let entries = match fs::read_dir(&dir) {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if !path.is_dir() {
+                    continue;
+                }
+                let name = match entry.file_name().into_string() {
+                    Ok(n) => n,
+                    Err(_) => continue,
+                };
+                if name.starts_with('.') || skip.contains(name.as_str()) {
+                    continue;
+                }
+                if is_reparse_point(&path) {
+                    continue;
+                }
+                queue.push_back((path, depth + 1));
+            }
+        }
+    }
+    log("velocidrone.exe is not on any fixed disk".into());
+    None
+}
+
+fn is_reparse_point(path: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+        fs::metadata(path)
+            .map(|m| m.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0)
+            .unwrap_or(false)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        false
+    }
 }
 
 pub fn dll_file_version(dll: &Path) -> Option<String> {
@@ -679,5 +862,49 @@ mod tests {
             );
             assert!(unbind(&root, "Existing").is_err(), "unbind should refuse {bad}");
         }
+    }
+
+    #[test]
+    fn win_exe_and_root_are_the_folder_itself() {
+        let g = PathBuf::from("D:/Games/VelociDrone/app");
+        assert_eq!(win_exe(&g), g.join("velocidrone.exe"));
+        assert_eq!(win_root(&g), g);
+    }
+
+    #[test]
+    fn win_named_roots_match_the_guide() {
+        let home = Path::new("/Users/player");
+        let roots = win_named_roots(home);
+        assert_eq!(roots[0], PathBuf::from(r"C:\VelociDrone"));
+        assert_eq!(roots[1], home.join("Desktop").join("VelociDrone"));
+        assert_eq!(roots[2], home.join("Documents").join("VelociDrone"));
+        assert_eq!(roots[3], home.join("Downloads").join("VelociDrone"));
+        assert_eq!(
+            roots[4],
+            home.join("Downloads").join("Velocidrone Windows Launcher")
+        );
+        assert_eq!(roots.len(), 5);
+    }
+
+    #[test]
+    fn scan_roots_finds_exe_skips_named_dirs_respects_depth() {
+        let deep_base = tmp();
+        // Too deep for max_depth 1 from base: base/a/b/velocidrone.exe
+        let deep = deep_base.join("a").join("b");
+        std::fs::create_dir_all(&deep).unwrap();
+        std::fs::write(deep.join("velocidrone.exe"), b"x").unwrap();
+        let mut log = |_s: String| {};
+        assert!(scan_roots([deep_base], 1, &mut log).is_none());
+
+        let base = tmp();
+        // Skip list: a game under AppData must not be returned.
+        let skip_dir = base.join("AppData").join("hidden");
+        std::fs::create_dir_all(&skip_dir).unwrap();
+        std::fs::write(skip_dir.join("velocidrone.exe"), b"x").unwrap();
+        let hit = base.join("Games").join("VD");
+        std::fs::create_dir_all(&hit).unwrap();
+        std::fs::write(hit.join("velocidrone.exe"), b"x").unwrap();
+        let found = scan_roots([base], 5, &mut log).unwrap();
+        assert_eq!(found, hit);
     }
 }

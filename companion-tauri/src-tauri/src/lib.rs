@@ -151,14 +151,26 @@ impl Host {
     }
 
     fn pick_game(&self) {
-        let Some(picked) = self.app.dialog().file().blocking_pick_folder() else {
+        let mut picker = self.app.dialog().file();
+        #[cfg(windows)]
+        {
+            picker = picker.set_title("Select the folder holding velocidrone.exe");
+        }
+        #[cfg(target_os = "macos")]
+        {
+            picker = picker.set_title("Select the folder holding velocidrone.app");
+        }
+        let Some(picked) = picker.blocking_pick_folder() else {
             return;
         };
         let Ok(path) = picked.into_path() else {
             return;
         };
         let Some(app) = resolve_picked_game(path) else {
+            #[cfg(target_os = "macos")]
             self.warn_dialog("No velocidrone.app in that folder.");
+            #[cfg(windows)]
+            self.warn_dialog("No velocidrone.exe in that folder.");
             return;
         };
         {
@@ -168,6 +180,31 @@ impl Host {
             i.game = Some(app);
         }
         self.push();
+    }
+
+    /// Walks the disk for the game, but only when the guesses found nothing.
+    ///
+    /// Windows only, and separate from `game::find` on purpose: the guesses run before the
+    /// window exists and must stay cheap, while this one can take a while. It reports
+    /// through the busy label and the log, so a long look is visible work rather than a
+    /// window that appears to have hung. Finding nothing is not a failure - plenty of
+    /// people keep the game somewhere this walk does not reach, and the folder picker is
+    /// still there.
+    #[cfg(windows)]
+    fn find_game_if_missing(self: &Arc<Self>) {
+        if self.inner.lock().unwrap().game.is_some() {
+            return;
+        }
+        self.run_busy("looking for velocidrone", |host, log| {
+            let Some(found) = game::scan_for_game(log) else {
+                return Ok(());
+            };
+            let mut i = host.inner.lock().unwrap();
+            i.settings.game = Some(found.to_string_lossy().into_owned());
+            i.settings.save();
+            i.game = Some(found);
+            Ok(())
+        });
     }
 
     fn install_mod(self: &Arc<Self>) {
@@ -621,9 +658,13 @@ fn resolve_picked_game(path: PathBuf) -> Option<PathBuf> {
     if game::is_game(&path) {
         return Some(path);
     }
-    let nested = path.join("velocidrone.app");
-    if game::is_game(&nested) {
-        return Some(nested);
+    // macOS: the picker may land on the parent of the .app bundle.
+    #[cfg(target_os = "macos")]
+    {
+        let nested = path.join("velocidrone.app");
+        if game::is_game(&nested) {
+            return Some(nested);
+        }
     }
     None
 }
@@ -690,9 +731,38 @@ fn local_hms(secs: i64) -> (i32, u32, u32, u32, u32, u32) {
     }
 }
 
-#[cfg(not(unix))]
+/// Wall-clock local time via kernel32. The `_secs` argument is unused: GetLocalTime has no
+/// "at this unix instant" form, and log timestamps only need "now".
+#[cfg(windows)]
 fn local_hms(_secs: i64) -> (i32, u32, u32, u32, u32, u32) {
-    (1970, 1, 1, 0, 0, 0)
+    #[repr(C)]
+    struct SystemTime {
+        w_year: u16,
+        w_month: u16,
+        w_day_of_week: u16,
+        w_day: u16,
+        w_hour: u16,
+        w_minute: u16,
+        w_second: u16,
+        w_milliseconds: u16,
+    }
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetLocalTime(lp_system_time: *mut SystemTime);
+    }
+    unsafe {
+        let mut st = std::mem::MaybeUninit::<SystemTime>::uninit();
+        GetLocalTime(st.as_mut_ptr());
+        let st = st.assume_init();
+        (
+            st.w_year as i32,
+            st.w_month as u32,
+            st.w_day as u32,
+            st.w_hour as u32,
+            st.w_minute as u32,
+            st.w_second as u32,
+        )
+    }
 }
 
 /// Every command the page can send.
@@ -765,6 +835,8 @@ pub fn run() {
                     child: None,
                 }),
             });
+            #[cfg(windows)]
+            let find_later = Arc::clone(&host);
             let watch = Arc::clone(&host);
             std::thread::spawn(move || loop {
                 std::thread::sleep(Duration::from_secs(2));
@@ -788,6 +860,8 @@ pub fn run() {
                 }
                 watch.post(json!({"type":"running","running": now}));
             });
+            #[cfg(windows)]
+            find_later.find_game_if_missing();
             app.manage(host);
             Ok(())
         })

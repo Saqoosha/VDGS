@@ -52,11 +52,27 @@ impl TrackFile {
     }
 }
 
-/// ~/Library/Application Support/com.velocidrone.velocidrone/user11.db
+/// macOS: ~/Library/Application Support/com.velocidrone.velocidrone/user11.db
+#[cfg(target_os = "macos")]
 pub fn db_path() -> PathBuf {
     dirs::home_dir()
         .unwrap_or_default()
         .join("Library/Application Support/com.velocidrone.velocidrone/user11.db")
+}
+
+/// Windows: %USERPROFILE%\AppData\LocalLow\velocidrone\velocidrone\user11.db
+#[cfg(windows)]
+pub fn db_path() -> PathBuf {
+    win_db_path(&dirs::home_dir().unwrap_or_default())
+}
+
+/// Windows user11.db path from a home directory (TrackStore.DatabasePath).
+pub fn win_db_path(home: &Path) -> PathBuf {
+    home.join("AppData")
+        .join("LocalLow")
+        .join("velocidrone")
+        .join("velocidrone")
+        .join("user11.db")
 }
 
 /// Form-decode: `+` → space, then `%XX`. Order matches TrackStore.DisplayName.
@@ -293,6 +309,15 @@ mod tests {
         assert_eq!(display_name("VDGS+FDF+2026-08-22"), "VDGS FDF 2026-08-22");
         assert_eq!(display_name("Sols%2bStreet%2bLeague%2b1"), "Sols+Street+League+1");
         assert_eq!(display_name("50%+off"), "50% off"); // stray % survives
+    }
+
+    #[test]
+    fn win_db_path_is_locallow() {
+        let home = Path::new("/Users/player");
+        assert_eq!(
+            win_db_path(home),
+            home.join("AppData/LocalLow/velocidrone/velocidrone/user11.db")
+        );
     }
     #[test]
     fn import_three_ways_and_remove_guard() {
