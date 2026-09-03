@@ -10,7 +10,7 @@ pub mod tracks;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use serde::Serialize;
 use serde_json::json;
@@ -185,11 +185,14 @@ impl Host {
     /// Walks the disk for the game, but only when the guesses found nothing.
     ///
     /// Windows only, and separate from `game::find` on purpose: the guesses run before the
-    /// window exists and must stay cheap, while this one can take a while. It reports
-    /// through the busy label and the log, so a long look is visible work rather than a
-    /// window that appears to have hung. Finding nothing is not a failure - plenty of
-    /// people keep the game somewhere this walk does not reach, and the folder picker is
-    /// still there.
+    /// page can draw anything and must stay cheap, while this one can take a while. The
+    /// busy label carries it, because that lives in `Inner` and the page's first `refresh`
+    /// reads it back. The log lines do not: this is called from `setup`, and a `post` made
+    /// before the page subscribes is dropped — the same `listen()` race the bridge gates
+    /// against. `MainForm.cs` calls its equivalent from `NavigationCompleted` instead, so
+    /// matching that is the fix; until then, do not read the log for evidence the walk ran.
+    /// Finding nothing is not a failure — plenty of people keep the game somewhere this
+    /// walk does not reach, and the folder picker is still there.
     #[cfg(windows)]
     fn find_game_if_missing(self: &Arc<Self>) {
         if self.inner.lock().unwrap().game.is_some() {
@@ -685,84 +688,13 @@ fn resolve_resource_dir(app: &tauri::AppHandle) -> PathBuf {
     base
 }
 
+/// The clock lives in `tracks`, which needs the same wall-clock answer for the `date`
+/// column and for backup filenames. Two copies of the same `localtime_r` block were here
+/// and there before the Windows port, and adding a second `GetLocalTime` beside them would
+/// have made it three.
 fn now_hms() -> String {
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-    let (_y, _mo, _d, h, mi, s) = local_hms(secs);
+    let (_y, _mo, _d, h, mi, s) = tracks::local_ymdhms();
     format!("{h:02}:{mi:02}:{s:02}")
-}
-
-#[cfg(unix)]
-fn local_hms(secs: i64) -> (i32, u32, u32, u32, u32, u32) {
-    #[repr(C)]
-    struct Tm {
-        tm_sec: i32,
-        tm_min: i32,
-        tm_hour: i32,
-        tm_mday: i32,
-        tm_mon: i32,
-        tm_year: i32,
-        tm_wday: i32,
-        tm_yday: i32,
-        tm_isdst: i32,
-        tm_gmtoff: i64,
-        tm_zone: *const i8,
-    }
-    extern "C" {
-        fn localtime_r(timep: *const i64, result: *mut Tm) -> *mut Tm;
-    }
-    unsafe {
-        let mut tm = std::mem::MaybeUninit::<Tm>::zeroed();
-        let ptr = localtime_r(&secs, tm.as_mut_ptr());
-        if ptr.is_null() {
-            return (1970, 1, 1, 0, 0, 0);
-        }
-        let tm = tm.assume_init();
-        (
-            tm.tm_year + 1900,
-            (tm.tm_mon + 1) as u32,
-            tm.tm_mday as u32,
-            tm.tm_hour as u32,
-            tm.tm_min as u32,
-            tm.tm_sec as u32,
-        )
-    }
-}
-
-/// Wall-clock local time via kernel32. The `_secs` argument is unused: GetLocalTime has no
-/// "at this unix instant" form, and log timestamps only need "now".
-#[cfg(windows)]
-fn local_hms(_secs: i64) -> (i32, u32, u32, u32, u32, u32) {
-    #[repr(C)]
-    struct SystemTime {
-        w_year: u16,
-        w_month: u16,
-        w_day_of_week: u16,
-        w_day: u16,
-        w_hour: u16,
-        w_minute: u16,
-        w_second: u16,
-        w_milliseconds: u16,
-    }
-    #[link(name = "kernel32")]
-    extern "system" {
-        fn GetLocalTime(lp_system_time: *mut SystemTime);
-    }
-    unsafe {
-        let mut st = std::mem::MaybeUninit::<SystemTime>::uninit();
-        GetLocalTime(st.as_mut_ptr());
-        let st = st.assume_init();
-        (
-            st.w_year as i32,
-            st.w_month as u32,
-            st.w_day as u32,
-            st.w_hour as u32,
-            st.w_minute as u32,
-            st.w_second as u32,
-        )
-    }
 }
 
 /// Every command the page can send.

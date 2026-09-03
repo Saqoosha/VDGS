@@ -37,8 +37,8 @@ pub fn find() -> Option<PathBuf> {
 
 /// Windows: the named + drive guesses only (GameInstall.FindGame).
 ///
-/// The disk scan is deliberately not folded in here. This runs before the window exists,
-/// and a machine where none of the guesses hit is exactly the machine the scan walks for
+/// The disk scan is deliberately not folded in here. This runs before the page can draw
+/// anything, and a machine where none of the guesses hit is exactly the machine the scan walks for
 /// the longest - home plus every drive, five deep. Folding it in turns "we could not
 /// guess" into "the app does not open", with nothing on screen to say why. The scan is
 /// `scan_for_game`, run afterwards on a thread with the busy label showing.
@@ -93,13 +93,22 @@ pub fn has_bepinex(root: &Path) -> bool {
             .is_file()
 }
 
-/// Windows: winhttp.dll proxy + BepInEx directory (GameInstall.HasBepInEx).
+/// Windows: the winhttp.dll proxy plus the preloader itself.
+///
+/// Stricter than `GameInstall.HasBepInEx`, which asks only whether a folder named BepInEx
+/// exists. That is the weaker half of an invariant macOS already spells out: a marker that
+/// outlived the files it describes says the loader is fine while the game has nothing to
+/// load, so the install skips it and the one button that could repair the machine reports
+/// there is nothing to repair. On Windows an antivirus quarantine of `BepInEx/core`
+/// produces exactly that state, and the symptom is a game that starts, draws no captures,
+/// and logs nothing.
 #[cfg(windows)]
 pub fn has_bepinex(root: &Path) -> bool {
-    root.join("winhttp.dll").is_file() && root.join("BepInEx").is_dir()
+    root.join("winhttp.dll").is_file()
+        && root.join("BepInEx/core/BepInEx.Preloader.dll").is_file()
 }
 
-/// Windows path: `velocidrone.exe` beside the game folder.
+/// Windows path: `velocidrone.exe` inside the game folder.
 pub fn win_exe(game: &Path) -> PathBuf {
     game.join("velocidrone.exe")
 }
@@ -112,7 +121,9 @@ pub fn win_root(game: &Path) -> PathBuf {
 /// Windows named install guesses (GameInstall.NamedRoots), apart from mounted drives.
 ///
 /// There is no default to look up — VelociDrone ships as a zip with no installer — so this
-/// is a list of the locations the guide recommends. Program Files is deliberately absent.
+/// is a list of guesses. The first three are what the guide recommends; the two Downloads
+/// entries are not — they are where the launcher landed on the machines we have seen.
+/// Program Files is deliberately absent: the guide says to stay out of it.
 pub fn win_named_roots(home: &Path) -> Vec<PathBuf> {
     vec![
         PathBuf::from(r"C:\VelociDrone"),
@@ -137,13 +148,23 @@ fn drive_roots() -> Vec<PathBuf> {
 
 #[cfg(windows)]
 fn candidate_roots() -> Vec<PathBuf> {
-    let home = dirs::home_dir().unwrap_or_default();
-    let mut roots = win_named_roots(&home);
+    // With no home the joins yield `Desktop\VelociDrone` relative to whatever the working
+    // directory happens to be, and a match there would be saved as the game. `scan_for_game`
+    // already drops the home root in that case; this now agrees with it.
+    let mut roots = match dirs::home_dir() {
+        Some(home) => win_named_roots(&home),
+        None => vec![PathBuf::from(r"C:\VelociDrone")],
+    };
     roots.extend(drive_roots());
     roots
 }
 
 /// The fallback walk, for when every guess missed (GameInstall.ScanForGame).
+///
+/// A walk rather than a lookup because there is nothing to look up: PatchKit records the
+/// install path in no registry key, no uninstall entry, and not in its own `%LOCALAPPDATA%`
+/// folder, which holds one 32-byte id and nothing else — checked on a real install. So when
+/// the guesses miss, the choice is this or asking the person to go and find it themselves.
 #[cfg(windows)]
 pub fn scan_for_game(log: &mut dyn FnMut(String)) -> Option<PathBuf> {
     let mut roots = Vec::new();
@@ -168,15 +189,18 @@ pub fn scan_roots(
     max_depth: u32,
     log: &mut dyn FnMut(String),
 ) -> Option<PathBuf> {
+    // Lowercased on both sides: the C# builds this set with OrdinalIgnoreCase, and Windows
+    // keeps whatever case created a directory — a `windows\` or `programdata\` restored
+    // from an archive is the same folder and has to be skipped the same way.
     let skip: HashSet<&str> = [
-        "Windows",
-        "$Recycle.Bin",
-        "System Volume Information",
-        "ProgramData",
-        "AppData",
+        "windows",
+        "$recycle.bin",
+        "system volume information",
+        "programdata",
+        "appdata",
         "node_modules",
         ".git",
-        "WindowsApps",
+        "windowsapps",
     ]
     .into_iter()
     .collect();
@@ -206,7 +230,7 @@ pub fn scan_roots(
                     Ok(n) => n,
                     Err(_) => continue,
                 };
-                if name.starts_with('.') || skip.contains(name.as_str()) {
+                if name.starts_with('.') || skip.contains(name.to_ascii_lowercase().as_str()) {
                     continue;
                 }
                 if is_reparse_point(&path) {
@@ -220,12 +244,19 @@ pub fn scan_roots(
     None
 }
 
+/// `symlink_metadata`, not `metadata`: the latter follows the reparse point and reports the
+/// target's attributes, which never carry the bit — so the guard read as "not a junction"
+/// for every junction. Windows ships several whose names are not in the skip list
+/// (`C:\Users\All Users` to ProgramData, `C:\Documents and Settings` to `C:\Users`), so the
+/// walk descended into the trees the skip list exists to avoid and covered `C:\Users` twice.
+/// The depth cap kept it finite, not cheap. The C# never had this: `DirectoryInfo`'s
+/// attributes do not follow.
 fn is_reparse_point(path: &Path) -> bool {
     #[cfg(windows)]
     {
         use std::os::windows::fs::MetadataExt;
         const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
-        fs::metadata(path)
+        fs::symlink_metadata(path)
             .map(|m| m.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0)
             .unwrap_or(false)
     }

@@ -7,10 +7,15 @@ use crate::catalog;
 #[cfg(target_os = "macos")]
 use std::process::Command;
 
-/// macOS: patched universal build (arm64 MonoMod fix). Windows: official win_x64 release.
+/// macOS: the patched universal build, with the arm64 MonoMod fix.
 #[cfg(target_os = "macos")]
 pub const VERSION: &str = "5.4.23.5-vdgs.1";
 
+/// Windows: the official release, which needs no patch.
+///
+/// A log string only. `is_ours` does not compare against it, matching `MainForm.cs`, so an
+/// older BepInEx already on the machine is kept rather than upgraded — do not read this
+/// constant as a floor.
 #[cfg(windows)]
 pub const VERSION: &str = "5.4.23.5";
 
@@ -52,7 +57,7 @@ fn stamp_path(root: &Path) -> std::path::PathBuf {
     root.join("BepInEx/vdgs-bepinex-version.txt")
 }
 
-/// Whether the loader here is the build this app installs, and is still all there.
+/// Whether a loader this app can work with is already here.
 ///
 /// macOS: both halves are needed. Without the stamp, another BepInEx - the official
 /// release, an older fork, a hand-unzipped copy - passes as ours and is never replaced.
@@ -61,7 +66,9 @@ fn stamp_path(root: &Path) -> std::path::PathBuf {
 /// that could repair the machine is the one that reports there is nothing to repair.
 ///
 /// Windows: `has_bepinex` alone. The official win_x64 zip is the correct loader, so a stamp
-/// that separates official from patched is not needed.
+/// that separates official from patched is not needed — but note what that leaves out: any
+/// BepInEx passes, including an older one, matching `GameInstall.HasBepInEx`. The file half
+/// of the invariant is kept, in `has_bepinex` itself.
 #[cfg(target_os = "macos")]
 pub fn is_ours(root: &Path) -> bool {
     crate::game::has_bepinex(root)
@@ -119,8 +126,11 @@ pub fn uninstall(root: &Path, log: &mut dyn FnMut(String)) -> std::io::Result<()
         "README-vdgs.txt",
         "changelog.txt",
     ];
+    // The top-level files the pinned win_x64 zip actually lays down. `changelog.txt` is not
+    // among them: `catalog::is_note` drops top-level `.txt` at install, so naming it here
+    // removed nothing, while `.doorstop_version` was installed and left behind.
     #[cfg(windows)]
-    let names = ["BepInEx", "winhttp.dll", "doorstop_config.ini", "changelog.txt"];
+    let names = ["BepInEx", "winhttp.dll", "doorstop_config.ini", ".doorstop_version"];
     for name in names {
         let path = root.join(name);
         if path.is_dir() {
@@ -258,8 +268,16 @@ mod tests {
     fn windows_ours_is_has_bepinex_alone() {
         let root = tmp();
         assert!(!is_ours(&root));
-        std::fs::create_dir_all(root.join("BepInEx")).unwrap();
+        // A folder alone is not a loader: this is the shape an antivirus quarantine of
+        // BepInEx/core leaves behind, and it must not report as installed.
+        std::fs::create_dir_all(root.join("BepInEx/core")).unwrap();
         std::fs::write(root.join("winhttp.dll"), b"x").unwrap();
+        assert!(!is_ours(&root), "an emptied BepInEx is not a loader");
+
+        std::fs::write(root.join("BepInEx/core/BepInEx.Preloader.dll"), b"x").unwrap();
         assert!(is_ours(&root));
+
+        std::fs::remove_file(root.join("BepInEx/core/BepInEx.Preloader.dll")).unwrap();
+        assert!(!is_ours(&root), "a quarantined preloader is repairable, not ready");
     }
 }

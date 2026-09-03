@@ -227,7 +227,7 @@ fn format_local_compact() -> String {
     format!("{y:04}{mo:02}{d:02}-{h:02}{mi:02}{s:02}")
 }
 
-fn local_ymdhms() -> (i32, u32, u32, u32, u32, u32) {
+pub(crate) fn local_ymdhms() -> (i32, u32, u32, u32, u32, u32) {
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
@@ -236,7 +236,7 @@ fn local_ymdhms() -> (i32, u32, u32, u32, u32, u32) {
 }
 
 #[cfg(unix)]
-fn local_ymdhms_at(secs: i64) -> (i32, u32, u32, u32, u32, u32) {
+pub(crate) fn local_ymdhms_at(secs: i64) -> (i32, u32, u32, u32, u32, u32) {
     // macOS/Darwin `struct tm` layout; no chrono / libc crate.
     #[repr(C)]
     struct Tm {
@@ -274,9 +274,49 @@ fn local_ymdhms_at(secs: i64) -> (i32, u32, u32, u32, u32, u32) {
     }
 }
 
-#[cfg(not(unix))]
+/// Windows wall clock, via kernel32.
+///
+/// `secs` is ignored: `GetLocalTime` has no "at this unix instant" form, and both callers
+/// only ever ask for now. Left on the signature so the two arms match.
+///
+/// This existed as a UTC fallback until the Windows port, and the comment above it read
+/// "companion is macOS-only". Left that way, an imported track's `date` column and the
+/// `.vdgs-backup-` filename would both be written in UTC on Windows - nine hours out in
+/// JST - while the log lines beside them were local. The C# uses `DateTime.Now` for both.
+#[cfg(windows)]
+pub(crate) fn local_ymdhms_at(_secs: i64) -> (i32, u32, u32, u32, u32, u32) {
+    #[repr(C)]
+    struct Systemtime {
+        w_year: u16,
+        w_month: u16,
+        w_day_of_week: u16,
+        w_day: u16,
+        w_hour: u16,
+        w_minute: u16,
+        w_second: u16,
+        w_milliseconds: u16,
+    }
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetLocalTime(lp_system_time: *mut Systemtime);
+    }
+    unsafe {
+        let mut st = std::mem::MaybeUninit::<Systemtime>::uninit();
+        GetLocalTime(st.as_mut_ptr());
+        let st = st.assume_init();
+        (
+            st.w_year as i32,
+            st.w_month as u32,
+            st.w_day as u32,
+            st.w_hour as u32,
+            st.w_minute as u32,
+            st.w_second as u32,
+        )
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
 fn local_ymdhms_at(secs: i64) -> (i32, u32, u32, u32, u32, u32) {
-    // UTC fallback for non-unix targets (companion is macOS-only).
     let days = secs.div_euclid(86_400);
     let tod = secs.rem_euclid(86_400) as u32;
     let h = tod / 3600;
@@ -286,7 +326,7 @@ fn local_ymdhms_at(secs: i64) -> (i32, u32, u32, u32, u32, u32) {
     (y, mo, d, h, mi, s)
 }
 
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 fn civil_from_days(z: i64) -> (i32, u32, u32) {
     let era = if z >= 0 { z } else { z - 146_096 }.div_euclid(146_097);
     let doe = (z - era * 146_097) as u32;

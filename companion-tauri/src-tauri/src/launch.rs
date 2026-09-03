@@ -95,18 +95,24 @@ pub(crate) fn is_live_game_process(name: &std::ffi::OsStr, status: ProcessStatus
     name == "velocidrone" && status != ProcessStatus::Zombie
 }
 
-/// Windows: name match only - zombie status is a Unix concept.
+/// Whether a listed process counts as VelociDrone still running.
+/// Windows: name match only — zombie status is a Unix concept.
 ///
-/// The trailing `.exe` is stripped rather than matched, because whether sysinfo reports it
-/// has changed between versions. Getting that wrong is silent and expensive: a running
-/// game reads as stopped, and the install goes ahead and replaces files the game has open.
-/// Stripping makes both spellings mean what `GetProcessesByName("velocidrone")` means.
+/// The trailing `.exe` is stripped case-insensitively rather than matched, so that neither
+/// spelling nor casing of what sysinfo reports is something this depends on. The cost of
+/// getting it wrong is not silent here the way it is on macOS — Windows holds a lock on a
+/// running executable, so the install fails partway with a file-in-use error the person
+/// cannot act on — but a half-replaced loader is still worth not creating. Stripping makes
+/// every spelling mean what `GetProcessesByName("velocidrone")` means.
 #[cfg(windows)]
 pub(crate) fn is_live_game_process(name: &std::ffi::OsStr, _status: ProcessStatus) -> bool {
     let Some(name) = name.to_str() else {
         return false;
     };
-    let stem = name.strip_suffix(".exe").or_else(|| name.strip_suffix(".EXE")).unwrap_or(name);
+    let stem = match name.len().checked_sub(4) {
+        Some(cut) if name[cut..].eq_ignore_ascii_case(".exe") => &name[..cut],
+        _ => name,
+    };
     stem.eq_ignore_ascii_case("velocidrone")
 }
 
@@ -152,10 +158,11 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn windows_process_name_is_exe() {
-        // Both spellings count - which one sysinfo reports is not ours to depend on.
-        assert!(is_live_game_process(OsStr::new("velocidrone.exe"), ProcessStatus::Run));
-        assert!(is_live_game_process(OsStr::new("velocidrone"), ProcessStatus::Run));
-        assert!(is_live_game_process(OsStr::new("VelociDrone.exe"), ProcessStatus::Run));
+        // Every spelling counts - which one sysinfo reports is not ours to depend on.
+        for name in ["velocidrone.exe", "velocidrone", "VelociDrone.exe", "Velocidrone.Exe"] {
+            assert!(is_live_game_process(OsStr::new(name), ProcessStatus::Run), "{name}");
+        }
         assert!(!is_live_game_process(OsStr::new("other.exe"), ProcessStatus::Run));
+        assert!(!is_live_game_process(OsStr::new("exe"), ProcessStatus::Run));
     }
 }
