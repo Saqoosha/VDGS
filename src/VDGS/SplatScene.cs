@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using Newtonsoft.Json;
 using UnityEngine;
 
 namespace VDGS
@@ -23,12 +24,37 @@ namespace VDGS
         internal string Name { get; }
         internal bool Spawned => m_Go != null;
 
-        [Serializable]
+        // Newtonsoft, not Unity's JsonUtility: this class grew a `bool? mirrorY`, and
+        // JsonUtility does not support Nullable fields at all - it neither writes nor
+        // reads them, silently, with no exception. The same silent-drop behaviour is why
+        // TrackBindings already moved off JsonUtility for its dictionary. The game ships
+        // Newtonsoft 13, so this costs nothing, and it serialises the same public fields
+        // JsonUtility did, so old placement.json files still load.
         private class Placement
         {
             public float[] position = { 0, 0, 0 };
             public float[] rotation = { 0, 0, 0 };
             public float scale = 1f;
+
+            /// <summary>
+            /// Which of the capture's axes points at the sky. One of +x -x +y -y +z -z.
+            /// </summary>
+            public string up = SplatOrientation.DefaultUp;
+
+            /// <summary>Rotation about the up axis, in degrees. Matches the baked light.</summary>
+            public float turn = 0f;
+
+            /// <summary>
+            /// Whether the capture is flipped in Y as it is read.
+            ///
+            /// 3DGS is right-handed Y-down and Unity is left-handed Y-up, so a capture
+            /// that arrives untouched is a mirror image. This is a handedness change and
+            /// no rotation can stand in for it. Null means "as this shape has always
+            /// behaved": true for a .ply, false for a converted directory, which was
+            /// already mirrored before export.
+            /// </summary>
+            public bool? mirrorY = null;
+
             // A capture has no sky and no floor beyond what was photographed, so the
             // game's terrain and horizon show through every hole. See SplatBackdrop.
             public bool backdrop = false;
@@ -118,7 +144,15 @@ namespace VDGS
                 return true;
             }
 
-            var data = IsPly ? PlyLoader.Load(m_Dir, out var error)
+            // Read before the data: mirrorY decides how the .ply is parsed, so the
+            // placement has to be known before PlyLoader runs, not after.
+            var placement = LoadPlacement();
+            var mirror = placement.mirrorY ?? IsPly;
+
+            // Converted captures ignore the flag - SplatData.Load reads packed buffers,
+            // and mirroring them would mean decoding every format rather than flipping a
+            // sign while parsing text.
+            var data = IsPly ? PlyLoader.Load(m_Dir, out var error, mirror)
                              : SplatData.Load(m_Dir, out error);
             if (data == null)
             {
@@ -130,9 +164,22 @@ namespace VDGS
             m_Go = new GameObject("VDGS_" + Name);
             UnityEngine.Object.DontDestroyOnLoad(m_Go);
 
-            var placement = LoadPlacement();
             m_Go.transform.position = new Vector3(placement.position[0], placement.position[1], placement.position[2]);
-            m_Go.transform.eulerAngles = new Vector3(placement.rotation[0], placement.rotation[1], placement.rotation[2]);
+
+            // up and turn are the source of truth when present. Only a placement.json
+            // with no up (hand-written, or from before this field existed) falls back to
+            // the raw rotation it stored.
+            if (!string.IsNullOrEmpty(placement.up))
+            {
+                SplatOrientation.Compose(placement.up, placement.turn,
+                                         out var rx, out var ry, out var rz);
+                m_Go.transform.eulerAngles = new Vector3(rx, ry, rz);
+            }
+            else
+            {
+                m_Go.transform.eulerAngles = new Vector3(
+                    placement.rotation[0], placement.rotation[1], placement.rotation[2]);
+            }
             m_Go.transform.localScale = Vector3.one * placement.scale;
 
             m_Renderer = m_Go.AddComponent<SplatRenderer>();
@@ -153,7 +200,7 @@ namespace VDGS
                 // the first frames, so a view applied now would silently do nothing. Gated on
                 // the attach succeeding - a pending view with no collider to draw on retries
                 // once a second forever and writes a line to the track log each time.
-                if (SplatCollision.Attach(m_Go.transform, m_Dir, report)
+                if (SplatCollision.Attach(m_Go.transform, m_Dir, report, mirror)
                     && placement.collisionView != SplatCollisionView.kOff)
                     m_PendingView = placement.collisionView;
             }
@@ -349,7 +396,8 @@ namespace VDGS
             // Build it on first enable. Spawn skips the load when collision is off, so
             // there may be no collider yet; after this the toggle only flips `enabled`,
             // which is what makes flipping it mid-flight free.
-            if (on) SplatCollision.Attach(m_Go.transform, m_Dir, log);
+            // Same flag Spawn used to load the splats - the shell must agree with them.
+            if (on) SplatCollision.Attach(m_Go.transform, m_Dir, log, p.mirrorY ?? IsPly);
 
             if (!SplatCollision.SetEnabled(m_Go.transform, on))
             {
@@ -406,6 +454,43 @@ namespace VDGS
                             + " y=" + p.position[1].ToString("0.###"));
         }
 
+        /// <summary>
+        /// Sets the up axis, the turn, and the mirror flag, then persists them.
+        ///
+        /// Changing the mirror re-reads the capture, because the flip happens as the data
+        /// is parsed rather than on the transform - a negative scale would flip the
+        /// covariances with it. Up and turn are transform-only and take effect at once.
+        /// </summary>
+        internal void SetOrientation(string up, float? turn, bool? mirror, StringBuilder log)
+        {
+            var p = LoadPlacement();
+            var reload = false;
+
+            if (!string.IsNullOrEmpty(up)) p.up = up;
+            if (turn.HasValue) p.turn = turn.Value;
+            if (mirror.HasValue && mirror.Value != (p.mirrorY ?? IsPly))
+            {
+                p.mirrorY = mirror.Value;
+                reload = true;
+            }
+            SavePlacementData(p, log);
+
+            if (reload)
+            {
+                var wasSpawned = Spawned;
+                Despawn();
+                if (wasSpawned) Spawn(log);
+                return;
+            }
+            if (m_Go != null)
+            {
+                SplatOrientation.Compose(p.up, p.turn, out var rx, out var ry, out var rz);
+                m_Go.transform.eulerAngles = new Vector3(rx, ry, rz);
+            }
+            log?.AppendLine(Name + ": up=" + p.up + " turn=" + p.turn.ToString("0.#")
+                            + " mirror=" + (p.mirrorY ?? IsPly));
+        }
+
         internal void SavePlacement()
         {
             if (m_Go == null)
@@ -435,7 +520,7 @@ namespace VDGS
 
         private void SavePlacementData(Placement p, StringBuilder log)
         {
-            try { File.WriteAllText(PlacementPath, JsonUtility.ToJson(p, true)); }
+            try { File.WriteAllText(PlacementPath, JsonConvert.SerializeObject(p, Formatting.Indented)); }
             catch (Exception e)
             {
                 log?.AppendLine("placement save failed: " + e.Message);
@@ -450,12 +535,14 @@ namespace VDGS
                 return new Placement();
             try
             {
-                var p = JsonUtility.FromJson<Placement>(File.ReadAllText(path));
-                // JsonUtility leaves arrays null when the field is missing from the file.
+                var p = JsonConvert.DeserializeObject<Placement>(File.ReadAllText(path));
+                // A field explicitly written as null, or a short array from a hand-edited
+                // file, would otherwise crash the first thing that indexes into it.
                 if (p == null) return new Placement();
                 if (p.position == null || p.position.Length < 3) p.position = new float[] { 0, 0, 0 };
                 if (p.rotation == null || p.rotation.Length < 3) p.rotation = new float[] { 0, 0, 0 };
                 if (p.scale <= 0f) p.scale = 1f;
+                if (string.IsNullOrEmpty(p.up)) p.up = SplatOrientation.DefaultUp;
                 if (!SplatCollisionView.IsMode(p.collisionView)) p.collisionView = SplatCollisionView.kOff;
                 return p;
             }
