@@ -549,11 +549,23 @@ impl Host {
         // was showing. A track can be bound to more than one (`bindings.json` maps a name
         // to a list), so this is a list even though the common case holds one.
         let root = game::root(&app);
-        let captures = game::try_read_bindings(&root)
-            .ok()
-            .and_then(|b| b.get(name).cloned())
-            .unwrap_or_default();
-        let capture_sentence = capture_removal_sentence(&captures, catalog.as_deref());
+        let all_bindings = game::try_read_bindings(&root).unwrap_or_default();
+        let captures = all_bindings.get(name).cloned().unwrap_or_default();
+
+        // Binding the same capture to a second track is ordinary - `game::bind` never
+        // refuses it, and tab 03 has no reason to. So a capture this track is bound to may
+        // also be named under some other key in the same map, and deleting it here would
+        // silently break that other track's binding without telling anyone. Split the list
+        // now, purely to word the dialog correctly; `remove_track_job` re-derives the same
+        // question against a fresh read right before it would actually delete anything,
+        // because this snapshot can go stale while the confirmation sits on screen.
+        let (to_delete, kept_shared): (Vec<String>, Vec<String>) = captures
+            .iter()
+            .cloned()
+            .partition(|c| !capture_used_elsewhere(&all_bindings, name, c));
+
+        let capture_sentence =
+            capture_removal_sentence(&to_delete, &kept_shared, catalog.as_deref());
         let extra = capture_sentence
             .map(|s| format!(" {s}"))
             .unwrap_or_default();
@@ -564,7 +576,7 @@ impl Host {
                  Its binding goes with it.{extra} The database is copied first."
             )
         } else if row.is_none() {
-            if captures.is_empty() {
+            if extra.is_empty() {
                 format!(
                     "Stop showing a capture on \"{name}\"?\n\n\
                      There is no such track in VelociDrone, so only the binding goes."
@@ -575,7 +587,7 @@ impl Host {
                      There is no such track in VelociDrone, so the binding goes.{extra}"
                 )
             }
-        } else if captures.is_empty() {
+        } else if extra.is_empty() {
             format!(
                 "Stop showing a capture on \"{name}\"?\n\n\
                  The track came from the official track server, so it is left alone - \
@@ -845,22 +857,33 @@ fn capture_is_fetchable(name: &str, catalog: Option<&[catalog::Entry]>) -> bool 
         .any(|e| e.install_as.as_deref() == Some(name))
 }
 
-/// The sentence [`Host::remove_track`]'s confirmation dialog folds into each of its three
-/// branches, naming every capture the removal will also delete and saying whether each can
-/// be fetched again. `None` when the track has no bound capture at all, so a track that was
-/// never bound to anything keeps the plain "only the binding goes" wording it always had.
-fn capture_removal_sentence(
-    captures: &[String],
-    catalog: Option<&[catalog::Entry]>,
-) -> Option<String> {
-    if captures.is_empty() {
-        return None;
-    }
-    let quoted: Vec<String> = captures.iter().map(|c| format!("\"{c}\"")).collect();
-    let names = match quoted.split_last() {
+/// True if some track other than `track` also has `capture` in its bound list.
+///
+/// A capture is not owned by the track that names it - the same `.ply` can sit under
+/// more than one track's key (`game::bind` overwrites a track's own entry with a fresh
+/// single-element list, but nothing stops a second track from being bound to the same
+/// name). This is the check that keeps a shared capture alive when only one of its
+/// tracks is removed.
+fn capture_used_elsewhere(bindings: &game::Bindings, track: &str, capture: &str) -> bool {
+    bindings
+        .iter()
+        .any(|(k, v)| k != track && v.iter().any(|c| c == capture))
+}
+
+/// Joins quoted names as "a", "a and b", or "a, b and c".
+fn join_with_and(quoted: &[String]) -> String {
+    match quoted.split_last() {
         Some((last, rest)) if !rest.is_empty() => format!("{} and {last}", rest.join(", ")),
         _ => quoted.join(""),
-    };
+    }
+}
+
+/// The clause naming captures that are actually going, and whether each can be fetched
+/// again. Only ever called with a non-empty list - callers decide separately what to say
+/// when nothing is being deleted.
+fn deletion_clause(captures: &[String], catalog: Option<&[catalog::Entry]>) -> String {
+    let quoted: Vec<String> = captures.iter().map(|c| format!("\"{c}\"")).collect();
+    let names = join_with_and(&quoted);
     let (noun, verb) = if captures.len() == 1 {
         ("capture", "goes")
     } else {
@@ -872,15 +895,13 @@ fn capture_removal_sentence(
         .collect();
 
     if fetchable.iter().all(|f| *f) {
-        Some(format!(
-            "Its {noun} {names} {verb} too, and can be fetched again from the catalog."
-        ))
+        format!("Its {noun} {names} {verb} too, and can be fetched again from the catalog.")
     } else if fetchable.iter().all(|f| !*f) {
         let pronoun = if captures.len() == 1 { "it" } else { "they" };
-        Some(format!(
+        format!(
             "Its {noun} {names} {verb} too, and without the original .ply {pronoun} \
              cannot be recovered."
-        ))
+        )
     } else {
         // A mix only happens with two or more bound captures, one fetchable and one not -
         // rare enough that naming each one's own fate plainly beats a single blended
@@ -896,8 +917,49 @@ fn capture_removal_sentence(
                 }
             })
             .collect();
-        Some(format!("Its captures go too: {}.", parts.join(", ")))
+        format!("Its captures go too: {}.", parts.join(", "))
     }
+}
+
+/// The sentence [`Host::remove_track`]'s confirmation dialog folds into each of its three
+/// branches. `to_delete` and `kept_shared` are the same track's bound captures, already
+/// split by whether some other track's binding still names them (see
+/// [`capture_used_elsewhere`]) - a capture another track still uses is never going to be
+/// deleted, so the dialog must never say it is. `None` when the track has no bound capture
+/// at all, so a track that was never bound to anything keeps the plain "only the binding
+/// goes" wording it always had.
+fn capture_removal_sentence(
+    to_delete: &[String],
+    kept_shared: &[String],
+    catalog: Option<&[catalog::Entry]>,
+) -> Option<String> {
+    if to_delete.is_empty() && kept_shared.is_empty() {
+        return None;
+    }
+    if to_delete.is_empty() {
+        // Every capture this track had is still named by some other track's binding -
+        // removing this track deletes no capture at all, and the dialog must say that
+        // plainly rather than naming a deletion that will not happen.
+        let quoted: Vec<String> = kept_shared.iter().map(|c| format!("\"{c}\"")).collect();
+        let names = join_with_and(&quoted);
+        return Some(if kept_shared.len() == 1 {
+            format!("None of its captures are going - {names} is still used by another track.")
+        } else {
+            format!("None of its captures are going - {names} are still used by other tracks.")
+        });
+    }
+    let mut sentence = deletion_clause(to_delete, catalog);
+    if !kept_shared.is_empty() {
+        let quoted: Vec<String> = kept_shared.iter().map(|c| format!("\"{c}\"")).collect();
+        let names = join_with_and(&quoted);
+        sentence.push(' ');
+        sentence.push_str(&if kept_shared.len() == 1 {
+            format!("Its capture {names} stays where it is - another track still uses it.")
+        } else {
+            format!("Its captures {names} stay where they are - other tracks still use them.")
+        });
+    }
+    Some(sentence)
 }
 
 /// The logic behind [`Host::remove_track`], pulled out of the method so it can be
@@ -909,6 +971,15 @@ fn capture_removal_sentence(
 /// last. If capture removal fails partway, the track and its binding are already gone
 /// rather than leaving a track that still looks like it points at a capture that might no
 /// longer be fully there.
+///
+/// `captures` is the full list this track was bound to, unfiltered - not the dialog's
+/// `to_delete`/`kept_shared` split. That split was computed before the confirmation the
+/// person may have sat on for a while, so it can be stale by the time this runs (another
+/// track could have been bound to the same capture in the meantime, or unbound from it).
+/// This re-reads `bindings.json` itself, right after `unbind` and right before any file
+/// would be deleted, and skips whatever some other track's entry still names - the same
+/// [`capture_used_elsewhere`] question, asked again against current state instead of a
+/// snapshot.
 fn remove_track_job(
     root: &Path,
     db: &Path,
@@ -943,12 +1014,39 @@ fn remove_track_job(
         }
     }
 
-    if !captures.is_empty() && launch::is_running() {
+    if captures.is_empty() {
+        return Ok(());
+    }
+    if launch::is_running() {
         return Err(
             "VelociDrone is running. Close it first - files in use cannot be removed.".into(),
         );
     }
+
+    // `name`'s own entry is already gone (the unbind above), so anything still turning up
+    // here belongs to some other track. A read that fails (corrupt file, mid-write by
+    // something else) is not treated as "nothing else uses it" - the safe default when we
+    // cannot tell is to leave every capture in place, not to delete on a guess.
+    let still_bound = match game::try_read_bindings(root) {
+        Ok(b) => Some(b),
+        Err(e) => {
+            log(format!(
+                "could not confirm which captures are still shared ({e}) - leaving them all in place"
+            ));
+            None
+        }
+    };
     for capture in captures {
+        let shared = match &still_bound {
+            Some(b) => b.values().any(|v| v.iter().any(|c| c == capture)),
+            None => true,
+        };
+        if shared {
+            log(format!(
+                "kept capture \"{capture}\" - another track still uses it"
+            ));
+            continue;
+        }
         if game::remove_capture(root, capture).map_err(|e| e.to_string())? {
             log(format!("removed capture \"{capture}\""));
         } else {
@@ -1418,10 +1516,10 @@ mod tests {
     }
 
     #[test]
-    fn remove_track_job_leaves_a_capture_nothing_points_at() {
-        // Removing "VDGS my house" must never reach into "unrelated-scene", which no
-        // binding names - only the captures this specific track's row listed are safe
-        // to touch.
+    fn remove_track_job_leaves_an_unbound_capture_untouched() {
+        // This only proves a capture the job's own `captures` list never named survives -
+        // the loop could never have reached "unrelated-scene" regardless of sharing. The
+        // sharing guard itself is covered by the two tests below.
         let db = fresh_db();
         let root = tmp();
         let stored = tracks::stored_name("VDGS my house");
@@ -1441,6 +1539,92 @@ mod tests {
         assert!(
             unrelated.exists(),
             "a capture nothing points at must survive removing an unrelated track"
+        );
+    }
+
+    #[test]
+    fn remove_track_job_leaves_a_capture_two_tracks_share() {
+        // Two tracks bound to the same capture, "shared". Removing track A must not
+        // delete it - and must not disturb track B's own binding entry, a different key
+        // in the same map, which still has to resolve to that surviving capture.
+        let db = fresh_db();
+        let root = tmp();
+        let stored_a = tracks::stored_name("VDGS track A");
+        tracks::import(&db, &stored_a, 16, 0, "{}").unwrap();
+        let mut bindings = game::Bindings::new();
+        bindings.insert("VDGS track A".to_string(), vec!["shared".to_string()]);
+        bindings.insert("VDGS track B".to_string(), vec!["shared".to_string()]);
+        game::write_bindings(&root, &bindings).unwrap();
+        let capture_dir = root.join("vdgs/shared");
+        std::fs::create_dir_all(&capture_dir).unwrap();
+        std::fs::write(capture_dir.join("meta.json"), b"{}").unwrap();
+
+        let captures = vec!["shared".to_string()];
+        let mut logged = Vec::new();
+        let result = remove_track_job(&root, &db, "VDGS track A", true, &captures, &mut |s| {
+            logged.push(s)
+        });
+
+        assert!(result.is_ok(), "{result:?}");
+        assert!(
+            capture_dir.exists(),
+            "a capture another track's binding still names must survive"
+        );
+        let remaining = game::read_bindings(&root);
+        assert!(
+            !remaining.contains_key("VDGS track A"),
+            "the removed track's own binding entry must still be gone"
+        );
+        assert_eq!(
+            remaining.get("VDGS track B"),
+            Some(&vec!["shared".to_string()]),
+            "the other track's binding must still resolve to the surviving capture"
+        );
+        assert!(logged.iter().any(|l| l.contains("kept capture \"shared\"")));
+    }
+
+    #[test]
+    fn remove_track_job_deletes_the_unshared_capture_and_keeps_the_shared_one() {
+        // "VDGS two scenes" is bound to two captures: "only-mine", which nothing else
+        // uses, and "shared", which "VDGS other track" also uses. Removing "VDGS two
+        // scenes" must take only the first.
+        let db = fresh_db();
+        let root = tmp();
+        let stored = tracks::stored_name("VDGS two scenes");
+        tracks::import(&db, &stored, 16, 0, "{}").unwrap();
+        let mut bindings = game::Bindings::new();
+        bindings.insert(
+            "VDGS two scenes".to_string(),
+            vec!["only-mine".to_string(), "shared".to_string()],
+        );
+        bindings.insert("VDGS other track".to_string(), vec!["shared".to_string()]);
+        game::write_bindings(&root, &bindings).unwrap();
+        for name in ["only-mine", "shared"] {
+            let dir = root.join("vdgs").join(name);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("meta.json"), b"{}").unwrap();
+        }
+
+        let captures = vec!["only-mine".to_string(), "shared".to_string()];
+        let mut logged = Vec::new();
+        let result = remove_track_job(&root, &db, "VDGS two scenes", true, &captures, &mut |s| {
+            logged.push(s)
+        });
+
+        assert!(result.is_ok(), "{result:?}");
+        assert!(
+            !root.join("vdgs/only-mine").exists(),
+            "the capture nothing else uses must be deleted"
+        );
+        assert!(
+            root.join("vdgs/shared").exists(),
+            "the capture another track still uses must survive"
+        );
+        let remaining = game::read_bindings(&root);
+        assert_eq!(
+            remaining.get("VDGS other track"),
+            Some(&vec!["shared".to_string()]),
+            "the other track's own binding must still resolve"
         );
     }
 
