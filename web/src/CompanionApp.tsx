@@ -3,6 +3,7 @@ import { Masthead } from './chrome'
 import { ParticleField } from './ParticleField'
 import { Button } from '@/components/ui/button'
 import { hosted, send, subscribe } from './bridge'
+import Own from './pages/Own'
 import Setup from './pages/Setup'
 import Tracks from './pages/Tracks'
 import type { SetupState } from './types'
@@ -90,7 +91,7 @@ export default function CompanionApp() {
           ) : tab === 'tracks' ? (
             <Tracks state={state} busy={busy} />
           ) : (
-            <Placeholder note="create your own — coming soon" />
+            <Own state={state} busy={busy} />
           )}
         </div>
         {/* Fixture of the shell rather than of any one page: flying is not specific to
@@ -109,14 +110,6 @@ export default function CompanionApp() {
         ) : null}
       </div>
     </div>
-  )
-}
-
-function Placeholder({ note }: { note: string }) {
-  return (
-    <p className="font-mono text-[11px] tracking-[0.14em] text-muted-foreground uppercase">
-      {note}
-    </p>
   )
 }
 
