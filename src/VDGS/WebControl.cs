@@ -236,7 +236,13 @@ namespace VDGS
                     var sUp = up; var sTurn = turn; var sMirror = mirror;
                     QueueOnMain(() =>
                     {
-                        SetTransform?.Invoke(sName, sScale, sY, sX, sZ);
+                        // An orientation-only request (e.g. just `up`) must not also run
+                        // SetTransform: that path does a no-op SavePlacementData plus a full
+                        // backdrop teardown and rebuild (new GameObject, new Mesh, new
+                        // Material) for a request that changed none of scale/y/x/z. A
+                        // dragged slider turns that into a rebuild per drag event.
+                        if (sScale.HasValue || sY.HasValue || sX.HasValue || sZ.HasValue)
+                            SetTransform?.Invoke(sName, sScale, sY, sX, sZ);
                         if (sUp != null || sTurn.HasValue || sMirror.HasValue)
                             SetOrientation?.Invoke(sName, sUp, sTurn, sMirror);
                     });

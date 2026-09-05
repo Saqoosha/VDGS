@@ -129,6 +129,11 @@ namespace VDGS
             var loaded = new System.Collections.Generic.List<string>();
             foreach (var s in m_Scenes)
             {
+                // One placement read per scene, not seven - see BuildStatusSnapshot's doc
+                // comment. /api/status polls every 1500ms through RunOnMain, so three of
+                // the old per-property reads (up/turn/mirror) landed as file I/O on the
+                // render thread, three times per scene, every poll.
+                var status = s.BuildStatusSnapshot();
                 available.Add(new System.Collections.Generic.Dictionary<string, object>
                 {
                     { "name", s.Name },
@@ -141,20 +146,20 @@ namespace VDGS
                     { "shFormat", s.ShFormat },
                     { "bytes", s.Bytes },
                     { "shown", s.Spawned },
-                    { "scale", s.Scale },
-                    { "y", s.YOffset },
-                    { "x", s.XOffset },
-                    { "z", s.ZOffset },
-                    { "up", s.Up },
-                    { "turn", s.Turn },
-                    { "mirror", s.MirrorY },
-                    { "backdrop", s.BackdropOn },
+                    { "scale", status.Scale },
+                    { "y", status.YOffset },
+                    { "x", status.XOffset },
+                    { "z", status.ZOffset },
+                    { "up", status.Up },
+                    { "turn", status.Turn },
+                    { "mirror", status.MirrorY },
+                    { "backdrop", status.BackdropOn },
                     // Two fields, not one: the UI must be able to tell "no collision mesh
                     // generated" apart from "mesh generated and switched off", or a missing
                     // file reads as a setting somebody turned off.
                     { "hasCollision", s.HasCollision },
-                    { "collision", s.CollisionOn },
-                    { "collisionView", s.CollisionView },
+                    { "collision", status.CollisionOn },
+                    { "collisionView", status.CollisionView },
                 });
                 if (s.Spawned) loaded.Add(s.Name);
             }

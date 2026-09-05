@@ -96,6 +96,19 @@ namespace VDGS
         /// </summary>
         private bool MirrorFor(Placement p) => IsPly && (p.mirrorY ?? true);
 
+        /// <summary>
+        /// Whether the backdrop's local-space floor clamp still means what it says.
+        ///
+        /// SplatBackdrop.Attach clamps the box's floor in the parent's LOCAL space on the
+        /// assumption that local -Y is world down. That held while a capture could never be
+        /// rotated; with up:"+z" the parent turns -90 degrees about X and the clamped face
+        /// becomes a vertical wall instead of a floor. Null or "+y" - see the up field's own
+        /// doc comment for why those two count the same - is the only orientation where the
+        /// assumption is still true.
+        /// </summary>
+        private static bool IsUpright(string up) =>
+            string.IsNullOrEmpty(up) || up == SplatOrientation.DefaultUp;
+
         internal SplatScene(string path)
         {
             m_Dir = path;
@@ -201,9 +214,16 @@ namespace VDGS
             m_Renderer = m_Go.AddComponent<SplatRenderer>();
             m_Renderer.SetData(data);
 
-            if (placement.backdrop)
+            // A rotated capture cannot wear the backdrop - see IsUpright. Leaving the
+            // capture's holes open to the game's terrain and horizon is the better failure:
+            // a box whose faces are in the wrong place hides more of the capture than the
+            // terrain ever did.
+            if (placement.backdrop && IsUpright(placement.up))
                 SplatBackdrop.Attach(m_Go.transform, data.BoundsMin, data.BoundsMax,
                                      kBackdropMargin, kBackdropGroundY, report);
+            else if (placement.backdrop)
+                report.AppendLine(Name + ": backdrop off - up=" + placement.up
+                                  + " is rotated, so the floor clamp would slice the capture");
 
             // Off means nothing is built. Attaching regardless and disabling afterwards
             // would still cook the mesh - 277,736 triangles for drjohnson - inside the
@@ -251,29 +271,55 @@ namespace VDGS
         internal string ShFormat => m_Meta.ShFormat;
         internal long Bytes => m_Meta.Bytes;
 
-        /// <summary>Current uniform scale, from the live object or from placement.json.</summary>
-        internal float Scale => m_Go != null ? m_Go.transform.localScale.x : LoadPlacement().scale;
-
-        /// <summary>Current height offset.</summary>
-        internal float YOffset => m_Go != null ? m_Go.transform.position.y : LoadPlacement().position[1];
-
-        /// <summary>Current horizontal offset, so the page can restore what it sent.</summary>
-        internal float XOffset => m_Go != null ? m_Go.transform.position.x : LoadPlacement().position[0];
-        internal float ZOffset => m_Go != null ? m_Go.transform.position.z : LoadPlacement().position[2];
-
-        /// <summary>Current up axis, or null when the placement has none - see the field's doc comment.</summary>
-        internal string Up => LoadPlacement().up;
-
-        /// <summary>Current turn about the up axis, in degrees.</summary>
-        internal float Turn => LoadPlacement().turn;
-
         /// <summary>
-        /// Current mirror flag as it actually behaves. A converted capture's stored
-        /// mirrorY is never set by SetOrientation (it is ignored, not written), so this
-        /// only differs from IsPly for a hand-edited file - not a state this API can
-        /// itself produce.
+        /// Everything /api/status shows for one scene, read from a single LoadPlacement()
+        /// call. This used to be seven separate properties (Scale, YOffset, XOffset,
+        /// ZOffset, Up, Turn, MirrorY, plus BackdropOn/CollisionOn/CollisionView below),
+        /// three of which - Up, Turn, MirrorY - called LoadPlacement() unconditionally
+        /// regardless of spawn state. /api/status runs through RunOnMain on a 1500ms poll,
+        /// so that was a File.ReadAllText plus a JsonConvert.DeserializeObject, three times
+        /// per scene, on the render thread, every poll. One read here serves all of them.
         /// </summary>
-        internal bool MirrorY => LoadPlacement().mirrorY ?? IsPly;
+        internal readonly struct Status
+        {
+            internal readonly float Scale, YOffset, XOffset, ZOffset;
+            internal readonly string Up;
+            internal readonly float Turn;
+            internal readonly bool MirrorY;
+            internal readonly bool BackdropOn;
+            internal readonly bool CollisionOn;
+            internal readonly string CollisionView;
+
+            internal Status(float scale, float yOffset, float xOffset, float zOffset,
+                             string up, float turn, bool mirrorY,
+                             bool backdropOn, bool collisionOn, string collisionView)
+            {
+                Scale = scale; YOffset = yOffset; XOffset = xOffset; ZOffset = zOffset;
+                Up = up; Turn = turn; MirrorY = mirrorY;
+                BackdropOn = backdropOn; CollisionOn = collisionOn; CollisionView = collisionView;
+            }
+        }
+
+        /// <summary>Builds the snapshot above. See its doc comment for why this exists.</summary>
+        internal Status BuildStatusSnapshot()
+        {
+            var p = LoadPlacement();
+            var spawned = m_Go != null;
+            return new Status(
+                scale: spawned ? m_Go.transform.localScale.x : p.scale,
+                yOffset: spawned ? m_Go.transform.position.y : p.position[1],
+                xOffset: spawned ? m_Go.transform.position.x : p.position[0],
+                zOffset: spawned ? m_Go.transform.position.z : p.position[2],
+                up: p.up,
+                turn: p.turn,
+                // A converted capture's stored mirrorY is never set by SetOrientation (it is
+                // ignored, not written), so this only differs from IsPly for a hand-edited
+                // file - not a state this API can itself produce.
+                mirrorY: p.mirrorY ?? IsPly,
+                backdropOn: spawned ? SplatBackdrop.IsAttached(m_Go.transform) : p.backdrop,
+                collisionOn: spawned ? SplatCollision.IsEnabled(m_Go.transform) : p.collision,
+                collisionView: spawned ? SplatCollisionView.ModeOn(m_Go.transform) : p.collisionView);
+        }
 
         /// <summary>
         /// Resizes the capture and sets its position, then persists both.
@@ -291,10 +337,6 @@ namespace VDGS
         /// backdrop resting exactly there z-fights with it and its bottom face disappears.
         /// </summary>
         private const float kBackdropGroundY = 0.01f;
-
-        internal bool BackdropOn => m_Go != null
-            ? SplatBackdrop.IsAttached(m_Go.transform)
-            : LoadPlacement().backdrop;
 
         /// <summary>Turn the black enclosing box on or off, and remember the choice.</summary>
         internal void SetBackdrop(bool on, StringBuilder log)
@@ -322,6 +364,14 @@ namespace VDGS
                 log?.AppendLine(Name + ": backdrop wanted but no data loaded");
                 return;
             }
+            // Same rule as Spawn's and SetOrientation's: a request to turn the backdrop on
+            // is remembered (p.backdrop above), but it only takes effect live while up is
+            // still +y - see IsUpright.
+            if (!IsUpright(p.up))
+            {
+                log?.AppendLine(Name + ": backdrop off - up=" + p.up + " is rotated, so the floor clamp would slice the capture");
+                return;
+            }
             SplatBackdrop.Attach(m_Go.transform, data.BoundsMin, data.BoundsMax,
                                  kBackdropMargin, kBackdropGroundY, log);
         }
@@ -342,10 +392,6 @@ namespace VDGS
             if (SplatCollisionView.SetMode(m_Go.transform, m_PendingView, log))
                 m_PendingView = null;
         }
-
-        internal string CollisionView => m_Go != null
-            ? SplatCollisionView.ModeOn(m_Go.transform)
-            : LoadPlacement().collisionView;
 
         /// <summary>Draws the collision mesh, or stops drawing it, and remembers the choice.</summary>
         internal void SetCollisionView(string mode, StringBuilder log)
@@ -403,10 +449,6 @@ namespace VDGS
 
         /// <summary>True when a collision mesh was generated for this capture.</summary>
         internal bool HasCollision => SplatCollision.Exists(m_Dir);
-
-        internal bool CollisionOn => m_Go != null
-            ? SplatCollision.IsEnabled(m_Go.transform)
-            : LoadPlacement().collision;
 
         /// <summary>
         /// Make the capture solid or fly-through, and remember the choice.
@@ -550,6 +592,15 @@ namespace VDGS
             {
                 SplatOrientation.Compose(p.up, p.turn, out var rx, out var ry, out var rz);
                 m_Go.transform.eulerAngles = new Vector3(rx, ry, rz);
+
+                // Same rule as Spawn's, applied live: a capture that just turned away from
+                // +y can no longer trust its backdrop's local-space floor clamp, and a wall
+                // in the wrong place hides more than the terrain it was built to hide.
+                if (!IsUpright(p.up) && SplatBackdrop.IsAttached(m_Go.transform))
+                {
+                    SplatBackdrop.Detach(m_Go.transform);
+                    log?.AppendLine(Name + ": backdrop off - up=" + p.up + " is rotated, so the floor clamp would slice the capture");
+                }
             }
             log?.AppendLine(Name + ": up=" + p.up + " turn=" + p.turn.ToString("0.#")
                             + " mirror=" + MirrorFor(p));
