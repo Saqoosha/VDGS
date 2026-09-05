@@ -564,9 +564,30 @@ namespace VDGS
             // would silently do nothing until the next track change happened to trigger it.
             else if (bindingsChanged && !string.IsNullOrEmpty(m_CurrentTrack))
             {
-                log.AppendLine("  bindings.json changed for the current track - reapplying '"
-                               + m_CurrentTrack + "'");
-                ApplyTrackBinding(m_CurrentTrack, log);
+                if (m_Bindings.Has(m_CurrentTrack))
+                {
+                    log.AppendLine("  bindings.json changed for the current track - reapplying '"
+                                   + m_CurrentTrack + "'");
+                    ApplyTrackBinding(m_CurrentTrack, log);
+                }
+                else
+                {
+                    // ApplyTrackBinding's own early return leaves the screen alone for an
+                    // unbound track, because a capture spawned by hand through /api/load
+                    // with no binding must survive an unrelated poll finding no binding.
+                    // This is a different case: bindings.json itself just changed to drop
+                    // this track's binding, so despawning is carrying out what the file
+                    // says, not guessing - the same thing Unbind already does above for
+                    // the /api/unbind path when the removed binding is the live track.
+                    log.AppendLine("  bindings.json changed for the current track - '"
+                                   + m_CurrentTrack + "' is no longer bound");
+                    foreach (var s in m_Scenes)
+                    {
+                        if (!s.Spawned) continue;
+                        s.Despawn();
+                        log.AppendLine("  " + s.Name + ": despawned");
+                    }
+                }
             }
 
             // A view asked for at spawn time could not be applied then - the collider's mesh
