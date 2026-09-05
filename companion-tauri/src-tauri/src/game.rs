@@ -763,6 +763,33 @@ pub fn uninstall_mod(root: &Path, log: &mut dyn FnMut(String)) -> io::Result<()>
     Ok(())
 }
 
+/// Copies a .ply into `<game>/vdgs/`, keeping its name. Returns the capture's name.
+///
+/// The name is the file stem, and it becomes both a directory-shaped key in
+/// bindings.json and part of a path, so it goes through the same reservation and
+/// traversal checks any other capture name does.
+pub fn install_ply(root: &Path, ply: &Path) -> io::Result<String> {
+    let stem = ply
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "the file has no name"))?;
+    if stem.is_empty()
+        || stem.eq_ignore_ascii_case("ui")
+        || stem.contains('/')
+        || stem.contains('\\')
+        || stem.starts_with('.')
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("\"{stem}\" cannot be used as a capture name"),
+        ));
+    }
+    let dir = root.join("vdgs");
+    fs::create_dir_all(&dir)?;
+    fs::copy(ply, dir.join(format!("{stem}.ply")))?;
+    Ok(stem.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -857,6 +884,25 @@ mod tests {
             !root.join("BepInEx/plugins/VDGS.dll").exists() && !root.join("vdgs/ui").exists()
         );
         assert!(root.join("vdgs/bindings.json").exists());
+    }
+
+    #[test]
+    fn install_ply_copies_into_vdgs_and_returns_the_name() {
+        let root = tmp();
+        let src = tmp().join("My House.ply");
+        std::fs::write(&src, b"ply\nelement vertex 3\nend_header\n").unwrap();
+
+        let name = install_ply(&root, &src).unwrap();
+        assert_eq!(name, "My House");
+        assert!(root.join("vdgs/My House.ply").is_file());
+    }
+
+    #[test]
+    fn install_ply_refuses_a_name_that_escapes_vdgs() {
+        let root = tmp();
+        let src = tmp().join("..ply");
+        std::fs::write(&src, b"ply\n").unwrap();
+        assert!(install_ply(&root, &src).is_err());
     }
 
     fn tmp() -> PathBuf {

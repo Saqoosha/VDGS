@@ -338,6 +338,48 @@ impl Host {
         });
     }
 
+    /// Picks a .ply and drops it into `<game>/vdgs/`.
+    ///
+    /// A .ply is parsed on every spawn rather than read from packed buffers, so this is
+    /// the slow-to-show path - but it is the one shape a capture arrives in from anywhere
+    /// that is not this project's own tooling.
+    #[allow(clippy::needless_return)]
+    fn install_ply(self: &Arc<Self>) {
+        let Some(app) = self.inner.lock().unwrap().game.clone() else {
+            return;
+        };
+        let Some(picked) = self
+            .app
+            .dialog()
+            .file()
+            .add_filter("Gaussian splat capture", &["ply"])
+            .blocking_pick_file()
+        else {
+            return;
+        };
+        let Ok(ply) = picked.into_path() else {
+            return;
+        };
+        let label = ply
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("capture")
+            .to_string();
+        let what = format!("installing {label}");
+        self.run_busy(&what, move |_host, log| {
+            if launch::is_running() {
+                return Err(
+                    "VelociDrone is running. Close it first - files in use cannot be replaced."
+                        .into(),
+                );
+            }
+            let root = game::root(&app);
+            let name = game::install_ply(&root, &ply).map_err(|e| e.to_string())?;
+            log(format!("installed {name}"));
+            Ok(())
+        });
+    }
+
     fn refresh_catalog(self: &Arc<Self>) {
         let url = self
             .inner
