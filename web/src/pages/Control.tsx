@@ -17,6 +17,15 @@ import type { CollisionView, Scene, Status, UpAxis } from '../types'
 
 const UP_AXES: UpAxis[] = ['+x', '-x', '+y', '-y', '+z', '-z']
 
+// Mirror alone reparses the whole .ply (SplatScene.SetOrientation does a full
+// Despawn()+Spawn(), not a transform update - see the module comment on that function),
+// so /api/status stops answering for the entire respawn. The project's own bench notes
+// measure this at up to 13-14s for a large capture with spherical harmonics; this bound
+// sits comfortably past that so a genuinely stuck respawn (a crash mid-flip, or a capture
+// the plugin quietly refused) still resolves to something on screen instead of a spinner
+// that runs forever.
+const MIRROR_TIMEOUT_MS = 20_000
+
 /**
  * The tuning section of tab 03 (③): what used to be the whole in-game control UI's §01
  * "current track" + §02 "on screen" + §03 "bindings", cut down to only what makes sense
@@ -149,6 +158,74 @@ function ShownBlock({
   const [x, setX] = useStateSafe(scene.x, dragging)
   const [z, setZ] = useStateSafe(scene.z, dragging)
   const [turn, setTurn] = useStateSafe(scene.turn, dragging)
+
+  // Mirror is the one control here that despawns and respawns the capture, so it is the
+  // one control that needs a pending state: everything else (Up, Turn, Scale, Height, X,
+  // Z) just moves the transform and the POST answering is already the whole story.
+  const [mirrorPending, setMirrorPending] = useState(false)
+  const mirrorWant = useRef<boolean | null>(null)
+  const mirrorTimer = useRef<number | undefined>(undefined)
+
+  const clearMirrorTimer = () => {
+    if (mirrorTimer.current != null) window.clearTimeout(mirrorTimer.current)
+    mirrorTimer.current = undefined
+  }
+
+  // "Done" means the polled status reports `mirror` at the value that was actually
+  // requested - not "the POST returned" (it returns before the respawn even starts) and
+  // not merely "a poll came back" (a poll that lands mid-respawn still reports the old
+  // value). Comparing against `mirrorWant.current` rather than assuming the *next* poll
+  // is *the* answer is what keeps this from flapping while several polls land during one
+  // multi-second respawn.
+  useEffect(() => {
+    if (mirrorWant.current !== null && scene.mirror === mirrorWant.current) {
+      mirrorWant.current = null
+      clearMirrorTimer()
+      setMirrorPending(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scene.mirror])
+
+  // A different capture can become `shown` (the Show button on another row) while a
+  // mirror toggle on this one is still in flight - ShownBlock has no `key`, so it is
+  // reused rather than remounted. Without this, a stale pending flag would sit waiting
+  // for a `scene.mirror` that belongs to a capture nobody is toggling any more.
+  useEffect(() => {
+    mirrorWant.current = null
+    clearMirrorTimer()
+    setMirrorPending(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scene.name])
+
+  useEffect(() => clearMirrorTimer, [])
+
+  const toggleMirror = (on: boolean) => {
+    mirrorWant.current = on
+    setMirrorPending(true)
+    clearMirrorTimer()
+    mirrorTimer.current = window.setTimeout(() => {
+      if (mirrorWant.current === on) {
+        mirrorWant.current = null
+        setMirrorPending(false)
+        onFlash('mirror: no confirmation after 20s - check the capture')
+      }
+    }, MIRROR_TIMEOUT_MS)
+    void (async () => {
+      try {
+        await api.setOrientation(scene.name, { mirror: on })
+      } catch (e) {
+        // The POST itself failed, so no respawn was even triggered - there is nothing
+        // for a status poll to ever confirm. Clear right away instead of burning the
+        // full timeout waiting on a value that will never arrive.
+        clearMirrorTimer()
+        mirrorWant.current = null
+        setMirrorPending(false)
+        onFlash(e instanceof Error ? e.message : 'failed')
+        return
+      }
+      await onRefresh()
+    })()
+  }
 
   const pushTransform = async (v: { scale?: number; y?: number; x?: number; z?: number }) => {
     try {
@@ -308,16 +385,28 @@ function ShownBlock({
             plugin answers 200 and logs the request as ignored, so offering this on a
             converted capture would be a button that always looks like it did nothing. */}
         {scene.kind === 'ply' ? (
-          <StampCheck
-            label="mirror"
-            checked={scene.mirror}
-            onChange={(on) => {
-              void (async () => {
-                await pushOrientation({ mirror: on })
-                await onRefresh()
-              })()
-            }}
-          />
+          <div>
+            <StampCheck
+              label="mirror"
+              checked={scene.mirror}
+              disabled={mirrorPending}
+              onChange={(on) => toggleMirror(on)}
+            />
+            {mirrorPending ? (
+              // Mirror reparses the whole .ply, so the click otherwise produces nothing
+              // at all until the respawn finishes several seconds later - this is the
+              // difference between "working" and "dead". Disabling the checkbox too:
+              // a second click mid-respawn would start a second despawn/respawn on top
+              // of the first, which the plugin has no reason to expect.
+              <p
+                className="mt-1 font-mono text-[10px] tracking-[0.1em] text-signal uppercase"
+                role="status"
+              >
+                <span className="mr-1 animate-pulse">◐</span>
+                respawning to flip it
+              </p>
+            ) : null}
+          </div>
         ) : null}
       </div>
 
