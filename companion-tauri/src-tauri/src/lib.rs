@@ -304,40 +304,6 @@ impl Host {
         });
     }
 
-    fn install_zip(self: &Arc<Self>) {
-        let Some(app) = self.inner.lock().unwrap().game.clone() else {
-            return;
-        };
-        let Some(picked) = self
-            .app
-            .dialog()
-            .file()
-            .add_filter("Zip archives", &["zip"])
-            .blocking_pick_file()
-        else {
-            return;
-        };
-        let Ok(zip) = picked.into_path() else {
-            return;
-        };
-        let label = zip
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("archive")
-            .to_string();
-        let what = format!("installing {label}");
-        self.run_busy(&what, move |_host, log| {
-            if launch::is_running() {
-                return Err(
-                    "VelociDrone is running. Close it first - files in use cannot be replaced."
-                        .into(),
-                );
-            }
-            let root = game::root(&app);
-            game::install_archive(&root, &zip, &label, log).map_err(|e| e.to_string())
-        });
-    }
-
     /// Picks a .ply and drops it into `<game>/vdgs/`.
     ///
     /// A .ply is parsed on every spawn rather than read from packed buffers, so this is
@@ -616,6 +582,46 @@ impl Host {
         });
     }
 
+    fn unbind_track(self: &Arc<Self>, track: &str) {
+        let Some(app) = self.inner.lock().unwrap().game.clone() else {
+            return;
+        };
+        let track = track.to_string();
+        self.run_busy(&format!("unbinding {track}"), move |_host, log| {
+            // No is_running guard: bindings.json is ours, not the game's, and the plugin
+            // picks the change up from its own poll within a second.
+            let root = game::root(&app);
+            if game::unbind(&root, &track).map_err(|e| e.to_string())? {
+                log(format!("unbound \"{track}\""));
+            } else {
+                log(format!("\"{track}\" was not bound"));
+            }
+            Ok(())
+        });
+    }
+
+    fn remove_capture(self: &Arc<Self>, name: &str) {
+        let Some(app) = self.inner.lock().unwrap().game.clone() else {
+            return;
+        };
+        let name = name.to_string();
+        self.run_busy(&format!("removing {name}"), move |_host, log| {
+            if launch::is_running() {
+                return Err(
+                    "VelociDrone is running. Close it first - files in use cannot be removed."
+                        .into(),
+                );
+            }
+            let root = game::root(&app);
+            if game::remove_capture(&root, &name).map_err(|e| e.to_string())? {
+                log(format!("removed {name}"));
+            } else {
+                log(format!("{name} was not there"));
+            }
+            Ok(())
+        });
+    }
+
     fn add_track(&self) {
         let Some(app) = self.inner.lock().unwrap().game.clone() else {
             return;
@@ -791,14 +797,31 @@ fn now_hms() -> String {
 /// itself preventing from ever being drawn. The app freezes with a picker on screen that
 /// does not respond to Escape, to its own Cancel button, or to anything else.
 #[tauri::command(async)]
-fn dispatch(host: tauri::State<'_, Arc<Host>>, cmd: String, id: Option<String>) {
+fn dispatch(
+    host: tauri::State<'_, Arc<Host>>,
+    cmd: String,
+    id: Option<String>,
+    arg: Option<serde_json::Value>,
+) {
     let h = Arc::clone(&host);
+    // createTrack is the one command the UI already sends that has no arm here yet: it
+    // needs Host::create_track, which needs a seed track file only a human with the game
+    // running can export. It falls through to `_ => {}` below like anything else unmatched
+    // - unwired, not stubbed, so it can't be mistaken for done. `field` is left in place,
+    // unused, for that arm to read `name` and `capture` out of `arg` once it lands.
+    #[allow(unused_variables)]
+    let field = |k: &str| -> Option<String> {
+        arg.as_ref()
+            .and_then(|v| v.get(k))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+    };
     match cmd.as_str() {
         "refresh" => h.push(),
         "pick" => h.pick_game(),
         "installMod" => h.install_mod(),
         "uninstallMod" => h.uninstall_mod(),
-        "installCapture" => h.install_zip(),
+        "installPly" => h.install_ply(),
         "refreshCatalog" => h.refresh_catalog(),
         "get" => {
             if let Some(id) = id {
@@ -808,6 +831,16 @@ fn dispatch(host: tauri::State<'_, Arc<Host>>, cmd: String, id: Option<String>) 
         "removeTrack" => {
             if let Some(id) = id {
                 h.remove_track(&id);
+            }
+        }
+        "unbindTrack" => {
+            if let Some(id) = id {
+                h.unbind_track(&id);
+            }
+        }
+        "removeCapture" => {
+            if let Some(id) = id {
+                h.remove_capture(&id);
             }
         }
         "addTrack" => h.add_track(),

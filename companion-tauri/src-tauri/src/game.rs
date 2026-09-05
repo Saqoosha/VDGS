@@ -520,13 +520,23 @@ fn try_parse_bindings(text: &str) -> io::Result<Bindings> {
     Ok(map)
 }
 
+/// Writes `bindings.json` through a sibling temp file, then renames it over the target.
+///
+/// The plugin polls this file once a second while the game runs (Task 8's read side
+/// already tolerates a bad parse by keeping its last-known-good map, but a reader that
+/// catches a half-written file still loses every binding until the next poll changes
+/// it). A rename is atomic only within one filesystem, so the temp file has to live
+/// beside the target rather than in a system temp dir - and if the write to the temp
+/// file fails partway through, the rename never runs and the original is untouched.
 pub fn write_bindings(root: &Path, b: &Bindings) -> io::Result<()> {
     let path = root.join("vdgs/bindings.json");
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
     let text = write_bindings_string(b);
-    fs::write(path, text)
+    let tmp = path.with_extension("json.tmp");
+    fs::write(&tmp, text)?;
+    fs::rename(&tmp, &path)
 }
 
 fn write_bindings_string(b: &Bindings) -> String {
@@ -763,6 +773,30 @@ pub fn uninstall_mod(root: &Path, log: &mut dyn FnMut(String)) -> io::Result<()>
     Ok(())
 }
 
+/// Removes a capture, whichever of the two shapes it is on disk.
+///
+/// A converted capture is a directory; a .ply is a file with up to two siblings that
+/// carry its collision shell and its placement. Leaving a stale .placement.json behind
+/// means the next capture that happens to take the name inherits someone else's scale.
+pub fn remove_capture(root: &Path, name: &str) -> io::Result<bool> {
+    let vdgs = root.join("vdgs");
+    let mut removed = false;
+
+    let dir = vdgs.join(name);
+    if dir.is_dir() {
+        fs::remove_dir_all(&dir)?;
+        removed = true;
+    }
+    for ext in [".ply", ".collision.bin", ".placement.json"] {
+        let p = vdgs.join(format!("{name}{ext}"));
+        if p.is_file() {
+            fs::remove_file(&p)?;
+            removed = true;
+        }
+    }
+    Ok(removed)
+}
+
 /// Copies a .ply into `<game>/vdgs/`, keeping its name. Returns the capture's name.
 ///
 /// The name is the file stem, and it becomes both a directory-shaped key in
@@ -903,6 +937,37 @@ mod tests {
         let src = tmp().join("..ply");
         std::fs::write(&src, b"ply\n").unwrap();
         assert!(install_ply(&root, &src).is_err());
+    }
+
+    #[test]
+    fn remove_capture_takes_the_ply_and_its_siblings() {
+        let root = tmp();
+        let vdgs = root.join("vdgs");
+        std::fs::create_dir_all(&vdgs).unwrap();
+        for f in ["a.ply", "a.collision.bin", "a.placement.json", "b.ply"] {
+            std::fs::write(vdgs.join(f), b"x").unwrap();
+        }
+        assert!(remove_capture(&root, "a").unwrap());
+        assert!(!vdgs.join("a.ply").exists());
+        assert!(!vdgs.join("a.collision.bin").exists());
+        assert!(!vdgs.join("a.placement.json").exists());
+        assert!(vdgs.join("b.ply").exists());
+    }
+
+    #[test]
+    fn remove_capture_takes_a_converted_directory() {
+        let root = tmp();
+        let dir = root.join("vdgs/scene");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("meta.json"), b"{}").unwrap();
+        assert!(remove_capture(&root, "scene").unwrap());
+        assert!(!dir.exists());
+    }
+
+    #[test]
+    fn remove_capture_reports_nothing_removed() {
+        let root = tmp();
+        assert!(!remove_capture(&root, "absent").unwrap());
     }
 
     fn tmp() -> PathBuf {
