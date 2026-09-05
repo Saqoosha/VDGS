@@ -785,7 +785,7 @@ pub fn uninstall_mod(root: &Path, log: &mut dyn FnMut(String)) -> io::Result<()>
 /// reserved `ui` name (that directory holds this app's own static assets, never a
 /// capture) are all refused.
 fn valid_capture_name(name: &str) -> bool {
-    if name.is_empty() || name == "." || name == ".." {
+    if name.is_empty() || name == "." || name == ".." || name.starts_with('.') {
         return false;
     }
     if name.contains('/') || name.contains('\\') || name.contains('\0') {
@@ -992,6 +992,16 @@ mod tests {
     fn install_ply_refuses_a_name_that_escapes_vdgs() {
         let root = tmp();
         let src = tmp().join("..ply");
+        std::fs::write(&src, b"ply\n").unwrap();
+        assert!(install_ply(&root, &src).is_err());
+    }
+
+    #[test]
+    fn install_ply_refuses_a_leading_dot_name() {
+        // A narrower "reject '.' and '..' only" predicate let a name like ".hidden"
+        // through, which would land as an invisible file in the game folder.
+        let root = tmp();
+        let src = tmp().join(".hidden.ply");
         std::fs::write(&src, b"ply\n").unwrap();
         assert!(install_ply(&root, &src).is_err());
     }

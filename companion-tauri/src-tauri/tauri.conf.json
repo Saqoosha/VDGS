@@ -37,7 +37,8 @@
       "icons/icon.ico"
     ],
     "resources": [
-      "resources/mod/**/*"
+      "resources/mod/**/*",
+      "resources/seed.track.json"
     ],
     "macOS": {
       "minimumSystemVersion": "12.0"

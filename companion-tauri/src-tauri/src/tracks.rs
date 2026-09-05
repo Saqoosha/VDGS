@@ -10,6 +10,8 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum Error {
+    #[error("{0}")]
+    Msg(String),
     #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error(transparent)]
@@ -94,6 +96,26 @@ pub fn stored_name(display: &str) -> String {
         .replace('%', "%25")
         .replace('+', "%2b")
         .replace(' ', "+")
+}
+
+/// Pulls the three columns a track row needs out of a `.track.json`.
+///
+/// `value` is the game's own string and is copied byte for byte - a reformatted value is
+/// a different track as far as VelociDrone is concerned.
+pub fn seed_value(seed_json: &str) -> Result<(i64, i64, String), Error> {
+    let v: serde_json::Value = serde_json::from_str(seed_json)
+        .map_err(|e| Error::Msg(format!("seed template is not JSON: {e}")))?;
+    let scene = v
+        .get("scene_id")
+        .and_then(|n| n.as_i64())
+        .ok_or_else(|| Error::Msg("seed template has no scene_id".into()))?;
+    let kind = v.get("type").and_then(|n| n.as_i64()).unwrap_or(0);
+    let value = v
+        .get("value")
+        .and_then(|s| s.as_str())
+        .ok_or_else(|| Error::Msg("seed template has no value".into()))?
+        .to_string();
+    Ok((scene, kind, value))
 }
 
 pub fn list(db: &Path) -> rusqlite::Result<Vec<Track>> {
@@ -355,6 +377,21 @@ fn civil_from_days(z: i64) -> (i32, u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn seed_value_reads_scene_kind_and_value() {
+        let seed = r#"{"name":"VDGS Template","scene_id":16,"type":0,"value":"{\"gates\":[]}"}"#;
+        let (scene, kind, value) = seed_value(seed).unwrap();
+        assert_eq!(scene, 16);
+        assert_eq!(kind, 0);
+        assert_eq!(value, "{\"gates\":[]}");
+    }
+
+    #[test]
+    fn seed_value_rejects_a_seed_without_a_value() {
+        let seed = r#"{"name":"VDGS Template","scene_id":16,"type":0}"#;
+        assert!(seed_value(seed).is_err());
+    }
 
     #[test]
     fn display_name_decodes_plus_then_percent() {

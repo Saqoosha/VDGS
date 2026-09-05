@@ -622,6 +622,54 @@ impl Host {
         });
     }
 
+    /// Creates a track from the bundled seed and binds a capture to it in one step.
+    ///
+    /// The two happen together on purpose. Binding is keyed by track name, so a track
+    /// created now and bound later is a rename waiting to break the link - and a broken
+    /// link shows nothing at all, with no error anywhere.
+    fn create_track(self: &Arc<Self>, name: &str, capture: &str) {
+        let Some(app) = self.inner.lock().unwrap().game.clone() else {
+            return;
+        };
+        let display = name.trim().to_string();
+        if display.is_empty() {
+            self.error_dialog("a track needs a name");
+            return;
+        }
+        let capture = capture.to_string();
+        let resource_dir = self.resource_dir.clone();
+        let what = format!("creating {display}");
+        self.run_busy(&what, move |_host, log| {
+            if launch::is_running() {
+                return Err(
+                    "VelociDrone is running. Close it first - the track database is in use."
+                        .into(),
+                );
+            }
+            let seed_path = resource_dir.join("seed.track.json");
+            let seed = std::fs::read_to_string(&seed_path)
+                .map_err(|e| format!("seed template missing at {}: {e}", seed_path.display()))?;
+            let (scene, kind, value) = tracks::seed_value(&seed).map_err(|e| e.to_string())?;
+
+            let db = tracks::db_path();
+            let stored = tracks::stored_name(&display);
+            match tracks::import(&db, &stored, scene, kind, &value).map_err(|e| e.to_string())? {
+                (tracks::ImportResult::Added, _) => log(format!("added track \"{display}\"")),
+                (tracks::ImportResult::AlreadyPresent, _) => {
+                    return Err(format!("a track called \"{display}\" is already there"))
+                }
+                (tracks::ImportResult::WouldOverwrite, _) => {
+                    return Err(format!("a different track called \"{display}\" is already there"))
+                }
+            }
+
+            let root = game::root(&app);
+            game::bind(&root, &display, &capture).map_err(|e| e.to_string())?;
+            log(format!("bound \"{display}\" to {capture}"));
+            Ok(())
+        });
+    }
+
     fn add_track(&self) {
         let Some(app) = self.inner.lock().unwrap().game.clone() else {
             return;
@@ -804,12 +852,8 @@ fn dispatch(
     arg: Option<serde_json::Value>,
 ) {
     let h = Arc::clone(&host);
-    // createTrack is the one command the UI already sends that has no arm here yet: it
-    // needs Host::create_track, which needs a seed track file only a human with the game
-    // running can export. It falls through to `_ => {}` below like anything else unmatched
-    // - unwired, not stubbed, so it can't be mistaken for done. `field` is left in place,
-    // unused, for that arm to read `name` and `capture` out of `arg` once it lands.
-    #[allow(unused_variables)]
+    // createTrack reads `name` and `capture` together out of `arg` - one id string was
+    // never going to carry two values (bridge.ts's send() widened for exactly this).
     let field = |k: &str| -> Option<String> {
         arg.as_ref()
             .and_then(|v| v.get(k))
@@ -844,6 +888,11 @@ fn dispatch(
             }
         }
         "addTrack" => h.add_track(),
+        "createTrack" => {
+            if let (Some(name), Some(capture)) = (field("name"), field("capture")) {
+                h.create_track(&name, &capture);
+            }
+        }
         "fly" => h.launch(),
         _ => {}
     }
