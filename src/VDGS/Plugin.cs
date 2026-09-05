@@ -459,6 +459,8 @@ namespace VDGS
             if (m_TrackPollTimer < 1f) return;
             m_TrackPollTimer = 0f;
 
+            m_Bindings.ReloadIfChanged();
+
             var log = new StringBuilder();
             string name;
             try { name = TrackName.Current(log); }

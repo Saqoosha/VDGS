@@ -27,6 +27,11 @@ namespace VDGS
         private Dictionary<string, List<string>> m_Map =
             new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
 
+        // The stamp of the last write this object knows about - either what it read or
+        // what it wrote. Anything else on disk came from outside and wins.
+        private DateTime m_Stamp = DateTime.MinValue;
+        private long m_Length = -1;
+
         internal TrackBindings(string path)
         {
             m_Path = path;
@@ -71,6 +76,52 @@ namespace VDGS
             log?.AppendLine("bound '" + track + "' -> [" + string.Join(", ", list.ToArray()) + "]");
         }
 
+        /// <summary>
+        /// Re-reads bindings.json when someone else has written it.
+        ///
+        /// The companion writes this file directly, with the game either running or not,
+        /// so the copy held here goes stale without anything saying so - and the next
+        /// Save() would put the stale copy back over the new one. Called once a second
+        /// from the track poll, which is already running.
+        ///
+        /// Length is compared as well as time because two writes inside one filesystem
+        /// timestamp tick are indistinguishable otherwise, and a binding edit is exactly
+        /// the kind of small change that lands in the same tick as the one before it.
+        /// </summary>
+        internal void ReloadIfChanged()
+        {
+            try
+            {
+                if (!System.IO.File.Exists(m_Path))
+                    return;
+                var info = new System.IO.FileInfo(m_Path);
+                if (info.LastWriteTimeUtc == m_Stamp && info.Length == m_Length)
+                    return;
+                Load();
+                VdgsPlugin.Log.LogInfo("[VDGS] bindings.json changed on disk, reloaded ("
+                                       + m_Map.Count + " track(s))");
+            }
+            catch (Exception ex)
+            {
+                VdgsPlugin.Log.LogError("bindings.json reload failed: " + ex.Message);
+            }
+        }
+
+        private void Stamp()
+        {
+            try
+            {
+                var info = new System.IO.FileInfo(m_Path);
+                m_Stamp = info.LastWriteTimeUtc;
+                m_Length = info.Length;
+            }
+            catch
+            {
+                m_Stamp = DateTime.MinValue;
+                m_Length = -1;
+            }
+        }
+
         private void Load()
         {
             m_Map = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
@@ -93,6 +144,13 @@ namespace VDGS
             {
                 VdgsPlugin.Log.LogError("bindings.json parse failed: " + ex.Message);
             }
+            finally
+            {
+                // Every exit above (not-found, empty file, bad JSON, or a clean parse)
+                // must land here - ReloadIfChanged compares against this stamp, and a
+                // path that skipped it would report the file as "changed" forever.
+                Stamp();
+            }
         }
 
         private void Save(StringBuilder log)
@@ -110,6 +168,7 @@ namespace VDGS
                 }
 
                 System.IO.File.WriteAllText(m_Path, json);
+                Stamp();
                 log?.AppendLine("bindings.json written (" + m_Map.Count + " track(s))");
             }
             catch (Exception ex)
