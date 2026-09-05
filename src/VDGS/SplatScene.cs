@@ -38,8 +38,13 @@ namespace VDGS
 
             /// <summary>
             /// Which of the capture's axes points at the sky. One of +x -x +y -y +z -z.
+            ///
+            /// No initialiser on purpose: a missing key has to stay null; defaulting it to
+            /// "+y" here would make Spawn's "up present -> compose, else -> raw rotation"
+            /// branch always take the compose side, silently discarding whatever a
+            /// hand-written or pre-this-field placement.json stored in `rotation`.
             /// </summary>
-            public string up = SplatOrientation.DefaultUp;
+            public string up;
 
             /// <summary>Rotation about the up axis, in degrees. Matches the baked light.</summary>
             public float turn = 0f;
@@ -79,6 +84,17 @@ namespace VDGS
             : Path.Combine(m_Dir, "placement.json");
 
         private bool IsPly => m_Dir.EndsWith(".ply", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// The mirror flag that actually applies to this capture's data.
+        ///
+        /// Only PlyLoader honours mirroring - SplatData.Load (a converted directory) reads
+        /// packed buffers and ignores it entirely. Gating on IsPly here, once, is what
+        /// stops a placement.json that says "mirrorY": true for a converted capture from
+        /// reaching the collision shell: without this, the shell would mirror while the
+        /// splats it belongs to - which never asked for mirroring - do not.
+        /// </summary>
+        private bool MirrorFor(Placement p) => IsPly && (p.mirrorY ?? true);
 
         internal SplatScene(string path)
         {
@@ -147,7 +163,7 @@ namespace VDGS
             // Read before the data: mirrorY decides how the .ply is parsed, so the
             // placement has to be known before PlyLoader runs, not after.
             var placement = LoadPlacement();
-            var mirror = placement.mirrorY ?? IsPly;
+            var mirror = MirrorFor(placement);
 
             // Converted captures ignore the flag - SplatData.Load reads packed buffers,
             // and mirroring them would mean decoding every format rather than flipping a
@@ -397,7 +413,7 @@ namespace VDGS
             // there may be no collider yet; after this the toggle only flips `enabled`,
             // which is what makes flipping it mid-flight free.
             // Same flag Spawn used to load the splats - the shell must agree with them.
-            if (on) SplatCollision.Attach(m_Go.transform, m_Dir, log, p.mirrorY ?? IsPly);
+            if (on) SplatCollision.Attach(m_Go.transform, m_Dir, log, MirrorFor(p));
 
             if (!SplatCollision.SetEnabled(m_Go.transform, on))
             {
@@ -468,10 +484,18 @@ namespace VDGS
 
             if (!string.IsNullOrEmpty(up)) p.up = up;
             if (turn.HasValue) p.turn = turn.Value;
-            if (mirror.HasValue && mirror.Value != (p.mirrorY ?? IsPly))
+            if (mirror.HasValue)
             {
-                p.mirrorY = mirror.Value;
-                reload = true;
+                // A converted capture has no mirror to change - SplatData.Load ignores it -
+                // so persisting the request and paying a despawn/respawn stall would change
+                // nothing visible while leaving mirrorY set for a shape that never reads it.
+                if (!IsPly)
+                    log?.AppendLine(Name + ": mirror has no effect on a converted capture - ignored");
+                else if (mirror.Value != MirrorFor(p))
+                {
+                    p.mirrorY = mirror.Value;
+                    reload = true;
+                }
             }
             SavePlacementData(p, log);
 
@@ -488,7 +512,7 @@ namespace VDGS
                 m_Go.transform.eulerAngles = new Vector3(rx, ry, rz);
             }
             log?.AppendLine(Name + ": up=" + p.up + " turn=" + p.turn.ToString("0.#")
-                            + " mirror=" + (p.mirrorY ?? IsPly));
+                            + " mirror=" + MirrorFor(p));
         }
 
         internal void SavePlacement()
@@ -504,6 +528,9 @@ namespace VDGS
             // later gets a mesh.
             var p = LoadPlacement();
             p.position = new[] { tr.position.x, tr.position.y, tr.position.z };
+            // Still written from the live euler, alongside up/turn - a second copy of the
+            // same fact that nothing consults once up is present (Spawn only falls back to
+            // this when up is absent). Left as is; not this task's rotation to untangle.
             p.rotation = new[] { tr.eulerAngles.x, tr.eulerAngles.y, tr.eulerAngles.z };
             p.scale = tr.localScale.x;
             p.backdrop = SplatBackdrop.IsAttached(tr);
@@ -542,7 +569,7 @@ namespace VDGS
                 if (p.position == null || p.position.Length < 3) p.position = new float[] { 0, 0, 0 };
                 if (p.rotation == null || p.rotation.Length < 3) p.rotation = new float[] { 0, 0, 0 };
                 if (p.scale <= 0f) p.scale = 1f;
-                if (string.IsNullOrEmpty(p.up)) p.up = SplatOrientation.DefaultUp;
+                // up is deliberately NOT defaulted here - see the field's doc comment.
                 if (!SplatCollisionView.IsMode(p.collisionView)) p.collisionView = SplatCollisionView.kOff;
                 return p;
             }
