@@ -1195,6 +1195,25 @@ pub fn run() {
             let _ = w.show();
             let _ = w.set_focus();
         }))
+        // Position and size only - not maximized, not visibility. This window is something
+        // you alt-tab to from a fullscreen game; restoring it maximized because it happened
+        // to be maximized once is worse than restoring the modest size it usually sits at.
+        // Leaving MAXIMIZED out of the flags does double duty: on restore the plugin skips
+        // its own `maximize()` call, and on save `update_state` treats "currently maximized"
+        // as reason to skip writing size/position too, so the maximized geometry never
+        // clobbers the last real one. VISIBLE is left out for a narrower reason - with it
+        // unset the plugin never calls `show()`/`set_focus()` after restoring, and the
+        // window is created visible by `tauri.conf.json` regardless, so there is nothing to
+        // gain from tracking it and a hidden-on-quit window has no way back without editing
+        // the state file by hand.
+        .plugin(
+            tauri_plugin_window_state::Builder::new()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::POSITION
+                        | tauri_plugin_window_state::StateFlags::SIZE,
+                )
+                .build(),
+        )
         .plugin(tauri_plugin_dialog::init())
         // api.ts's hosted transport goes through this rather than a same-origin fetch from
         // the webview - the plugin's HTTP server has no Access-Control-Allow-Origin (adding
