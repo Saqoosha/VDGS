@@ -167,7 +167,20 @@ pub fn true_lens_on(db: &Path) -> Option<bool> {
     }
 }
 
-/// Exact stored name first, then display_name(row.name). Input is never decoded.
+/// Exact stored name, then display_name(row.name) == name, then display space on both
+/// sides. Input is never decoded on its own - only compared against a decoded row.
+///
+/// The third pass exists because two writers hand this function differently-encoded
+/// spellings of what a person would call the same track. VelociDrone's own track editor
+/// writes a literal space; `create_track_job` (and anything else going through
+/// `stored_name`) writes the form-encoded spelling. Neither of the first two passes
+/// catches an encoded `name` against an editor's space-spelled row: the raw comparison
+/// fails because the bytes differ, and `display_name(&t.name) == name` fails because the
+/// left side is decoded and the right is not. Decoding both sides is what makes an
+/// editor-written "VDGS my house" and a companion-written "VDGS+my+house" resolve to the
+/// same row - without it, `import` cannot see the existing track, reports `Added`, and a
+/// second row appears with an identical display name; `remove` then has no way to tell
+/// them apart either.
 pub fn find(db: &Path, name: &str) -> rusqlite::Result<Option<Track>> {
     let all = list(db)?;
     for t in &all {
@@ -177,6 +190,12 @@ pub fn find(db: &Path, name: &str) -> rusqlite::Result<Option<Track>> {
     }
     for t in &all {
         if display_name(&t.name) == name {
+            return Ok(Some(t.clone()));
+        }
+    }
+    let wanted = display_name(name);
+    for t in &all {
+        if display_name(&t.name) == wanted {
             return Ok(Some(t.clone()));
         }
     }

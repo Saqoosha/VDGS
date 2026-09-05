@@ -1132,6 +1132,55 @@ mod tests {
     }
 
     #[test]
+    fn create_track_job_finds_an_editor_written_row_spelled_with_a_literal_space() {
+        let resource_dir = resource_dir_with_seed();
+        let db = fresh_db();
+        let root = tmp();
+
+        // VelociDrone's own track editor writes a literal space, not the '+'-encoded
+        // spelling `stored_name` produces for a companion-created track. Both spellings
+        // are valid rows in `user11.db` side by side (AGENTS.md's "a course has two
+        // spellings") - this row stands in for one built by hand in the editor, with
+        // gates `create_track_job` must never touch.
+        let editor_value = "{\"gates\":[{\"start\":true},{\"finish\":true},{\"finish\":true}]}";
+        {
+            let c = rusqlite::Connection::open(&db).unwrap();
+            c.execute(
+                "insert into tracks (scene_id, name, value, type) values (16, 'VDGS my house', ?1, 0)",
+                [editor_value],
+            )
+            .unwrap();
+        }
+
+        let mut logged = Vec::new();
+        let result = create_track_job(
+            &resource_dir,
+            &db,
+            &root,
+            "VDGS my house",
+            "my-house",
+            &mut |s| logged.push(s),
+        );
+
+        assert!(result.is_ok(), "{result:?}");
+        let rows = tracks::list(&db).unwrap();
+        assert_eq!(
+            rows.len(),
+            1,
+            "the encoded spelling must resolve to the editor's row, not add a second one"
+        );
+        assert_eq!(
+            rows[0].value, editor_value,
+            "the editor-built track's gates must be byte-for-byte untouched"
+        );
+        assert_eq!(
+            game::read_bindings(&root)["VDGS my house"],
+            vec!["my-house".to_string()],
+            "the capture must bind onto the existing editor-written track"
+        );
+    }
+
+    #[test]
     fn create_track_job_reports_a_missing_database_instead_of_a_raw_sqlite_error() {
         let resource_dir = resource_dir_with_seed();
         let db = tmp().join("does-not-exist.db");
