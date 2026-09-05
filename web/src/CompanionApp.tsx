@@ -60,44 +60,57 @@ export default function CompanionApp() {
   const busy = running || opBusy
   const game = state?.game ?? null
 
-  // A window, not a page: it is exactly as tall as it is, so the tab content takes the
-  // slack and Fly sits on the bottom edge instead of below it.
+  // The page scrolls as a whole now, not a box inside it: a box's own scrollbar paints
+  // over its content on this WebKit webview (macOS overlay scrollbars ignore
+  // scrollbar-gutter, measured - see the commit that changed this), and it appears and
+  // disappears with overflow, so switching tabs used to shift everything sideways. The
+  // window's scrollbar sits at the window edge instead, outside every page's padding, so
+  // it has nothing to overlap. min-h-svh on the column (not a fixed height) is what lets
+  // it grow past one screen and still keeps Fly hugging the bottom edge when a tab is
+  // short enough to fit without scrolling at all.
   return (
     // Dragging across a native window should pan or click, not paint a text selection
     // the way a browser page does - so the shell defaults to non-selectable and each
     // page opts specific text back in (the LAN address, the log, an input's own value).
     // This div, not chrome.tsx, is where that default belongs: chrome.tsx's Masthead is
     // shared with the public site, which is an ordinary web page and stays selectable.
-    <div className="h-svh overflow-hidden text-foreground select-none">
+    <div data-testid="companion-shell" className="text-foreground select-none">
       <ParticleField />
-      <div className="relative mx-auto flex h-full w-full max-w-[44rem] flex-col px-6 py-7 md:px-8">
-        <Masthead
-          eyebrow="companion"
-          nav={
-            <>
-              {TABS.map((t) => (
-                <Tab key={t.id} now={tab} me={t.id} onPick={setTab}>
-                  {t.label}
-                </Tab>
-              ))}
-            </>
-          }
-          meta="gaussian splat / velocidrone"
-          status={
-            // While something is running this is the one place a person is already
-            // looking, so it says what rather than staying on the old verdict.
-            state?.busy ? (
-              <span className="animate-pulse text-signal">
-                ◐ {state.busyPercent != null ? state.busyPercent + '%' : 'working'}
-              </span>
-            ) : (
-              <span className={state?.ready ? 'text-live' : 'text-muted-foreground'}>
-                {state?.ready ? '● ready' : '○ setup'}
-              </span>
-            )
-          }
-        />
-        <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="relative mx-auto flex min-h-svh w-full max-w-[44rem] flex-col px-6 md:px-8">
+        {/* Sticky, not fixed: fixed would need its own width/inset math to stay lined up
+            with the centered column, sticky just holds its normal-flow position. The
+            fade (chrome-fade-b) keeps the readable band opaque and lets only the
+            trailing padding blend back into the canvas - a hard-edged bar would cut a
+            rectangle through the drifting gaussians the shell is built around. */}
+        <div className="chrome-fade-b sticky top-0 z-10 bg-background pt-7 pb-6">
+          <Masthead
+            eyebrow="companion"
+            nav={
+              <>
+                {TABS.map((t) => (
+                  <Tab key={t.id} now={tab} me={t.id} onPick={setTab}>
+                    {t.label}
+                  </Tab>
+                ))}
+              </>
+            }
+            meta="gaussian splat / velocidrone"
+            status={
+              // While something is running this is the one place a person is already
+              // looking, so it says what rather than staying on the old verdict.
+              state?.busy ? (
+                <span className="animate-pulse text-signal">
+                  ◐ {state.busyPercent != null ? state.busyPercent + '%' : 'working'}
+                </span>
+              ) : (
+                <span className={state?.ready ? 'text-live' : 'text-muted-foreground'}>
+                  {state?.ready ? '● ready' : '○ setup'}
+                </span>
+              )
+            }
+          />
+        </div>
+        <div className="flex-1">
           {tab === 'setup' ? (
             <Setup state={state} log={log} />
           ) : tab === 'tracks' ? (
@@ -107,9 +120,11 @@ export default function CompanionApp() {
           )}
         </div>
         {/* Fixture of the shell rather than of any one page: flying is not specific to
-            setup, and a plain browser has no host to fly with at all. */}
+            setup, and a plain browser has no host to fly with at all. chrome-fade-t
+            mirrors the masthead's fade but on the leading edge, since this bar is
+            approached from above as the page scrolls rather than from below. */}
         {hosted ? (
-          <div className="mt-6 shrink-0">
+          <div className="chrome-fade-t sticky bottom-0 z-10 bg-background pt-6 pb-7">
             <Button
               size="lg"
               disabled={!game || busy}

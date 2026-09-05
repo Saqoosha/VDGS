@@ -103,10 +103,13 @@ describe('the companion window', () => {
 
   // This only proves the class the browser reads to turn off selection is present on
   // the shell - jsdom does not implement drag-to-select, so it cannot prove a drag stops
-  // painting a selection. `.h-svh` picks out the shell's own root div: `select-none`
-  // alone would also match the Fly button and other shadcn controls that carry it too.
+  // painting a selection. A data-testid, not a styling class, picks out the shell's own
+  // root div: `select-none` alone would also match the Fly button and other shadcn
+  // controls that carry it too, and the sizing class that used to double as that handle
+  // (`.h-svh`) moved off this element once the page started scrolling as a whole instead
+  // of being clipped to one screen.
   it('turns off text selection at the window shell', () => {
-    expect(document.querySelector('.h-svh')).toHaveClass('select-none')
+    expect(screen.getByTestId('companion-shell')).toHaveClass('select-none')
   })
 })
 

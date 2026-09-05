@@ -157,6 +157,23 @@
     box-shadow: 0 0 16px rgb(255 118 64 / 0.9);
     cursor: pointer;
   }
+
+  /* The companion's sticky masthead and Fly bar sit on an opaque --background so page
+     content scrolling underneath cannot show through the readable band - but a hard
+     edge there would look like a slab dropped on the particle field. Masking only the
+     bar's own trailing padding lets that edge blend back into the canvas instead, which
+     works because both share the same #05070c base: the fade reveals the canvas at its
+     own resting color, not a visible seam. -b fades going down (used on the masthead,
+     approached from below as the page scrolls up under it); -t fades going up (the Fly
+     bar, approached from above).*/
+  .chrome-fade-b {
+    -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 1.5rem), transparent 100%);
+    mask-image: linear-gradient(to bottom, black calc(100% - 1.5rem), transparent 100%);
+  }
+  .chrome-fade-t {
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 1.5rem);
+    mask-image: linear-gradient(to bottom, transparent 0%, black 1.5rem);
+  }
 }
 
 /* The indeterminate bar: a third of the track sliding across, for the jobs that cannot

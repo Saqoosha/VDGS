@@ -93,7 +93,7 @@ export default function Tracks({
   ).map((r) => r.row)
 
   return (
-    <Section n="01" label="tracks" flush className="flex min-h-0 flex-1 flex-col">
+    <Section n="01" label="tracks" flush>
       <label className="mb-3 flex items-end gap-4 border-b border-rule pb-1.5">
         <span className="font-mono text-[10px] tracking-[0.22em] text-muted-foreground uppercase">
           find
@@ -107,7 +107,7 @@ export default function Tracks({
         />
       </label>
 
-      <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+      <div>
         {!rows.length ? (
           <p className="font-mono text-[11px] tracking-[0.14em] text-muted-foreground uppercase">
             {game ? 'nothing to show yet' : 'no game folder'}
