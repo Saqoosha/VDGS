@@ -12,7 +12,11 @@ describe('bridge transports', () => {
     const { send, subscribe, hosted } = await import('./bridge')
     expect(hosted).toBe(true)
     send('get', 'fdf-2026-08-22')
-    expect(invoke).toHaveBeenCalledWith('dispatch', { cmd: 'get', id: 'fdf-2026-08-22' })
+    expect(invoke).toHaveBeenCalledWith('dispatch', {
+      cmd: 'get',
+      id: 'fdf-2026-08-22',
+      arg: null,
+    })
     const fn = vi.fn()
     subscribe(fn)
     expect(listen).toHaveBeenCalledWith('push', expect.any(Function))
@@ -34,7 +38,7 @@ describe('the first command waits for the listener', () => {
     expect(invoke).not.toHaveBeenCalled()
     release(() => {})
     await new Promise((r) => setTimeout(r, 0))
-    expect(invoke).toHaveBeenCalledWith('dispatch', { cmd: 'refresh', id: null })
+    expect(invoke).toHaveBeenCalledWith('dispatch', { cmd: 'refresh', id: null, arg: null })
     delete (window as any).__TAURI__
   })
 })

@@ -40,10 +40,13 @@ export type Command =
   | 'pick'
   | 'installMod'
   | 'uninstallMod'
+  | 'installPly'
   | 'removeTrack'
+  | 'removeCapture'
+  | 'unbindTrack'
+  | 'createTrack'
   | 'refreshCatalog'
   | 'get'
-  | 'installCapture'
   | 'addTrack'
   | 'fly'
 
@@ -55,9 +58,12 @@ export type Command =
  */
 let listening: Promise<unknown> | null = null
 
-export function send(cmd: Command, id?: string): void {
+// Widened to a third value for createTrack, which needs a name and a capture together -
+// one id string was never going to carry two values.
+export function send(cmd: Command, id?: string, arg?: Record<string, unknown>): void {
   if (!tauri) return devSend(cmd, id)
-  const invoke = () => tauri.core.invoke('dispatch', { cmd, id: id ?? null })
+  const invoke = () =>
+    tauri.core.invoke('dispatch', { cmd, id: id ?? null, arg: arg ?? null })
   void (listening ? listening.then(invoke, invoke) : invoke())
 }
 
@@ -95,6 +101,10 @@ const devState: SetupState = {
   busy: null,
   busyPercent: null,
   launchArgs: '-force-d3d12',
+  // Real state only carries this while the game (and so the plugin's HTTP server) is
+  // running - set here regardless of `running` below so tab 03's tuning half has
+  // something to lay out every time this stand-in is opened.
+  lanUrl: 'http://192.168.1.42:8777/',
   tracks: [
     {
       track: 'VDGS FDF',

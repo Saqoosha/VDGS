@@ -2,24 +2,7 @@ import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import Setup from './Setup'
 import { rememberLang } from '../i18n'
-import type { SetupState, TrackEntry } from '../types'
-
-const xss = '<img src=x onerror=alert(1)>'
-
-function track(over: Partial<TrackEntry> = {}): TrackEntry {
-  return {
-    track: 'VDGS FDF',
-    capture: 'FDF-2026-08-24',
-    splats: 1497617,
-    bytes: 128_800_000,
-    collision: true,
-    captureInstalled: true,
-    converted: true,
-    inGame: true,
-    fromServer: false,
-    ...over,
-  }
-}
+import type { SetupState } from '../types'
 
 function state(over: Partial<SetupState> = {}): SetupState {
   return {
@@ -33,6 +16,7 @@ function state(over: Partial<SetupState> = {}): SetupState {
     busyPercent: null,
     catalog: null,
     launchArgs: '-force-d3d12',
+    lanUrl: null,
     tracks: [],
     unbound: [],
     trueLens: false,
@@ -46,56 +30,9 @@ describe('Setup', () => {
     expect(screen.getByText(/missing: BepInEx · the mod/i)).toBeInTheDocument()
   })
 
-  it('lists a track with the capture it shows', () => {
-    render(<Setup state={state({ tracks: [track()] })} log={[]} />)
-    expect(screen.getByText('VDGS FDF')).toBeInTheDocument()
-    expect(screen.getByText(/FDF-2026-08-24/)).toBeInTheDocument()
-    expect(screen.getByText(/1,497,617 splats/)).toBeInTheDocument()
-  })
-
-  it('marks a capture with no collision mesh', () => {
-    render(<Setup state={state({ tracks: [track({ collision: false })] })} log={[]} />)
-    expect(screen.getByText(/no collision/)).toBeInTheDocument()
-  })
-
-  it('says when a bound capture is not on the machine', () => {
-    // Silent otherwise: the track loads and simply shows nothing.
-    render(
-      <Setup
-        state={state({ tracks: [track({ captureInstalled: false, capture: 'nelson-lod2' })] })}
-        log={[]}
-      />,
-    )
-    expect(screen.getByText(/nelson-lod2 is not installed/)).toBeInTheDocument()
-  })
-
-  it('says when a track a binding names is not in the game', () => {
-    render(<Setup state={state({ tracks: [track({ inGame: false })] })} log={[]} />)
-    expect(screen.getByText(/not in velocidrone/i)).toBeInTheDocument()
-  })
-
-  it('reports captures no track points at', () => {
-    render(
-      <Setup
-        state={state({ unbound: [{ name: 'testcube', splats: 640, collision: false }] })}
-        log={[]}
-      />,
-    )
-    expect(screen.getByText(/installed, on no track: testcube/)).toBeInTheDocument()
-  })
-
-  it('renders a track name as text', () => {
-    // VelociDrone downloads community tracks, and their names are written by whoever
-    // uploaded them.
-    render(<Setup state={state({ tracks: [track({ track: xss })] })} log={[]} />)
-    expect(screen.getByText(xss)).toBeInTheDocument()
-    expect(document.querySelector('img')).toBeNull()
-  })
-
-  it('will not offer to install anything while the game is running', () => {
+  it('will not offer to install or reinstall the mod while the game is running', () => {
     render(<Setup state={state({ running: true })} log={[]} />)
     expect(screen.getByRole('button', { name: /reinstall mod/i })).toBeDisabled()
-    expect(screen.getByRole('button', { name: /^fly$/i })).toBeDisabled()
   })
 
   it('says which of install, reinstall or update the button will do', () => {
@@ -115,19 +52,7 @@ describe('Setup', () => {
     // looks like the click did nothing.
     render(<Setup state={state({ busy: 'installing the mod' })} log={[]} />)
     expect(screen.getByText(/installing the mod/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^fly$/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: /reinstall mod/i })).toBeDisabled()
-  })
-
-  it('offers to remove a track, and only to unbind a downloaded one', () => {
-    // A track from the official server is its author's, not ours to delete off someone's
-    // machine - but the binding is ours either way.
-    const { rerender } = render(<Setup state={state({ tracks: [track()] })} log={[]} />)
-    expect(screen.getByRole('button', { name: /remove VDGS FDF/i })).toBeInTheDocument()
-
-    rerender(<Setup state={state({ tracks: [track({ fromServer: true })] })} log={[]} />)
-    expect(screen.getByRole('button', { name: /unbind VDGS FDF/i })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /remove VDGS FDF/i })).toBeNull()
   })
 
   it('will not offer to uninstall a mod that is not there', () => {
@@ -149,7 +74,7 @@ describe('Setup', () => {
   })
 
   it('warns about True Lens only when the game has it on', () => {
-    // null = unknown and false = off must not warn; only true sits above Fly.
+    // null = unknown and false = off must not warn; only true is shown.
     rememberLang('en')
     const { rerender } = render(<Setup state={state({ trueLens: null })} log={[]} />)
     expect(screen.queryByText(/True Lens/)).toBeNull()

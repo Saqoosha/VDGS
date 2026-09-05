@@ -16,13 +16,21 @@ type Push =
 
 let deliver: (m: Push) => void = () => {}
 
-vi.mock('./bridge', () => ({
-  send: vi.fn(),
-  subscribe: (fn: (m: Push) => void) => {
-    deliver = fn
-    return () => {}
-  },
-}))
+// hosted: true here, not read from window.__TAURI__ - these tests exercise the merge
+// logic against a stubbed transport and expect the full shell (Setup tab, Fly button).
+// The dedicated describe block below tests the hosted/browser split itself, against the
+// real bridge, since that split is computed from window.__TAURI__ at import time.
+function mockBridge() {
+  vi.doMock('./bridge', () => ({
+    hosted: true,
+    send: vi.fn(),
+    subscribe: (fn: (m: Push) => void) => {
+      deliver = fn
+      return () => {}
+    },
+  }))
+}
+mockBridge()
 
 const base: SetupState = {
   game: 'C:\\game',
@@ -34,6 +42,7 @@ const base: SetupState = {
   busy: null,
   busyPercent: null,
   launchArgs: '-force-d3d12',
+  lanUrl: null,
   tracks: [],
   unbound: [],
   catalog: null,
@@ -90,5 +99,43 @@ describe('the companion window', () => {
     await waitFor(() =>
       expect(screen.getByText(/installed FDF-2026-08-24/)).toBeInTheDocument(),
     )
+  })
+})
+
+// Against the real bridge, not the stub above: `hosted` is read from window.__TAURI__ at
+// module-eval time, so exercising the split means letting CompanionApp import the real
+// thing and controlling window.__TAURI__ around it, the same way bridge.test.ts does.
+describe('the three-tab shell', () => {
+  beforeEach(() => {
+    vi.doUnmock('./bridge')
+    vi.resetModules()
+  })
+
+  afterEach(() => {
+    delete (window as any).__TAURI__
+    mockBridge()
+    vi.resetModules()
+  })
+
+  it('shows three tabs when hosted', async () => {
+    ;(window as any).__TAURI__ = {
+      core: { invoke: vi.fn() },
+      event: { listen: vi.fn().mockResolvedValue(() => {}) },
+    }
+    const { default: CompanionApp } = await import('./CompanionApp')
+    render(<CompanionApp />)
+    expect(screen.getByRole('tab', { name: /setup/i })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /tracks/i })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /create your own/i })).toBeInTheDocument()
+  })
+
+  // Opened in a browser there is no host to pick a folder or download anything, so the
+  // two tabs that do only that would be a wall of dead buttons.
+  it('shows only create-your-own in a plain browser', async () => {
+    const { default: CompanionApp } = await import('./CompanionApp')
+    render(<CompanionApp />)
+    expect(screen.queryByRole('tab', { name: /setup/i })).toBeNull()
+    expect(screen.queryByRole('tab', { name: /tracks/i })).toBeNull()
+    expect(screen.getByRole('tab', { name: /create your own/i })).toBeInTheDocument()
   })
 })

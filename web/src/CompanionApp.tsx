@@ -1,20 +1,31 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Masthead } from './chrome'
 import { ParticleField } from './ParticleField'
-import { send, subscribe } from './bridge'
+import { Button } from '@/components/ui/button'
+import { hosted, send, subscribe } from './bridge'
 import Setup from './pages/Setup'
-import Get from './pages/Get'
 import type { SetupState } from './types'
 
+type TabId = 'setup' | 'tracks' | 'own'
+
+const ALL: { id: TabId; label: string }[] = [
+  { id: 'setup', label: '01 setup' },
+  { id: 'tracks', label: '02 tracks' },
+  { id: 'own', label: '03 create your own' },
+]
+
+// Without a host there is no folder picker and no downloader, so the first two tabs
+// could only show buttons that do nothing. What is left is the half the plugin serves.
+const TABS = hosted ? ALL : ALL.filter((t) => t.id === 'own')
+
 /**
- * The companion app's window. Same shell as the control UI, no router: there is one page,
- * and the app is a window rather than a site.
+ * The companion app's window. Same shell as the control UI, no router: the app is a
+ * window with tabs, not a site with pages.
  */
 export default function CompanionApp() {
   const [state, setState] = useState<SetupState | null>(null)
   const [log, setLog] = useState<string[]>([])
-  // Two views rather than two pages: the app is one window and does not need a router.
-  const [tab, setTab] = useState<'setup' | 'get'>('setup')
+  const [tab, setTab] = useState<TabId>(TABS[0].id)
 
   useEffect(() => {
     const stop = subscribe((m) => {
@@ -37,7 +48,10 @@ export default function CompanionApp() {
     return stop
   }, [])
 
-  // A window, not a page: it is exactly as tall as it is, so the track list takes the
+  const busy = (state?.running ?? false) || !!state?.busy
+  const game = state?.game ?? null
+
+  // A window, not a page: it is exactly as tall as it is, so the tab content takes the
   // slack and Fly sits on the bottom edge instead of below it.
   return (
     <div className="h-svh overflow-hidden text-foreground">
@@ -47,12 +61,11 @@ export default function CompanionApp() {
           eyebrow="companion"
           nav={
             <>
-              <Tab now={tab} me="setup" onPick={setTab}>
-                01 setup
-              </Tab>
-              <Tab now={tab} me="get" onPick={setTab}>
-                02 get
-              </Tab>
+              {TABS.map((t) => (
+                <Tab key={t.id} now={tab} me={t.id} onPick={setTab}>
+                  {t.label}
+                </Tab>
+              ))}
             </>
           }
           meta="gaussian splat / velocidrone"
@@ -70,9 +83,39 @@ export default function CompanionApp() {
             )
           }
         />
-        {tab === 'setup' ? <Setup state={state} log={log} /> : <Get state={state} />}
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {tab === 'setup' ? (
+            <Setup state={state} log={log} />
+          ) : tab === 'tracks' ? (
+            <Placeholder note="tracks — coming soon" />
+          ) : (
+            <Placeholder note="create your own — coming soon" />
+          )}
+        </div>
+        {/* Fixture of the shell rather than of any one page: flying is not specific to
+            setup, and a plain browser has no host to fly with at all. */}
+        {hosted ? (
+          <div className="mt-6 shrink-0">
+            <Button
+              size="lg"
+              disabled={!game || busy}
+              onClick={() => send('fly')}
+              className="h-14 w-full font-mono text-base tracking-[0.3em] uppercase"
+            >
+              Fly
+            </Button>
+          </div>
+        ) : null}
       </div>
     </div>
+  )
+}
+
+function Placeholder({ note }: { note: string }) {
+  return (
+    <p className="font-mono text-[11px] tracking-[0.14em] text-muted-foreground uppercase">
+      {note}
+    </p>
   )
 }
 
@@ -82,14 +125,16 @@ function Tab({
   onPick,
   children,
 }: {
-  now: string
-  me: 'setup' | 'get'
-  onPick: (t: 'setup' | 'get') => void
+  now: TabId
+  me: TabId
+  onPick: (t: TabId) => void
   children: ReactNode
 }) {
   return (
     <button
       type="button"
+      role="tab"
+      aria-selected={now === me}
       onClick={() => onPick(me)}
       className={
         now === me

@@ -76,6 +76,11 @@ export type SetupState = {
   /** How long the host took to gather this. Shown only when it is slow enough to matter. */
   stateMs?: number
   launchArgs: string
+  /**
+   * This machine's LAN address for the plugin's HTTP server, or null when the game is
+   * not running (there is no server to reach) or no outward-facing interface was found.
+   */
+  lanUrl: string | null
   tracks: TrackEntry[]
   catalog: CatalogState | null
   /** Installed captures no track points at - otherwise they are invisible here. */

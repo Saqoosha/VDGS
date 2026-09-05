@@ -32,6 +32,7 @@ function state(over: Partial<SetupState> = {}): SetupState {
     busy: null,
     busyPercent: null,
     launchArgs: '-force-d3d12',
+    lanUrl: null,
     tracks: [],
     unbound: [],
     catalog: { url: 'https://vdgs.saqoo.sh/catalog.json', error: null, entries: [] },
