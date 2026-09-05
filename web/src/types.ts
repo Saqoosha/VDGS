@@ -102,6 +102,12 @@ export type CatalogEntry = {
   splats: number
   bytes: number
   installed: boolean
+  /**
+   * The capture directory this entry installs as - a different namespace from `id`. This
+   * is what a track's bound capture name is matched against to find which id to hand
+   * `get`; optional because older/partial fixtures do not carry it.
+   */
+  installAs?: string | null
 }
 
 export type CatalogState = {

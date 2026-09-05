@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input'
 import { formatBytes } from '../format'
 import { filterByName } from '../search'
 import { send } from '../bridge'
-import type { CatalogEntry, SetupState, TrackEntry } from '../types'
+import type { CatalogEntry, CatalogState, SetupState, TrackEntry } from '../types'
 
 /**
  * Tab 02: one table, one row per track.
@@ -18,12 +18,26 @@ import type { CatalogEntry, SetupState, TrackEntry } from '../types'
  */
 type Row =
   | ({ kind: 'catalog' } & CatalogEntry)
-  // catalogId is the id to hand `get` when the capture is not on this machine yet - the
-  // track's expected capture name, which is also what a catalog entry is keyed by.
+  // catalogId is the id to hand `get` when the capture is not on this machine yet.
   | ({ kind: 'track' } & TrackEntry & { catalogId?: string })
 
 function rowName(row: Row): string {
   return row.kind === 'catalog' ? row.name : row.track
+}
+
+/**
+ * `id` and `installAs` are different namespaces: `id` is what `get` resolves a catalog
+ * entry by, `installAs` is the capture directory name it writes to disk and the value a
+ * binding stores as `TrackEntry.capture`. Sending the capture name where `get` expects an
+ * id looks fine and does nothing - the host's `find` on `id` comes back empty and the
+ * download never starts, silently. So a track's missing-capture row can only offer Get
+ * when a catalog entry's `installAs` actually matches the capture it is missing; with no
+ * catalog loaded, or no entry whose `installAs` matches, there is genuinely nothing to
+ * fetch and the row gets no action at all rather than a button that does nothing.
+ */
+function resolveCatalogId(capture: string | null, catalog: CatalogState | null): string | undefined {
+  if (!capture || !catalog) return undefined
+  return catalog.entries.find((e) => e.installAs === capture)?.id
 }
 
 function rowKey(row: Row): string {
@@ -50,17 +64,21 @@ export default function Tracks({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // A catalog entry already on this machine is shown as its track (or, if nothing binds
-  // it yet, in the unbound note below) - listing it twice would say the same capture is
-  // both waiting and here.
-  const catalogRows: Row[] = (catalog?.entries ?? [])
-    .filter((e) => !e.installed)
-    .map((e) => ({ kind: 'catalog', ...e }))
   const trackRows: Row[] = tracks.map((t) => ({
     kind: 'track',
     ...t,
-    catalogId: t.capture ?? undefined,
+    catalogId: resolveCatalogId(t.capture, catalog),
   }))
+  // A catalog entry already claimed by a track - installed, or already the Get target of
+  // that track's own row above - is not listed again on its own: it is either here or
+  // waiting, and a track row already says which. Only entries no track points at yet
+  // show up as their own "available" row.
+  const claimed = new Set(
+    trackRows.flatMap((r) => (r.kind === 'track' && r.catalogId ? [r.catalogId] : [])),
+  )
+  const catalogRows: Row[] = (catalog?.entries ?? [])
+    .filter((e) => !e.installed && !claimed.has(e.id))
+    .map((e) => ({ kind: 'catalog', ...e }))
   const rows = [...trackRows, ...catalogRows].sort((a, b) =>
     rowName(a).toLowerCase().localeCompare(rowName(b).toLowerCase()),
   )
@@ -228,12 +246,15 @@ function Actions({ row, busy }: { row: Row; busy: boolean }) {
       </Button>
     )
   }
-  if (!row.captureInstalled && row.catalogId) {
-    return (
+  if (!row.captureInstalled) {
+    // A button that fires `get` with an id the host cannot find would look live and do
+    // nothing - worse than no button, because nothing tells whoever clicked it that it
+    // failed. Offer Get only once a real catalog entry has been resolved.
+    return row.catalogId ? (
       <Button disabled={busy} onClick={() => send('get', row.catalogId)}>
         Get
       </Button>
-    )
+    ) : null
   }
   // Kept quiet until the row is pointed at: this is a list to read, and the button is
   // for the one row in it someone wants gone.

@@ -37,6 +37,13 @@ pub struct CatalogEntryOut {
     pub splats: u64,
     pub bytes: u64,
     pub installed: bool,
+    /// The capture directory this entry installs as - a different namespace from `id`,
+    /// and the only thing the merged track table can match a track's bound capture
+    /// against to find which catalog id to hand `get`. Without this, the frontend had
+    /// nothing to resolve a missing capture's download id from but the capture name
+    /// itself, which `get` does not recognise: the button looked live and did nothing.
+    #[serde(rename = "installAs")]
+    pub install_as: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -254,6 +261,7 @@ fn catalog_state(
                 splats: e.splats,
                 bytes: e.bytes(),
                 installed: have_capture && track_in_place(e, in_game, bound),
+                install_as: e.install_as.clone(),
             }
         })
         .collect();

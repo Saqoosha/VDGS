@@ -1,6 +1,7 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import Tracks from './Tracks'
+import { send } from '../bridge'
 import type { SetupState, TrackEntry } from '../types'
 
 vi.mock('../bridge', () => ({ send: vi.fn() }))
@@ -45,9 +46,29 @@ describe('the merged track table', () => {
     expect(screen.queryByRole('button', { name: /remove/i })).toBeNull()
   })
 
-  it('offers Get again when the track is there but its capture is missing', () => {
-    render(<Tracks state={state({ tracks: [track({ captureInstalled: false })] })} busy={false} />)
-    expect(screen.getByRole('button', { name: /get/i })).toBeInTheDocument()
+  // `id` and `installAs` are different namespaces - id is what `get` resolves against,
+  // installAs is the capture directory name a binding actually stores. Sending the
+  // capture name where `get` expects an id looks fine and silently does nothing, so the
+  // row may only offer Get once a catalog entry has actually been resolved.
+  it('offers Get for a missing capture once a catalog entry names it as installAs, and sends that entry\'s id', () => {
+    render(<Tracks state={state({
+      tracks: [track({ captureInstalled: false, capture: 'fdf' })],
+      catalog: { url: 'u', error: null, entries: [
+        { id: 'fdf-2026-08-24', name: 'FDF', description: null, author: null, licence: null,
+          splats: 1, bytes: 1, installed: false, installAs: 'fdf' },
+      ] },
+    })} busy={false} />)
+    fireEvent.click(screen.getByRole('button', { name: /get/i }))
+    expect(vi.mocked(send)).toHaveBeenCalledWith('get', 'fdf-2026-08-24')
+  })
+
+  it('offers no action for a missing capture when there is no catalog to resolve it against', () => {
+    render(<Tracks state={state({
+      tracks: [track({ captureInstalled: false, capture: 'fdf' })],
+      catalog: null,
+    })} busy={false} />)
+    expect(screen.getByText(/fdf is not installed/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /get/i })).toBeNull()
   })
 
   // --- The seven tests carried over from Setup.test.tsx (pre-889c979), against Tracks now ---
