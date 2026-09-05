@@ -773,28 +773,90 @@ pub fn uninstall_mod(root: &Path, log: &mut dyn FnMut(String)) -> io::Result<()>
     Ok(())
 }
 
+/// True if `name` is safe to use as a single path segment directly under `vdgs/`.
+///
+/// `install_ply` and `remove_capture` both turn a name that ultimately comes from
+/// outside this process - a file the user picked, a row shown in the UI whose source is
+/// a track name or a hand-edited `bindings.json` - into a path component. They used to
+/// each carry their own idea of what counted as safe, and `remove_capture`'s idea was
+/// "anything", because it was written after `install_ply` and nobody went back to check
+/// the two agreed. One predicate, used by both, is the actual fix: empty, `.`/`..`,
+/// any separator or embedded NUL, an absolute path, more than one path component, or the
+/// reserved `ui` name (that directory holds this app's own static assets, never a
+/// capture) are all refused.
+fn valid_capture_name(name: &str) -> bool {
+    if name.is_empty() || name == "." || name == ".." {
+        return false;
+    }
+    if name.contains('/') || name.contains('\\') || name.contains('\0') {
+        return false;
+    }
+    if name.eq_ignore_ascii_case("ui") {
+        return false;
+    }
+    let p = Path::new(name);
+    !p.is_absolute() && p.components().count() == 1
+}
+
 /// Removes a capture, whichever of the two shapes it is on disk.
 ///
 /// A converted capture is a directory; a .ply is a file with up to two siblings that
 /// carry its collision shell and its placement. Leaving a stale .placement.json behind
 /// means the next capture that happens to take the name inherits someone else's scale.
+///
+/// `name` reaches here from the UI, and the UI's capture list is not something only the
+/// owner of this machine controls - VelociDrone downloads community tracks, and
+/// `bindings.json` is both hand-editable and shipped inside release zips. So this does
+/// not stop at `valid_capture_name`: after each path is joined, `assert_inside` resolves
+/// it for real and confirms the result is still under `vdgs/`, which is what catches a
+/// symlink the name-shape check has no way to see.
 pub fn remove_capture(root: &Path, name: &str) -> io::Result<bool> {
+    if !valid_capture_name(name) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("\"{name}\" cannot be used as a capture name"),
+        ));
+    }
     let vdgs = root.join("vdgs");
     let mut removed = false;
 
     let dir = vdgs.join(name);
     if dir.is_dir() {
+        assert_inside(&vdgs, &dir)?;
         fs::remove_dir_all(&dir)?;
         removed = true;
     }
     for ext in [".ply", ".collision.bin", ".placement.json"] {
         let p = vdgs.join(format!("{name}{ext}"));
         if p.is_file() {
+            assert_inside(&vdgs, &p)?;
             fs::remove_file(&p)?;
             removed = true;
         }
     }
     Ok(removed)
+}
+
+/// Confirms `path` (which must already exist - `canonicalize` fails otherwise, which is
+/// why every call site here runs it only after its own `is_dir`/`is_file` check) resolves
+/// to somewhere inside `dir` once symlinks are followed. `valid_capture_name` rejects the
+/// name shapes that would obviously escape `vdgs/`; this catches what that check cannot
+/// - a same-shape name that happens to be a symlink pointing outside it.
+fn assert_inside(dir: &Path, path: &Path) -> io::Result<()> {
+    let base = dir.canonicalize()?;
+    let real = path.canonicalize()?;
+    if real.starts_with(&base) {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "{} resolves outside {} - refusing to remove it",
+                path.display(),
+                dir.display()
+            ),
+        ))
+    }
 }
 
 /// Copies a .ply into `<game>/vdgs/`, keeping its name. Returns the capture's name.
@@ -807,12 +869,7 @@ pub fn install_ply(root: &Path, ply: &Path) -> io::Result<String> {
         .file_stem()
         .and_then(|s| s.to_str())
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "the file has no name"))?;
-    if stem.is_empty()
-        || stem.eq_ignore_ascii_case("ui")
-        || stem.contains('/')
-        || stem.contains('\\')
-        || stem.starts_with('.')
-    {
+    if !valid_capture_name(stem) {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             format!("\"{stem}\" cannot be used as a capture name"),
@@ -968,6 +1025,50 @@ mod tests {
     fn remove_capture_reports_nothing_removed() {
         let root = tmp();
         assert!(!remove_capture(&root, "absent").unwrap());
+    }
+
+    #[test]
+    fn remove_capture_rejects_dot_dot() {
+        let root = tmp();
+        let vdgs = root.join("vdgs");
+        std::fs::create_dir_all(&vdgs).unwrap();
+        std::fs::write(root.join("sentinel.txt"), b"keep me").unwrap();
+        assert!(remove_capture(&root, "..").is_err());
+        // ".." under vdgs/ is root itself - a validator-free join would have handed
+        // remove_dir_all the whole game folder.
+        assert!(root.join("sentinel.txt").exists());
+        assert!(vdgs.is_dir());
+    }
+
+    #[test]
+    fn remove_capture_rejects_a_path_separator() {
+        let root = tmp();
+        let vdgs = root.join("vdgs");
+        std::fs::create_dir_all(vdgs.join("sub")).unwrap();
+        std::fs::write(vdgs.join("sub/evil.ply"), b"x").unwrap();
+        assert!(remove_capture(&root, "sub/evil").is_err());
+        assert!(vdgs.join("sub/evil.ply").exists());
+    }
+
+    #[test]
+    fn remove_capture_rejects_empty_name() {
+        let root = tmp();
+        let vdgs = root.join("vdgs");
+        std::fs::create_dir_all(&vdgs).unwrap();
+        std::fs::write(vdgs.join("keep.ply"), b"x").unwrap();
+        // An empty name makes `vdgs.join(name)` resolve to vdgs/ itself.
+        assert!(remove_capture(&root, "").is_err());
+        assert!(vdgs.join("keep.ply").exists());
+    }
+
+    #[test]
+    fn remove_capture_rejects_reserved_ui_name() {
+        let root = tmp();
+        let vdgs = root.join("vdgs");
+        std::fs::create_dir_all(vdgs.join("ui")).unwrap();
+        std::fs::write(vdgs.join("ui/index.html"), b"<html>").unwrap();
+        assert!(remove_capture(&root, "ui").is_err());
+        assert!(vdgs.join("ui/index.html").exists());
     }
 
     fn tmp() -> PathBuf {
