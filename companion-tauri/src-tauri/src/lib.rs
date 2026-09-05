@@ -844,6 +844,11 @@ pub fn run() {
             let _ = w.set_focus();
         }))
         .plugin(tauri_plugin_dialog::init())
+        // api.ts's hosted transport goes through this rather than a same-origin fetch from
+        // the webview - the plugin's HTTP server has no Access-Control-Allow-Origin (adding
+        // one would open its LAN-facing API to any site), so a cross-origin fetch from the
+        // page would just fail. Routing through the host keeps that header absent.
+        .plugin(tauri_plugin_http::init())
         .setup(|app| {
             let resource_dir = resolve_resource_dir(app.handle());
             let settings = Settings::load();

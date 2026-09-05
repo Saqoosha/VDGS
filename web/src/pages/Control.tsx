@@ -158,7 +158,7 @@ function ShownBlock({
 
   const push = async (nextScale?: number, nextY?: number) => {
     try {
-      await api.setTransform(scene.name, nextScale, nextY)
+      await api.setTransform(scene.name, { scale: nextScale, y: nextY })
     } catch (e) {
       onFlash(e instanceof Error ? e.message : 'failed')
     }
