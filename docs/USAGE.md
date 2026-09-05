@@ -37,11 +37,13 @@ you want a smaller file on disk or a faster load.
 
 ## 2. Installing
 
-**The companion app is the short way.** Start `VDGS.exe`, press **Install mod**, and the
-DLL, the baked shader bundle and the control UI all go in - it carries them, so there is
-no zip to find. **02 get** downloads a capture, imports its track and binds the two, and
-**Fly** starts the game with `-force-d3d12`. **BepInEx still has to be installed first**
-(2-1).
+**The companion app is the short way.** Start `VDGS.exe`, and on tab **01 setup** press
+**Install mod** - the DLL, the baked shader bundle and the control UI all go in, since the
+app carries them; there is no zip to find. Published and installed tracks share one table
+on tab **02 tracks**; press **Get** to install one. Making a new track from your own
+capture is tab **03 create your own** - naming, binding and placement all finish there
+([TRACKS.md](TRACKS.md)). **Fly** starts the game with `-force-d3d12`.
+**BepInEx still has to be installed first** (2-1).
 
 By hand from a release: `vdgs-mod-<version>.zip` already contains the DLL,
 a baked shader bundle and the control UI, so nothing has to be built:
@@ -255,6 +257,12 @@ Things to know:
   `--max-sigma 5`. Measure first — run it without an output path for a report. See
   [alignment.md](alignment.md)
 
+**This section assumes catalog-quality output.** If a slight floor tilt does not matter and
+all you need is the axis and the mirror right, drop the `.ply` in as-is and use tab
+**03 create your own**'s section ③: Up (six directions), Mirror, and Turn (a continuous
+yaw) — see §4-4. SuperSplat's arbitrary-angle tilt correction is not something these three
+controls replace.
+
 ### 4-4. Placement
 
 `<VelociDrone>\app\vdgs\<name>\placement.json` (or `<name>.placement.json` beside a
@@ -264,13 +272,25 @@ Things to know:
 {
     "position": [0.0, 0.0, 0.0],
     "rotation": [0.0, 0.0, 0.0],
-    "scale": 1.0
+    "scale": 1.0,
+    "up": "+y",
+    "turn": 0.0,
+    "mirrorY": true
 }
 ```
 
-**Scale and height are on the Web UI** and write this file. Rotation is not — that belongs
-in SuperSplat before the file arrives. `placement.json` is a last resort for anything the
-sliders do not cover.
+`up` is which of the capture's axes points at the sky (`+x -x +y -y +z -z`), `turn` is the
+rotation about that axis in degrees, and `mirrorY` is whether the capture is flipped in Y
+as it is read. **Scale, Height, X, Z, Up, Turn and Mirror are all driven from tab
+03 create your own's section ③ (tune it), and write straight back to this file** as you
+move them. Hand-editing is the last resort for anything the controls do not cover.
+
+**`mirrorY` has no effect on a converted capture** — the flip happens only while a `.ply` is
+parsed, so the checkbox itself is not offered for a converted one. **A mirror and a rotation
+are different things, and neither substitutes for the other** — the gap between
+right-handed Y-down and left-handed Y-up is a determinant-(-1) transform that no rotation
+can produce. Full reasoning in [AGENTS.md](../AGENTS.md), "placement.json's orientation
+fields".
 
 ### 4-5. Collision
 
@@ -294,9 +314,13 @@ the file needs a reload, not a checkbox toggle.
 }
 ```
 
-You can write it by hand, but doing it from the UI is faster (§5).
+You can write it by hand, but **creating a new track from tab 03 create your own writes
+this in the same step** (②). Hand edits while the game is running are also picked up: the
+plugin now watches `bindings.json` for changes once a second (see [AGENTS.md](../AGENTS.md),
+"`TrackBindings.Load()` used to run only from the constructor").
 
-**Laying your own course over a capture and publishing it** is [TRACKS.md](TRACKS.md).
+**Laying your own course over a capture and publishing it** is [TRACKS.md](TRACKS.md) —
+building, baking collision, exporting, publishing.
 
 - **An unbound track shows nothing.** That is safer than showing the wrong capture
 - one track may bind several captures
@@ -316,48 +340,49 @@ converted scene directory plus, where they exist, `collision.bin` and `placement
 **The one thing that trips people up: a binding is by track NAME.** The bundled
 `bindings.sample.json` assumes the track still carries the name it shipped with. If you
 renamed it after downloading it in Track Manager, bind it under **your** name instead —
-the browser UI in §5 is the quickest way.
+edit `bindings.json` by hand; it takes effect within a second even while the game runs.
+Tab 03 create your own's ② creates and binds a brand-new track — **it does not yet offer a
+way to re-bind an existing one.**
 
 `placement.json` positions the capture **for that track**. Building your own course means
-adjusting it in the browser UI, which saves as you go.
+adjusting it from tab 03 create your own's ③, which saves as you go.
 
-## 5. Operating it from a browser
+## 5. Tuning placement
 
-Once the game is running the mod serves a control UI at **`http://<host>:8777/`**. Open it
-from any machine on the LAN. Watching the game on one screen and driving the mod from a
-browser on another is the intended setup. After a UI-only change, `bash tools/deploy.sh --ui`
-copies `web/dist/` to `<game>/vdgs/ui/` without rebuilding the plugin.
+**Scale, Height, X, Z, Up, Turn and Mirror are all driven from the companion's tab
+03 create your own, section ③ (tune it).** It only works while the game is running, and
+every change writes straight to `placement.json`. Tuning is a fly-and-adjust screen, so the
+companion's own window is where it normally happens.
+
+**Reach for the browser build only when a second screen genuinely helps.** Once the game is
+running, the mod serves the same app at **`http://<host>:8777/`** — but a browser has no
+Tauri folder picker or downloader, so tabs 01 and 02 do not appear there; **only ③ works.**
+The companion prints this URL and a QR code right beside tab 03's ③. Alt-tabbing out of a
+fullscreen game is the worst possible move, so with both hands on the transmitter, open that
+address from another device on the LAN (a phone, say) instead — the same setup as watching
+the game on one screen and running Parsec on another. After a UI-only change,
+`bash tools/deploy.sh --ui` copies `web/dist/` to `<game>/vdgs/ui/` without rebuilding the
+plugin.
 
 ```
-┌ VDGS · local · 01 control / 02 library ─────────┐
-│  01 current track                               │
-│  Empty Scene Day                                │
-│  bound → myscene                                │
-│  [Bind shown]  [Unbind]  [Hide all]             │
-│  02 on screen                                   │
+┌ 03 create your own · ③ tune it ─────────────────┐
 │  myscene   1,916,379 splats                     │
 │  [x] box  [x] solid  [hide mesh]                │
+│  up    [+x][-x][+y][-y][+z][-z]                 │
+│  [ ] mirror                                     │
+│  Turn   ────│────  0°                           │
 │  Scale  ────│────  1.00×                        │
 │  Height ────│────  0.00m                        │
-│  03 bindings                                    │
-│  <track name>  →  myscene       [remove]        │
 └─────────────────────────────────────────────────┘
-
-Library is a numbered index of every capture on the machine (search, splat
-count, format, size, collision). Show loads it. Transform sliders stay on
-Control.
 ```
 
 **No game key is taken.** The track editor's arrow keys and F7 keep working. The UI
-refreshes every 1.5 seconds, so "Current track" follows along when you change track
+refreshes every 1.5 seconds, so the capture list follows along when you change track
 in-game.
 
-### Binding a capture
-
-1. load a track (flying or in the editor, either works)
-2. press **show** on the capture you want
-3. press **Bind shown splat to this track**
-4. from then on that track loads that capture automatically
+**Binding is automatic.** Creating a track from tab 03 create your own's ② binds its
+capture to that track name in the same step. To change binding on an existing track, edit
+`bindings.json` (§4-6).
 
 ### Developer keys (kept)
 
@@ -371,19 +396,19 @@ F5, F6, F7 and F8 are **unused**. F7 is the track editor's save-scene and would 
 
 ### HTTP API
 
-The same one the UI uses.
+The same one tab 03's ③ uses.
 
 | | |
 |---|---|
-| `GET /api/status` | current track, what is shown, what is available, all bindings |
+| `GET /api/status` | current track, what is shown, what is available, all bindings, placement and orientation |
 | `POST /api/load` | `{"splat":"name"}` — show only that capture |
 | `POST /api/unload` | `{}` — hide everything |
 | `POST /api/bind` | `{"splats":["name"]}` — bind to the current track |
 | `POST /api/unbind` | `{}` for the current track, `{"track":"name"}` for any |
-| `POST /api/backdrop` | `{"splat":"name","on":true}` — black box around the capture |
+| `POST /api/backdrop` | `{"splat":"name","on":true}` — black box around the capture (attaches only while it is upright) |
 | `POST /api/collision` | `{"splat":"name","on":true}` — MeshCollider |
 | `POST /api/collisionview` | `{"splat":"name","mode":"wire"}` — hide / solid / wire |
-| `POST /api/transform` | `{"splat":"name","scale":1.0,"y":0}` — scale and Y; writes `placement.json` |
+| `POST /api/transform` | `{"splat":"name","scale":1,"y":0,"x":0,"z":0,"up":"+y","turn":0,"mirror":true}` — send only what changed; writes `placement.json` |
 
 **Always send a body with a POST.** `HttpListener` rejects a POST with no `Content-Length`
 as `411 Length Required` before the mod's handler ever sees it, so
