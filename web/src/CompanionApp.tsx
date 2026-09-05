@@ -4,6 +4,7 @@ import { ParticleField } from './ParticleField'
 import { Button } from '@/components/ui/button'
 import { hosted, send, subscribe } from './bridge'
 import Setup from './pages/Setup'
+import Tracks from './pages/Tracks'
 import type { SetupState } from './types'
 
 type TabId = 'setup' | 'tracks' | 'own'
@@ -87,7 +88,7 @@ export default function CompanionApp() {
           {tab === 'setup' ? (
             <Setup state={state} log={log} />
           ) : tab === 'tracks' ? (
-            <Placeholder note="tracks — coming soon" />
+            <Tracks state={state} busy={busy} />
           ) : (
             <Placeholder note="create your own — coming soon" />
           )}
