@@ -13,8 +13,7 @@ import {
 } from '@/components/ui/select'
 import { formatBytes } from '../format'
 import { fromSlider, fromYSlider, toSlider, toYSlider } from '../sliders'
-import { useStatus } from '../useStatus'
-import type { CollisionView, Scene, UpAxis } from '../types'
+import type { CollisionView, Scene, Status, UpAxis } from '../types'
 
 const UP_AXES: UpAxis[] = ['+x', '-x', '+y', '-y', '+z', '-z']
 
@@ -23,11 +22,20 @@ const UP_AXES: UpAxis[] = ['+x', '-x', '+y', '-y', '+z', '-z']
  * "current track" + §02 "on screen" + §03 "bindings", cut down to only what makes sense
  * once a track binds its capture automatically at creation time. There is nothing left
  * to bind or unbind by hand here, and no reason to hide the one capture a track just
- * pointed at - so this talks straight to the plugin's own HTTP server (useStatus/api.ts,
- * not the companion's host bridge) and shows whatever is on screen.
+ * pointed at.
+ *
+ * `state`/`refresh` are passed in rather than read here via `useStatus()` directly:
+ * Own.tsx already needs that same poll (`live` decides whether this component is even
+ * mounted), and a second independent `useStatus()` here would mean two polling loops
+ * hitting the plugin's HTTP server every 1500ms for the same data.
  */
-export default function Control() {
-  const { state, refresh } = useStatus()
+export default function Control({
+  state,
+  refresh,
+}: {
+  state: Status | null
+  refresh: () => Promise<Status | null>
+}) {
   const [flash, setFlash] = useState('')
   const dragging = useRef(false)
 
@@ -133,7 +141,7 @@ function ShownBlock({
 }: {
   scene: Scene
   dragging: { current: boolean }
-  onRefresh: () => Promise<void>
+  onRefresh: () => Promise<Status | null>
   onFlash: (msg: string) => void
 }) {
   const [scale, setScale] = useStateSafe(scene.scale, dragging)
@@ -191,7 +199,17 @@ function ShownBlock({
                 void (async () => {
                   try {
                     await api.setBackdrop(scene.name, on)
-                    await onRefresh()
+                    const fresh = await onRefresh()
+                    // Reachable only when `rotated` above is false, i.e. exactly the
+                    // ambiguous `up === null` case (see the Up control's own caption):
+                    // the plugin refuses to attach on a raw, non-identity `rotation` too,
+                    // and answers 200 either way. A checkbox that ticks and then quietly
+                    // unticks itself on the next poll is not an explanation - it takes up
+                    // to 1.5s to even happen, and nothing on screen says why.
+                    const confirmed = fresh?.available.find((s) => s.name === scene.name)
+                    if (on && confirmed && !confirmed.backdrop) {
+                      onFlash('backdrop refused: this capture carries a rotation')
+                    }
                   } catch (e) {
                     onFlash(e instanceof Error ? e.message : 'failed')
                     await onRefresh()

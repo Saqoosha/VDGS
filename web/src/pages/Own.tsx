@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import QRCode from 'qrcode'
-import { send } from '../bridge'
+import { hosted, send } from '../bridge'
 import { Section } from '../chrome'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -11,6 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { useStatus } from '../useStatus'
 import Control from './Control'
 import type { Capture, SetupState } from '../types'
 
@@ -22,9 +23,14 @@ function defaultTrackName(capture: string): string {
  * Why ① and ② are off right now, or null when they are not. One reason, shown once: a
  * duplicate "close VelociDrone first" under both the ply button and the create-track
  * button would be the same sentence twice on one screen, not two explanations.
+ *
+ * Called only while `hosted` (① and ② never render otherwise), but `state` itself can
+ * still be null for a moment there - the very first render, before the host's first push
+ * has landed. That used to fall through to `null` here, which read as "nothing to
+ * explain" and left the button disabled with no reason on screen at all.
  */
 function prepareReason(state: SetupState | null): string | null {
-  if (!state) return null
+  if (!state) return 'loading…'
   if (state.running)
     return 'close VelociDrone first — adding a capture and creating a track both need the files free'
   if (state.busy) return 'busy — wait for the current job to finish'
@@ -33,15 +39,25 @@ function prepareReason(state: SetupState | null): string | null {
 }
 
 /**
- * Three steps in the order they have to happen, and the game's state decides which of
+ * Three steps in the order they have to happen, and two different things decide which of
  * them is live.
  *
- * Putting a file into the game folder and writing a row into user11.db both need the game
- * closed. Tuning talks to the plugin's HTTP server, which does not exist unless the game
- * is open. So this page is never all-enabled, and the half that is off says which way to
- * go rather than looking broken.
+ * ① and ② need a host: they pick a file and write a database row on this machine, which
+ * only the companion (`hosted`) can do - opened in a plain browser, off the plugin's own
+ * page, they could not work even in principle, so they do not render at all rather than
+ * sitting there disabled with no way to ever turn on.
+ *
+ * ③ needs the plugin's own HTTP server to answer, which is a different question from
+ * whether the game process happens to be running: this same component is *itself served
+ * by that server* when opened unhosted, so there the tuning half is live by definition
+ * the moment the page loads, no host-reported `running` involved. `useStatus().live` -
+ * "did `/api/status` just answer" - is the one signal true in both places, so it is what
+ * gates this section in both builds; `state.running` (a field the browser path never
+ * even receives - see bridge.ts's dev-only push) only matters to the LAN block, an
+ * affordance the companion offers about a *different* screen.
  */
 export default function Own({ state, busy }: { state: SetupState | null; busy: boolean }) {
+  const { state: plugin, live, refresh } = useStatus()
   const running = !!state?.running
   const prepare = !running && !busy && !!state?.game
   const unbound = state?.unbound ?? []
@@ -49,38 +65,55 @@ export default function Own({ state, busy }: { state: SetupState | null; busy: b
 
   return (
     <div>
-      {reason ? (
-        <p className="mb-6 font-mono text-[11px] tracking-[0.14em] text-muted-foreground uppercase">
-          {reason}
-        </p>
+      {hosted ? (
+        <>
+          {reason ? (
+            <p className="mb-6 font-mono text-[11px] tracking-[0.14em] text-muted-foreground uppercase">
+              {reason}
+            </p>
+          ) : null}
+
+          <Section n="01" label="add a capture" flush>
+            <p className="text-[14px] leading-relaxed text-foreground/90">
+              Copy a .ply straight into the game — the plugin reads it at load time, no
+              conversion step needed.
+            </p>
+            <div className="mt-4">
+              <Button disabled={!prepare} onClick={() => send('installPly')}>
+                Add a .ply
+              </Button>
+            </div>
+          </Section>
+
+          <MakeTrack prepare={prepare} unbound={unbound} />
+        </>
       ) : null}
 
-      <Section n="01" label="add a capture" flush>
-        <p className="text-[14px] leading-relaxed text-foreground/90">
-          Copy a .ply straight into the game — the plugin reads it at load time, no
-          conversion step needed.
-        </p>
-        <div className="mt-4">
-          <Button disabled={!prepare} onClick={() => send('installPly')}>
-            Add a .ply
-          </Button>
-        </div>
-      </Section>
-
-      <MakeTrack prepare={prepare} unbound={unbound} />
-
       <Section n="03" label="tune it">
-        {state?.lanUrl ? <LanQr url={state.lanUrl} /> : null}
-        {running ? (
-          <Control />
+        {/* The LAN address is an invitation to a *second* screen - useless where it is
+            already being read (the browser path is that second screen already), and
+            good for nothing while the game is closed: state.rs reports an address the
+            OS could route to regardless of whether the plugin's server exists yet, so
+            pairing it with `running` here, not merely `lanUrl`, is what keeps it off a
+            screen where scanning it gets connection refused. */}
+        {hosted && running && state?.lanUrl ? <LanQr url={state.lanUrl} /> : null}
+        {live ? (
+          <Control state={plugin} refresh={refresh} />
         ) : (
-          <p className="font-serif text-xl font-light text-muted-foreground italic">
-            fly first — this talks to the plugin, and the plugin only exists while
-            VelociDrone is running
-          </p>
+          <FlyFirst isHosted={hosted} />
         )}
       </Section>
     </div>
+  )
+}
+
+function FlyFirst({ isHosted }: { isHosted: boolean }) {
+  return (
+    <p className="font-serif text-xl font-light text-muted-foreground italic">
+      {isHosted
+        ? 'fly first — this talks to the plugin, and the plugin only exists while VelociDrone is running'
+        : 'waiting for the plugin…'}
+    </p>
   )
 }
 

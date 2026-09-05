@@ -101,9 +101,12 @@ const devState: SetupState = {
   busy: null,
   busyPercent: null,
   launchArgs: '-force-d3d12',
-  // Real state only carries this while the game (and so the plugin's HTTP server) is
-  // running - set here regardless of `running` below so tab 03's tuning half has
-  // something to lay out every time this stand-in is opened.
+  // Real state carries this unconditionally too - state.rs asks the OS for a LAN-facing
+  // address regardless of whether the game is running, so setting it here regardless of
+  // `running` below is not a deviation from production, it is what production does.
+  // Whether anything is actually listening at it is a separate question the tab itself
+  // has to gate on `running` (see Own.tsx) - this stand-in exists so the field has
+  // something to lay out, not so its presence alone means the address is live.
   lanUrl: 'http://192.168.1.42:8777/',
   tracks: [
     {
