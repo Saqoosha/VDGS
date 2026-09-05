@@ -97,17 +97,41 @@ namespace VDGS
         private bool MirrorFor(Placement p) => IsPly && (p.mirrorY ?? true);
 
         /// <summary>
-        /// Whether the backdrop's local-space floor clamp still means what it says.
+        /// Whether the backdrop's local-space floor clamp still means what it says for the
+        /// orientation this placement will actually apply.
         ///
         /// SplatBackdrop.Attach clamps the box's floor in the parent's LOCAL space on the
         /// assumption that local -Y is world down. That held while a capture could never be
         /// rotated; with up:"+z" the parent turns -90 degrees about X and the clamped face
-        /// becomes a vertical wall instead of a floor. Null or "+y" - see the up field's own
-        /// doc comment for why those two count the same - is the only orientation where the
-        /// assumption is still true.
+        /// becomes a vertical wall instead of a floor.
+        ///
+        /// "upright" cannot be read off `up` alone: Spawn only takes the compose branch
+        /// when `up` is present, and falls back to the raw `rotation` array whenever it is
+        /// absent - null being what keeps a hand-written or pre-`up` placement.json
+        /// applying whatever it stored in `rotation` (see that field's own doc comment).
+        /// A placement with no `up` but a non-identity `rotation` reaches the exact same
+        /// broken clamp with no orientation API involved, so the null/empty case has to
+        /// look at `rotation` instead of assuming identity.
+        ///
+        /// Epsilon rather than exact float equality: a capture with a barely-off-zero
+        /// stored rotation losing its backdrop should be a deliberate choice, not a float
+        /// accident.
         /// </summary>
-        private static bool IsUpright(string up) =>
-            string.IsNullOrEmpty(up) || up == SplatOrientation.DefaultUp;
+        private const float kUprightEpsilonDeg = 0.01f;
+
+        private static bool IsUpright(Placement p)
+        {
+            if (!string.IsNullOrEmpty(p.up))
+                return p.up == SplatOrientation.DefaultUp;
+            return IsZeroAngle(p.rotation[0]) && IsZeroAngle(p.rotation[1]) && IsZeroAngle(p.rotation[2]);
+        }
+
+        /// <summary>True within epsilon of 0 (or, since eulerAngles wrap to [0, 360), of 360).</summary>
+        private static bool IsZeroAngle(float degrees)
+        {
+            var wrapped = ((degrees % 360f) + 360f) % 360f;
+            return wrapped < kUprightEpsilonDeg || wrapped > 360f - kUprightEpsilonDeg;
+        }
 
         internal SplatScene(string path)
         {
@@ -218,7 +242,7 @@ namespace VDGS
             // capture's holes open to the game's terrain and horizon is the better failure:
             // a box whose faces are in the wrong place hides more of the capture than the
             // terrain ever did.
-            if (placement.backdrop && IsUpright(placement.up))
+            if (placement.backdrop && IsUpright(placement))
                 SplatBackdrop.Attach(m_Go.transform, data.BoundsMin, data.BoundsMax,
                                      kBackdropMargin, kBackdropGroundY, report);
             else if (placement.backdrop)
@@ -367,7 +391,7 @@ namespace VDGS
             // Same rule as Spawn's and SetOrientation's: a request to turn the backdrop on
             // is remembered (p.backdrop above), but it only takes effect live while up is
             // still +y - see IsUpright.
-            if (!IsUpright(p.up))
+            if (!IsUpright(p))
             {
                 log?.AppendLine(Name + ": backdrop off - up=" + p.up + " is rotated, so the floor clamp would slice the capture");
                 return;
@@ -528,7 +552,16 @@ namespace VDGS
             // The backdrop's floor is measured from the parent's world position (see
             // SplatBackdrop.Attach), so a move on any axis - not just y - can leave the
             // box's local ground level stale unless it is rebuilt against the new transform.
-            if (m_Go != null && SplatBackdrop.IsAttached(m_Go.transform))
+            //
+            // IsUpright(p) matters here even though this only ever rebuilds an already-
+            // attached backdrop: Object.Destroy is deferred to end of frame, so a detach
+            // from SetOrientation (rotating away from upright, on the same or an earlier
+            // frame) leaves IsAttached reporting true until the frame ends. WebControl.Pump
+            // drains its whole queue in one frame, so a rotate-then-move pair of requests
+            // can reach here with the destroy still pending - rebuilding against the
+            // now-rotated matrix would recreate exactly the broken clamp the detach just
+            // removed, and the fresh box would outlive the old one's end-of-frame death.
+            if (m_Go != null && SplatBackdrop.IsAttached(m_Go.transform) && IsUpright(p))
             {
                 var data = m_Renderer != null ? m_Renderer.Data : null;
                 if (data != null)
@@ -596,7 +629,7 @@ namespace VDGS
                 // Same rule as Spawn's, applied live: a capture that just turned away from
                 // +y can no longer trust its backdrop's local-space floor clamp, and a wall
                 // in the wrong place hides more than the terrain it was built to hide.
-                if (!IsUpright(p.up) && SplatBackdrop.IsAttached(m_Go.transform))
+                if (!IsUpright(p) && SplatBackdrop.IsAttached(m_Go.transform))
                 {
                     SplatBackdrop.Detach(m_Go.transform);
                     log?.AppendLine(Name + ": backdrop off - up=" + p.up + " is rotated, so the floor clamp would slice the capture");
