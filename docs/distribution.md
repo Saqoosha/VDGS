@@ -64,13 +64,18 @@ of every install and the step most often got wrong.** Unpack it one level too de
 **the game starts and nothing happens.**
 
 **Tracks can be removed one row at a time** (a `REMOVE` that appears on hover). What goes
-is the row in `user11.db` and the entry in `bindings.json`; **the capture stays** — it is
-gigabytes, and there is no reason to delete it. **Tracks that came from the official
-server are never deleted** (the button reads `UNBIND` instead): they belong to their
-author, and removing them from someone's machine is not ours to do. The database is copied
-before any deletion — **lap times cannot be re-obtained.**
+is the row in `user11.db`, the entry in `bindings.json`, **and now the bound capture too.**
+The earlier design kept the capture — it is gigabytes, and a track is a small click — but
+the first real user to test tab 03 removed two tracks and found both captures still
+listed in its picker with no hint why: the reasoning only holds if the person can tell
+what is left behind, and they could not. The confirmation names the capture and says
+whether it can be fetched again from the catalog, or is gone for good without the
+original `.ply`. **Tracks that came from the official server are never deleted** (the
+button reads `UNBIND` instead): they belong to their author, and removing them from
+someone's machine is not ours to do — only the binding, and now the capture, go. The
+database is copied before any deletion — **lap times cannot be re-obtained.**
 
-**UNINSTALL does not delete captures either.** It removes `VDGS.dll`, `vdgs-shaders` and
+**UNINSTALL does not delete captures.** It removes `VDGS.dll`, `vdgs-shaders` and
 `vdgs/ui`, and nothing else. Captures are gigabytes and hours to re-download, and keeping
 `bindings.json` and `placement.json` means **a reinstall puts everything back where it
 was**. BepInEx stays too; it is not ours.
