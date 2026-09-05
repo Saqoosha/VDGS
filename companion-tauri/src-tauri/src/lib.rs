@@ -626,7 +626,9 @@ impl Host {
     ///
     /// The two happen together on purpose. Binding is keyed by track name, so a track
     /// created now and bound later is a rename waiting to break the link - and a broken
-    /// link shows nothing at all, with no error anywhere.
+    /// link shows nothing at all, with no error anywhere. The rest of the logic lives in
+    /// the free function [`create_track_job`], including why an existing track is bound
+    /// rather than refused.
     fn create_track(self: &Arc<Self>, name: &str, capture: &str) {
         let Some(app) = self.inner.lock().unwrap().game.clone() else {
             return;
@@ -646,27 +648,9 @@ impl Host {
                         .into(),
                 );
             }
-            let seed_path = resource_dir.join("seed.track.json");
-            let seed = std::fs::read_to_string(&seed_path)
-                .map_err(|e| format!("seed template missing at {}: {e}", seed_path.display()))?;
-            let (scene, kind, value) = tracks::seed_value(&seed).map_err(|e| e.to_string())?;
-
             let db = tracks::db_path();
-            let stored = tracks::stored_name(&display);
-            match tracks::import(&db, &stored, scene, kind, &value).map_err(|e| e.to_string())? {
-                (tracks::ImportResult::Added, _) => log(format!("added track \"{display}\"")),
-                (tracks::ImportResult::AlreadyPresent, _) => {
-                    return Err(format!("a track called \"{display}\" is already there"))
-                }
-                (tracks::ImportResult::WouldOverwrite, _) => {
-                    return Err(format!("a different track called \"{display}\" is already there"))
-                }
-            }
-
             let root = game::root(&app);
-            game::bind(&root, &display, &capture).map_err(|e| e.to_string())?;
-            log(format!("bound \"{display}\" to {capture}"));
-            Ok(())
+            create_track_job(&resource_dir, &db, &root, &display, &capture, log)
         });
     }
 
@@ -785,6 +769,52 @@ impl Host {
             }
         }
     }
+}
+
+/// The logic behind [`Host::create_track`], pulled out of the method so it can be exercised
+/// without a `tauri::AppHandle` - `Host` needs one to build at all, which is not available
+/// in a unit test.
+///
+/// `AlreadyPresent` and `WouldOverwrite` both bind and return `Ok`. There is no other path
+/// in this UI to bind a capture onto a track that already exists - that was cut from tab
+/// 02's scope - so refusing here would strand anyone who presses Create track twice (a
+/// crash, a later Unbind, a hand-edited bindings.json) with a track they can never use. In
+/// both cases `tracks::import` returns without inserting, so the existing row - and
+/// whatever gates it holds - is never touched; only bindings.json, a file this app owns,
+/// changes.
+fn create_track_job(
+    resource_dir: &Path,
+    db: &Path,
+    root: &Path,
+    display: &str,
+    capture: &str,
+    log: &mut dyn FnMut(String),
+) -> Result<(), String> {
+    let seed_path = resource_dir.join("seed.track.json");
+    let seed = std::fs::read_to_string(&seed_path)
+        .map_err(|e| format!("seed template missing at {}: {e}", seed_path.display()))?;
+    let (scene, kind, value) = tracks::seed_value(&seed).map_err(|e| e.to_string())?;
+
+    if !db.is_file() {
+        return Err(format!(
+            "VelociDrone's database is not there yet - run the game once. ({})",
+            db.display()
+        ));
+    }
+    let stored = tracks::stored_name(display);
+    match tracks::import(db, &stored, scene, kind, &value).map_err(|e| e.to_string())? {
+        (tracks::ImportResult::Added, _) => log(format!("added track \"{display}\"")),
+        (tracks::ImportResult::AlreadyPresent, _) => {
+            log(format!("track \"{display}\" is already there, unchanged"))
+        }
+        (tracks::ImportResult::WouldOverwrite, _) => log(format!(
+            "a track called \"{display}\" already exists - using it as-is"
+        )),
+    }
+
+    game::bind(root, display, capture).map_err(|e| e.to_string())?;
+    log(format!("bound \"{display}\" to {capture}"));
+    Ok(())
 }
 
 struct Snapshot {
@@ -996,4 +1026,132 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![dispatch])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    const SEED: &str = r#"{"name":"VDGS Template","scene_id":16,"type":0,"value":"{\"gates\":[{\"start\":true}]}"}"#;
+
+    fn tmp() -> PathBuf {
+        static N: AtomicU32 = AtomicU32::new(0);
+        let p = std::env::temp_dir().join(format!(
+            "vdgs-lib-{}-{}",
+            std::process::id(),
+            N.fetch_add(1, Ordering::SeqCst)
+        ));
+        let _ = std::fs::remove_dir_all(&p);
+        std::fs::create_dir_all(&p).unwrap();
+        p
+    }
+
+    fn resource_dir_with_seed() -> PathBuf {
+        let dir = tmp();
+        std::fs::write(dir.join("seed.track.json"), SEED).unwrap();
+        dir
+    }
+
+    /// Same schema as `tracks::tests::fresh_db` - kept as its own copy because that one is
+    /// private to the `tracks` module.
+    fn fresh_db() -> PathBuf {
+        let p = tmp().join("user11.db");
+        let c = rusqlite::Connection::open(&p).unwrap();
+        c.execute_batch("CREATE TABLE [tracks] ([id] INTEGER NOT NULL PRIMARY KEY, [scene_id] INTEGER NOT NULL, [name] VARCHAR, [value] VARCHAR, [protected_track] TINYINT(1) NOT NULL DEFAULT 0, online_id int default 0, rating int default 0, favourite int default 0, date varchar default '2019-07-01 00:00:00', type int default 0);").unwrap();
+        p
+    }
+
+    #[test]
+    fn create_track_job_binds_an_already_present_track_without_touching_its_value() {
+        let resource_dir = resource_dir_with_seed();
+        let db = fresh_db();
+        let root = tmp();
+        let (_, _, seed_value) = tracks::seed_value(SEED).unwrap();
+
+        // The seed already cloned under this name - identical value, so `import` reports
+        // AlreadyPresent rather than inserting a second row.
+        let stored = tracks::stored_name("VDGS my house");
+        tracks::import(&db, &stored, 16, 0, &seed_value).unwrap();
+
+        let mut logged = Vec::new();
+        let result = create_track_job(
+            &resource_dir,
+            &db,
+            &root,
+            "VDGS my house",
+            "my-house",
+            &mut |s| logged.push(s),
+        );
+
+        assert!(result.is_ok(), "{result:?}");
+        let row = tracks::find(&db, "VDGS my house").unwrap().unwrap();
+        assert_eq!(row.value, seed_value, "the existing row's gates must be untouched");
+        assert_eq!(
+            game::read_bindings(&root)["VDGS my house"],
+            vec!["my-house".to_string()],
+            "the capture must still be bound"
+        );
+        assert!(logged.iter().any(|l| l.contains("already there")));
+    }
+
+    #[test]
+    fn create_track_job_binds_a_would_overwrite_track_without_touching_its_value() {
+        let resource_dir = resource_dir_with_seed();
+        let db = fresh_db();
+        let root = tmp();
+
+        // A track the person built themselves - same name, different gates. `import`
+        // reports WouldOverwrite and, per the guard in `tracks::import`, never writes.
+        let own_value = "{\"gates\":[{\"start\":true},{\"finish\":true},{\"finish\":true}]}";
+        let stored = tracks::stored_name("VDGS my house");
+        tracks::import(&db, &stored, 16, 0, own_value).unwrap();
+
+        let mut logged = Vec::new();
+        let result = create_track_job(
+            &resource_dir,
+            &db,
+            &root,
+            "VDGS my house",
+            "my-house",
+            &mut |s| logged.push(s),
+        );
+
+        assert!(result.is_ok(), "{result:?}");
+        let row = tracks::find(&db, "VDGS my house").unwrap().unwrap();
+        assert_eq!(
+            row.value, own_value,
+            "a track the person built themselves must never be rewritten with the seed's gates"
+        );
+        assert_eq!(
+            game::read_bindings(&root)["VDGS my house"],
+            vec!["my-house".to_string()],
+            "the capture must still be bound onto the existing track"
+        );
+        assert!(logged.iter().any(|l| l.contains("already exists")));
+    }
+
+    #[test]
+    fn create_track_job_reports_a_missing_database_instead_of_a_raw_sqlite_error() {
+        let resource_dir = resource_dir_with_seed();
+        let db = tmp().join("does-not-exist.db");
+        let root = tmp();
+
+        let mut logged = Vec::new();
+        let err = create_track_job(
+            &resource_dir,
+            &db,
+            &root,
+            "VDGS my house",
+            "my-house",
+            &mut |s| logged.push(s),
+        )
+        .unwrap_err();
+
+        assert!(
+            err.contains("run the game once"),
+            "expected the friendly not-yet-run message, got: {err}"
+        );
+        assert!(!err.to_ascii_lowercase().contains("sqlite"));
+    }
 }
