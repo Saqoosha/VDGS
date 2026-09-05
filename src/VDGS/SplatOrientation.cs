@@ -36,5 +36,28 @@ namespace VDGS
             y = turn % 360f;
             if (y < 0f) y += 360f;
         }
+
+        /// <summary>
+        /// True for one of the six valid axes. Compose's own default arm stays quiet
+        /// about anything else on purpose - identity is the safe answer for data already
+        /// on disk - but a value arriving fresh (over the network, or freshly read from a
+        /// file) should be caught here instead of silently becoming identity with no
+        /// record that anything was wrong.
+        /// </summary>
+        internal static bool IsUp(string up)
+        {
+            switch (up)
+            {
+                case "+x":
+                case "-x":
+                case "+y":
+                case "-y":
+                case "+z":
+                case "-z":
+                    return true;
+                default:
+                    return false;
+            }
+        }
     }
 }

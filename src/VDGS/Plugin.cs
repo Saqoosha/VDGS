@@ -100,6 +100,7 @@ namespace VDGS
                     SetBackdrop = ApplyBackdrop,
                     SetCollision = ApplyCollision,
                     SetCollisionView = ApplyCollisionView,
+                    SetOrientation = ApplyOrientation,
                 };
                 if (!m_Web.Start(WebControl.kDefaultPort, report))
                 {
@@ -142,6 +143,11 @@ namespace VDGS
                     { "shown", s.Spawned },
                     { "scale", s.Scale },
                     { "y", s.YOffset },
+                    { "x", s.XOffset },
+                    { "z", s.ZOffset },
+                    { "up", s.Up },
+                    { "turn", s.Turn },
+                    { "mirror", s.MirrorY },
                     { "backdrop", s.BackdropOn },
                     // Two fields, not one: the UI must be able to tell "no collision mesh
                     // generated" apart from "mesh generated and switched off", or a missing
@@ -253,8 +259,8 @@ namespace VDGS
             try { File.AppendAllText(m_TrackLogPath, log.ToString()); } catch { }
         }
 
-        /// <summary>Resizes / raises a capture. Applies live and writes placement.json.</summary>
-        private void ApplyTransform(string name, float? scale, float? y)
+        /// <summary>Resizes / moves a capture. Applies live and writes placement.json.</summary>
+        private void ApplyTransform(string name, float? scale, float? y, float? x, float? z)
         {
             EnsureDiscovered();
             var log = new StringBuilder();
@@ -264,7 +270,26 @@ namespace VDGS
             foreach (var s in m_Scenes)
             {
                 if (!string.IsNullOrEmpty(name) && s.Name != name) continue;
-                s.SetTransform(scale, y, log);
+                s.SetTransform(scale, y, x, z, log);
+                hit = true;
+            }
+            if (!hit) log.AppendLine("no splat named '" + (name ?? "-") + "'");
+
+            try { File.AppendAllText(Probe.LogPath, log.ToString()); } catch { }
+        }
+
+        /// <summary>Sets up / turn / mirror for a capture. Applies live and writes placement.json.</summary>
+        private void ApplyOrientation(string name, string up, float? turn, bool? mirror)
+        {
+            EnsureDiscovered();
+            var log = new StringBuilder();
+            log.AppendLine("======== orientation @ " + DateTime.Now.ToString("HH:mm:ss") + " ========");
+
+            var hit = false;
+            foreach (var s in m_Scenes)
+            {
+                if (!string.IsNullOrEmpty(name) && s.Name != name) continue;
+                s.SetOrientation(up, turn, mirror, log);
                 hit = true;
             }
             if (!hit) log.AppendLine("no splat named '" + (name ?? "-") + "'");

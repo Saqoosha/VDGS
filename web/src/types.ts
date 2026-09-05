@@ -1,5 +1,8 @@
 export type CollisionView = 'off' | 'solid' | 'wire'
 
+/** Which of the capture's axes points at the sky. */
+export type UpAxis = '+x' | '-x' | '+y' | '-y' | '+z' | '-z'
+
 export type Scene = {
   name: string
   source: 'local' | 'catalog'
@@ -14,6 +17,12 @@ export type Scene = {
   shown: boolean
   scale: number
   y: number
+  x: number
+  z: number
+  /** null when the placement has none yet - see placement.json's own `up` field. */
+  up: UpAxis | null
+  turn: number
+  mirror: boolean
   backdrop: boolean
   collision: boolean
   collisionView: CollisionView

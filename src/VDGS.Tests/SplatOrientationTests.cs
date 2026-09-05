@@ -52,4 +52,28 @@ public class SplatOrientationTests
         Assert.Equal(0f, y, 3);
         Assert.Equal(0f, z, 3);
     }
+
+    // The network door and the file-load door both need to tell a real axis from
+    // garbage before it reaches Compose, whose own default arm exists precisely to
+    // stay quiet about garbage rather than reject it.
+    [Theory]
+    [InlineData("+x")]
+    [InlineData("-x")]
+    [InlineData("+y")]
+    [InlineData("-y")]
+    [InlineData("+z")]
+    [InlineData("-z")]
+    public void IsUpAcceptsTheSixAxes(string up)
+    {
+        Assert.True(SplatOrientation.IsUp(up));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("sideways")]
+    public void IsUpRejectsAnythingElse(string up)
+    {
+        Assert.False(SplatOrientation.IsUp(up));
+    }
 }

@@ -257,13 +257,31 @@ namespace VDGS
         /// <summary>Current height offset.</summary>
         internal float YOffset => m_Go != null ? m_Go.transform.position.y : LoadPlacement().position[1];
 
+        /// <summary>Current horizontal offset, so the page can restore what it sent.</summary>
+        internal float XOffset => m_Go != null ? m_Go.transform.position.x : LoadPlacement().position[0];
+        internal float ZOffset => m_Go != null ? m_Go.transform.position.z : LoadPlacement().position[2];
+
+        /// <summary>Current up axis, or null when the placement has none - see the field's doc comment.</summary>
+        internal string Up => LoadPlacement().up;
+
+        /// <summary>Current turn about the up axis, in degrees.</summary>
+        internal float Turn => LoadPlacement().turn;
+
         /// <summary>
-        /// Resizes the capture and sets its height, then persists both.
+        /// Current mirror flag as it actually behaves. A converted capture's stored
+        /// mirrorY is never set by SetOrientation (it is ignored, not written), so this
+        /// only differs from IsPly for a hand-edited file - not a state this API can
+        /// itself produce.
+        /// </summary>
+        internal bool MirrorY => LoadPlacement().mirrorY ?? IsPly;
+
+        /// <summary>
+        /// Resizes the capture and sets its position, then persists both.
         ///
-        /// Rotation and horizontal position deliberately stay out of the mod - a capture
-        /// should arrive already oriented. These two are different: how big a room should
-        /// be is a judgement about flying it rather than about the data being correct,
-        /// and changing the scale moves the floor, so height has to come with it.
+        /// Rotation deliberately stays out of this method - see SetOrientation. Scale and
+        /// position are different: how big a room should be, and where it sits relative
+        /// to the track, are judgements about flying it rather than about the data being
+        /// correct, and changing the scale moves the floor, so height has to come with it.
         /// </summary>
         /// <summary>Extra room around the capture, so the box never clips a splat.</summary>
         private const float kBackdropMargin = 0.25f;
@@ -441,22 +459,33 @@ namespace VDGS
             SavePlacementData(p, log);
         }
 
-        internal void SetTransform(float? scale, float? yOffset, StringBuilder log)
+        internal void SetTransform(float? scale, float? yOffset, float? x, float? z,
+                                   StringBuilder log)
         {
             var p = LoadPlacement();
-
             if (scale.HasValue)
                 p.scale = Mathf.Clamp(scale.Value, 0.01f, 100f);
             if (yOffset.HasValue)
                 p.position[1] = Mathf.Clamp(yOffset.Value, -1000f, 1000f);
+            // Horizontal position was left out on the grounds that a capture should
+            // arrive already oriented. That reasoning is about orientation: someone who
+            // scanned their own room does not get to choose where COLMAP put the origin,
+            // and the capture lands at the scenery origin whether that helps or not.
+            if (x.HasValue)
+                p.position[0] = Mathf.Clamp(x.Value, -1000f, 1000f);
+            if (z.HasValue)
+                p.position[2] = Mathf.Clamp(z.Value, -1000f, 1000f);
 
             if (m_Go != null)
             {
                 m_Go.transform.localScale = Vector3.one * p.scale;
-                var pos = m_Go.transform.position;
-                m_Go.transform.position = new Vector3(pos.x, p.position[1], pos.z);
+                m_Go.transform.position =
+                    new Vector3(p.position[0], p.position[1], p.position[2]);
             }
 
+            // The backdrop's floor is measured from the parent's world position (see
+            // SplatBackdrop.Attach), so a move on any axis - not just y - can leave the
+            // box's local ground level stale unless it is rebuilt against the new transform.
             if (m_Go != null && SplatBackdrop.IsAttached(m_Go.transform))
             {
                 var data = m_Renderer != null ? m_Renderer.Data : null;
@@ -467,7 +496,9 @@ namespace VDGS
 
             SavePlacementData(p, log);
             log?.AppendLine(Name + ": scale=" + p.scale.ToString("0.###")
-                            + " y=" + p.position[1].ToString("0.###"));
+                            + " pos=(" + p.position[0].ToString("0.##") + ", "
+                            + p.position[1].ToString("0.##") + ", "
+                            + p.position[2].ToString("0.##") + ")");
         }
 
         /// <summary>
@@ -483,7 +514,16 @@ namespace VDGS
             var reload = false;
 
             if (!string.IsNullOrEmpty(up)) p.up = up;
-            if (turn.HasValue) p.turn = turn.Value;
+            if (turn.HasValue)
+            {
+                p.turn = turn.Value;
+                // Spawn only takes the compose branch when up is present; a placement
+                // with a turn but no up would apply live right now and then silently lose
+                // the turn on the next load, when Spawn falls back to the raw `rotation`
+                // field instead. Filling in the default up here is what keeps the screen
+                // and the file from disagreeing the moment the game restarts.
+                if (string.IsNullOrEmpty(p.up)) p.up = SplatOrientation.DefaultUp;
+            }
             if (mirror.HasValue)
             {
                 // A converted capture has no mirror to change - SplatData.Load ignores it -
@@ -570,6 +610,12 @@ namespace VDGS
                 if (p.rotation == null || p.rotation.Length < 3) p.rotation = new float[] { 0, 0, 0 };
                 if (p.scale <= 0f) p.scale = 1f;
                 // up is deliberately NOT defaulted here - see the field's doc comment.
+                // But a value that IS present and unreadable is different from absent: it
+                // is treated the same way an unreadable collisionView is below, reset to
+                // the value that means "nothing chosen" - null here, so Spawn takes the
+                // same raw-rotation fallback it would for a file with no up at all, rather
+                // than Compose's default arm quietly turning the typo into identity.
+                if (p.up != null && !SplatOrientation.IsUp(p.up)) p.up = null;
                 if (!SplatCollisionView.IsMode(p.collisionView)) p.collisionView = SplatCollisionView.kOff;
                 return p;
             }

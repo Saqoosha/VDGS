@@ -40,10 +40,11 @@ namespace VDGS
         internal Action<string> LoadSplat;      // null/empty unloads everything
         internal Action<string[]> BindCurrent;  // binds the given splats to the live track
         internal Action<string> UnbindTrack;    // null clears the live track's binding
-        internal Action<string, float?, float?> SetTransform;  // splat, scale, yOffset
+        internal Action<string, float?, float?, float?, float?> SetTransform;  // splat, scale, yOffset, x, z
         internal Action<string, bool> SetBackdrop;             // splat, on
         internal Action<string, bool> SetCollision;            // splat, on
         internal Action<string, string> SetCollisionView;      // splat, off|solid|wire
+        internal Action<string, string, float?, bool?> SetOrientation;  // splat, up, turn, mirror
 
         internal string Url { get; private set; }
         internal string UiRoot { get; set; }
@@ -203,21 +204,42 @@ namespace VDGS
                 case "/api/transform":
                 {
                     var body = ReadBody(ctx);
-                    // Nullable so the UI can send only the field it changed; a missing
-                    // value must leave the other one alone rather than resetting it.
+                    // Nullable throughout so the UI can send only the field it changed; a
+                    // missing value must leave the others alone rather than resetting them.
                     var req = JsonConvert.DeserializeObject<Dictionary<string, object>>(body);
-                    string splat = null;
-                    float? scale = null, y = null;
+                    string splat = null, up = null;
+                    float? scale = null, y = null, x = null, z = null, turn = null;
+                    bool? mirror = null;
                     if (req != null)
                     {
                         if (req.TryGetValue("splat", out var sv) && sv != null) splat = sv.ToString();
-                        if (req.TryGetValue("scale", out var cv) && cv != null)
-                            scale = Convert.ToSingle(cv);
-                        if (req.TryGetValue("y", out var yv) && yv != null)
-                            y = Convert.ToSingle(yv);
+                        if (req.TryGetValue("scale", out var cv) && cv != null) scale = Convert.ToSingle(cv);
+                        if (req.TryGetValue("y", out var yv) && yv != null) y = Convert.ToSingle(yv);
+                        if (req.TryGetValue("x", out var xv) && xv != null) x = Convert.ToSingle(xv);
+                        if (req.TryGetValue("z", out var zv) && zv != null) z = Convert.ToSingle(zv);
+                        if (req.TryGetValue("turn", out var tv) && tv != null) turn = Convert.ToSingle(tv);
+                        if (req.TryGetValue("up", out var uv) && uv != null) up = uv.ToString();
+                        if (req.TryGetValue("mirror", out var mv) && mv != null) mirror = Convert.ToBoolean(mv);
                     }
-                    var sName = splat; var sScale = scale; var sY = y;
-                    QueueOnMain(() => SetTransform?.Invoke(sName, sScale, sY));
+
+                    // Reject rather than store: Compose's own default arm stays quiet about
+                    // a bad axis on purpose (identity is the safe answer for data already on
+                    // disk), which means a typo arriving here would sail through, land in
+                    // placement.json, and sit there until someone happens to read the file.
+                    if (up != null && !SplatOrientation.IsUp(up))
+                    {
+                        Respond(ctx, 400, "{\"error\":\"up must be one of +x -x +y -y +z -z\"}");
+                        return;
+                    }
+
+                    var sName = splat; var sScale = scale; var sY = y; var sX = x; var sZ = z;
+                    var sUp = up; var sTurn = turn; var sMirror = mirror;
+                    QueueOnMain(() =>
+                    {
+                        SetTransform?.Invoke(sName, sScale, sY, sX, sZ);
+                        if (sUp != null || sTurn.HasValue || sMirror.HasValue)
+                            SetOrientation?.Invoke(sName, sUp, sTurn, sMirror);
+                    });
                     Respond(ctx, 200, "{\"ok\":true}");
                     return;
                 }
