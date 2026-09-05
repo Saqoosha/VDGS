@@ -171,6 +171,21 @@ function MakeTrack({ prepare, unbound }: { prepare: boolean; unbound: Capture[] 
                 ))}
               </SelectContent>
             </Select>
+            {/* The only way to take a capture back out. Without this, ① only ever adds -
+                every .ply someone tries piles up here, in the ② picker and in tab 02's
+                "installed, on no track" line, forever. Gated the same as ① and ②
+                themselves: remove_capture refuses while the game is running because the
+                file may be open. */}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={!prepare || !capture}
+              onClick={() => send('removeCapture', capture)}
+              aria-label={`Remove ${capture}`}
+            >
+              Remove
+            </Button>
           </label>
 
           <label className="mt-4 flex items-end gap-4 border-b border-rule pb-1.5">

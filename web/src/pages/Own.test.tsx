@@ -74,6 +74,29 @@ describe('create your own', () => {
     expect(sent).toEqual(['createTrack', { name: 'VDGS my-house', capture: 'my-house' }])
   })
 
+  // removeCapture already existed end to end (Host::remove_capture, a dispatch arm,
+  // game::remove_capture with its own path-traversal fix) with nothing in web/src ever
+  // sending it - ① could only ever add a .ply, never take one back out.
+  it('sends removeCapture with the selected capture\'s name', async () => {
+    const { default: Own } = await import('./Own')
+    const user = userEvent.setup()
+    render(<Own state={state({
+      running: false,
+      unbound: [{ name: 'my-house', splats: 1, collision: false, bytes: 1 }],
+    })} busy={false} />)
+    await user.click(screen.getByRole('button', { name: /remove my-house/i }))
+    expect(sent).toEqual(['removeCapture', 'my-house'])
+  })
+
+  it('disables removing a capture while the game runs', async () => {
+    const { default: Own } = await import('./Own')
+    render(<Own state={state({
+      running: true,
+      unbound: [{ name: 'my-house', splats: 1, collision: false, bytes: 1 }],
+    })} busy={false} />)
+    expect(screen.getByRole('button', { name: /remove my-house/i })).toBeDisabled()
+  })
+
   // A state that has not landed yet is not the same as "nothing to explain" - the button
   // must still say why it is disabled, not go quiet.
   it('explains a disabled Add-a-.ply even before the host has pushed a first state', async () => {
