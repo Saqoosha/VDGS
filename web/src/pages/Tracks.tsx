@@ -56,6 +56,11 @@ export default function Tracks({
   const tracks = state?.tracks ?? []
   const unbound = state?.unbound ?? []
   const catalog = state?.catalog ?? null
+  // Add track, Get and Remove all touch a file the game holds open (user11.db, or a
+  // capture on disk) and need it closed - the same guard `run_busy` enforces on the Rust
+  // side. Unbind only writes bindings.json, which is ours, not the game's, so it is
+  // deliberately left off this fold (see Actions below) and gated on `busy` alone.
+  const fileBusy = busy || !!state?.running
 
   // Fetched once, on the way in: the catalog is only of interest here, and a machine
   // with no network should not greet every tab with an error.
@@ -119,6 +124,7 @@ export default function Tracks({
                 index={String(i + 1).padStart(2, '0')}
                 row={row}
                 busy={busy}
+                fileBusy={fileBusy}
               />
             ))}
           </ol>
@@ -138,10 +144,10 @@ export default function Tracks({
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
-        <Button variant="outline" disabled={!game || busy} onClick={() => send('addTrack')}>
+        <Button variant="outline" disabled={!game || fileBusy} onClick={() => send('addTrack')}>
           Add track
         </Button>
-        <Button variant="outline" disabled={busy} onClick={() => send('refreshCatalog')}>
+        <Button variant="outline" disabled={fileBusy} onClick={() => send('refreshCatalog')}>
           Refresh
         </Button>
         {catalog ? (
@@ -154,12 +160,22 @@ export default function Tracks({
   )
 }
 
-function TrackRow({ index, row, busy }: { index: string; row: Row; busy: boolean }) {
+function TrackRow({
+  index,
+  row,
+  busy,
+  fileBusy,
+}: {
+  index: string
+  row: Row
+  busy: boolean
+  fileBusy: boolean
+}) {
   return (
     <li className="group/row grid grid-cols-[2.25rem_minmax(0,1fr)_auto] items-start gap-3 border-b border-rule/80 py-4 last:border-b-0">
       <span className="pt-1 font-mono text-[11px] text-muted-foreground">{index}</span>
       <RowBody row={row} />
-      <Actions row={row} busy={busy} />
+      <Actions row={row} busy={busy} fileBusy={fileBusy} />
     </li>
   )
 }
@@ -238,10 +254,10 @@ function RowBody({ row }: { row: Row }) {
   )
 }
 
-function Actions({ row, busy }: { row: Row; busy: boolean }) {
+function Actions({ row, busy, fileBusy }: { row: Row; busy: boolean; fileBusy: boolean }) {
   if (row.kind === 'catalog') {
     return (
-      <Button disabled={busy} onClick={() => send('get', row.id)}>
+      <Button disabled={fileBusy} onClick={() => send('get', row.id)}>
         Get
       </Button>
     )
@@ -251,7 +267,7 @@ function Actions({ row, busy }: { row: Row; busy: boolean }) {
     // nothing - worse than no button, because nothing tells whoever clicked it that it
     // failed. Offer Get only once a real catalog entry has been resolved.
     return row.catalogId ? (
-      <Button disabled={busy} onClick={() => send('get', row.catalogId)}>
+      <Button disabled={fileBusy} onClick={() => send('get', row.catalogId)}>
         Get
       </Button>
     ) : null
@@ -263,6 +279,11 @@ function Actions({ row, busy }: { row: Row; busy: boolean }) {
       <Button
         variant="outline"
         size="sm"
+        // busy, not fileBusy: Unbind only writes bindings.json, a file the game never
+        // holds open (unbind_track carries no is_running guard on the Rust side, on
+        // purpose - the plugin picks the change up from its own poll within a second).
+        // Gating it on the game being closed would strand anyone trying to fix a
+        // binding for a capture they are actively flying to compare against.
         disabled={busy}
         onClick={() => send('unbindTrack', row.track)}
         className="opacity-0 transition-opacity group-hover/row:opacity-100 focus-visible:opacity-100"
@@ -276,7 +297,7 @@ function Actions({ row, busy }: { row: Row; busy: boolean }) {
     <Button
       variant="outline"
       size="sm"
-      disabled={busy}
+      disabled={fileBusy}
       onClick={() => send('removeTrack', row.track)}
       className="opacity-0 transition-opacity group-hover/row:opacity-100 focus-visible:opacity-100"
       aria-label={`Remove ${row.track}`}

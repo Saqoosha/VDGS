@@ -50,7 +50,14 @@ export default function CompanionApp() {
     return stop
   }, [])
 
-  const busy = (state?.running ?? false) || !!state?.busy
+  // Folded together for anything that has to wait for either condition (Fly: can't fly
+  // twice, and can't fly mid-job). Tracks and Own each need the two conditions apart -
+  // Tracks' Unbind only writes bindings.json, a file the game never holds open, so it
+  // must stay live while the game runs; only its file-touching siblings (Add track, Get,
+  // Remove) need the game closed the way Own's ① and ② already do.
+  const opBusy = !!state?.busy
+  const running = state?.running ?? false
+  const busy = running || opBusy
   const game = state?.game ?? null
 
   // A window, not a page: it is exactly as tall as it is, so the tab content takes the
@@ -89,9 +96,9 @@ export default function CompanionApp() {
           {tab === 'setup' ? (
             <Setup state={state} log={log} />
           ) : tab === 'tracks' ? (
-            <Tracks state={state} busy={busy} />
+            <Tracks state={state} busy={opBusy} />
           ) : (
-            <Own state={state} busy={busy} />
+            <Own state={state} busy={opBusy} />
           )}
         </div>
         {/* Fixture of the shell rather than of any one page: flying is not specific to

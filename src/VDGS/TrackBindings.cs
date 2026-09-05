@@ -77,7 +77,10 @@ namespace VDGS
         }
 
         /// <summary>
-        /// Re-reads bindings.json when someone else has written it.
+        /// Re-reads bindings.json when someone else has written it. Returns whether the
+        /// map actually changed, so the caller can re-apply the current track's binding -
+        /// reloading the map alone does not move a single splat, since the picture on
+        /// screen is only ever swapped where <c>PollTrack</c> sees the track name change.
         ///
         /// The companion writes this file directly, with the game either running or not,
         /// so the copy held here goes stale without anything saying so - and the next
@@ -88,25 +91,28 @@ namespace VDGS
         /// timestamp tick are indistinguishable otherwise, and a binding edit is exactly
         /// the kind of small change that lands in the same tick as the one before it.
         /// </summary>
-        internal void ReloadIfChanged()
+        internal bool ReloadIfChanged()
         {
             try
             {
                 if (!System.IO.File.Exists(m_Path))
-                    return;
+                    return false;
                 var info = new System.IO.FileInfo(m_Path);
                 if (info.LastWriteTimeUtc == m_Stamp && info.Length == m_Length)
-                    return;
+                    return false;
                 // Load() already logged the parse failure when it returns false - saying
                 // "reloaded" on top of that would read as confirmation the reload worked,
                 // in exactly the log someone reaches for when a capture just vanished.
-                if (Load())
-                    VdgsPlugin.Log.LogInfo("[VDGS] bindings.json changed on disk, reloaded ("
-                                           + m_Map.Count + " track(s))");
+                if (!Load())
+                    return false;
+                VdgsPlugin.Log.LogInfo("[VDGS] bindings.json changed on disk, reloaded ("
+                                       + m_Map.Count + " track(s))");
+                return true;
             }
             catch (Exception ex)
             {
                 VdgsPlugin.Log.LogError("bindings.json reload failed: " + ex.Message);
+                return false;
             }
         }
 
@@ -129,14 +135,17 @@ namespace VDGS
         /// Parses bindings.json into m_Map. Returns whether it succeeded.
         ///
         /// Builds the replacement map locally and only swaps it in on success. The
-        /// companion writes this file with a plain truncate-then-write, so a poll can
-        /// genuinely catch it mid-write; if a parse failure blanked m_Map immediately,
-        /// every currently-displayed capture would vanish for a file that is about to
-        /// become valid again a moment later. Leaving m_Map untouched on failure means
-        /// a bad read costs nothing beyond the log line - the last-known-good bindings
-        /// keep working until a good read replaces them. The field initializer already
-        /// gives m_Map an empty (never null) starting value, so the very first Load()
-        /// from the constructor fails into that same safe, empty, non-null state.
+        /// companion writes this file through a sibling temp file and an atomic rename
+        /// (game.rs's write_bindings), so a poll should not catch it mid-write on one
+        /// filesystem - but a hand edit, a crash mid-save, or a future writer that skips
+        /// that path can still leave a half-written or malformed file, and the cost of
+        /// guessing wrong is the same either way: if a parse failure blanked m_Map
+        /// immediately, every currently-displayed capture would vanish for a file that
+        /// might be perfectly valid a moment later. Leaving m_Map untouched on failure
+        /// means a bad read costs nothing beyond the log line - the last-known-good
+        /// bindings keep working until a good read replaces them. The field initializer
+        /// already gives m_Map an empty (never null) starting value, so the very first
+        /// Load() from the constructor fails into that same safe, empty, non-null state.
         /// </summary>
         private bool Load()
         {
@@ -155,14 +164,21 @@ namespace VDGS
                 }
 
                 var parsed = JsonConvert.DeserializeObject<Dictionary<string, List<string>>>(text);
-                var map = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
-                if (parsed != null)
+                if (parsed == null)
                 {
-                    foreach (var kv in parsed)
-                    {
-                        if (string.IsNullOrEmpty(kv.Key)) continue;
-                        map[kv.Key.Trim()] = kv.Value ?? new List<string>();
-                    }
+                    // The literal `null` (or anything else that decodes to it) deserialises
+                    // without throwing - Newtonsoft's way of saying "valid JSON, wrong
+                    // shape". Treated as a parse failure so it lands in the catch below and
+                    // leaves m_Map alone, the same way game.rs's try_parse_bindings refuses
+                    // this file rather than reading it as "no bindings". Two writers of one
+                    // file disagreeing about what counts as valid is the bug this guards.
+                    throw new JsonException("bindings.json parsed to null");
+                }
+                var map = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+                foreach (var kv in parsed)
+                {
+                    if (string.IsNullOrEmpty(kv.Key)) continue;
+                    map[kv.Key.Trim()] = kv.Value ?? new List<string>();
                 }
                 m_Map = map;
                 return true;

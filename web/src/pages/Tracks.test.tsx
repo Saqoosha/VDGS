@@ -125,4 +125,19 @@ describe('the merged track table', () => {
     expect(screen.getByRole('button', { name: /unbind VDGS FDF/i })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /remove VDGS FDF/i })).toBeNull()
   })
+
+  // Unbind only writes bindings.json, a file the game never holds open - unlike Remove,
+  // which deletes the row from user11.db while the game keeps that database open. Folding
+  // both into one `busy` flag (as this component used to) meant Unbind went dark exactly
+  // when someone most wants it: mid-flight, comparing a capture against the track it is
+  // bound to.
+  it('leaves Unbind enabled while the game runs, unlike Remove', () => {
+    const { rerender } = render(
+      <Tracks state={state({ running: true, tracks: [track({ fromServer: true })] })} busy={false} />,
+    )
+    expect(screen.getByRole('button', { name: /unbind VDGS FDF/i })).toBeEnabled()
+
+    rerender(<Tracks state={state({ running: true, tracks: [track()] })} busy={false} />)
+    expect(screen.getByRole('button', { name: /remove VDGS FDF/i })).toBeDisabled()
+  })
 })

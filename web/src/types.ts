@@ -77,8 +77,11 @@ export type SetupState = {
   stateMs?: number
   launchArgs: string
   /**
-   * This machine's LAN address for the plugin's HTTP server, or null when the game is
-   * not running (there is no server to reach) or no outward-facing interface was found.
+   * This machine's LAN address for the plugin's HTTP server, or null when no
+   * outward-facing interface was found. state.rs's `lan_url()` asks the OS for this
+   * address unconditionally - it does not consult `running` - so a non-null value here
+   * does NOT mean the server is actually there to reach. `running` is what says that
+   * (bridge.ts and Own.tsx both gate on it alongside `lanUrl` for exactly this reason).
    */
   lanUrl: string | null
   tracks: TrackEntry[]

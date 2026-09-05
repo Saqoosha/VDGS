@@ -489,7 +489,7 @@ namespace VDGS
             if (m_TrackPollTimer < 1f) return;
             m_TrackPollTimer = 0f;
 
-            m_Bindings.ReloadIfChanged();
+            var bindingsChanged = m_Bindings.ReloadIfChanged();
 
             var log = new StringBuilder();
             string name;
@@ -554,6 +554,19 @@ namespace VDGS
                                + (m_CurrentTrack ?? "-") + "' -> '" + (name ?? "-") + "'");
                 m_CurrentTrack = name;
                 ApplyTrackBinding(name, log);
+            }
+            // The track itself did not change, but the binding it points at might have -
+            // companion's Unbind (and a hand edit) writes bindings.json without touching
+            // the track name, so nothing above this line would ever notice. Without this,
+            // editing a binding while its track stays current spawns nothing, despawns
+            // nothing, and logs nothing: the documented recovery for "my downloaded track
+            // got renamed and the capture vanished" is rebinding it here, and that fix
+            // would silently do nothing until the next track change happened to trigger it.
+            else if (bindingsChanged && !string.IsNullOrEmpty(m_CurrentTrack))
+            {
+                log.AppendLine("  bindings.json changed for the current track - reapplying '"
+                               + m_CurrentTrack + "'");
+                ApplyTrackBinding(m_CurrentTrack, log);
             }
 
             // A view asked for at spawn time could not be applied then - the collider's mesh
