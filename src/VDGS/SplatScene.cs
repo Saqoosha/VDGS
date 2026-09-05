@@ -703,9 +703,47 @@ namespace VDGS
                 if (!SplatCollisionView.IsMode(p.collisionView)) p.collisionView = SplatCollisionView.kOff;
                 return p;
             }
-            catch
+            catch (Exception ex)
             {
+                // Newtonsoft throws where JsonUtility used to coerce - a bad key now
+                // means a default Placement (scale 1, position 0, no up, no backdrop)
+                // instead of the file's real values, and every mutator in this class is
+                // load-mutate-save. Left silent, the first control someone touches would
+                // write those defaults straight over their alignment with nothing to say
+                // it happened - and a crash mid-write (AGENTS.md: the game can crash
+                // under -force-d3d12 within minutes of sitting on the menu) leaves a
+                // truncated file that would otherwise be lost the same way. Logged, and
+                // the bad file is moved aside so the next Save() cannot overwrite it -
+                // the original values survive on disk for recovery.
+                VdgsPlugin.Log.LogError("placement.json unreadable, using defaults: " + ex.Message);
+                QuarantinePlacement(path);
                 return new Placement();
+            }
+        }
+
+        /// <summary>
+        /// Renames an unreadable placement.json aside so a future Save() cannot bury it.
+        /// Best-effort: a failure here (permissions, the file already gone) is logged and
+        /// otherwise ignored - it must never throw out of LoadPlacement, whose only job at
+        /// this point is to hand back a usable default.
+        /// </summary>
+        private static void QuarantinePlacement(string path)
+        {
+            try
+            {
+                var dest = path + ".corrupt-" + DateTime.Now.ToString("yyyyMMdd-HHmmss");
+                // Matches tracks::backup's rule on the companion side: a same-second
+                // collision is left alone rather than risking one quarantine overwriting
+                // another.
+                if (!File.Exists(dest))
+                {
+                    File.Move(path, dest);
+                    VdgsPlugin.Log.LogError("moved the unreadable placement.json aside: " + dest);
+                }
+            }
+            catch (Exception ex)
+            {
+                VdgsPlugin.Log.LogError("could not move the unreadable placement.json aside: " + ex.Message);
             }
         }
 
