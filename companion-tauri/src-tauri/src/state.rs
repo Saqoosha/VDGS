@@ -80,6 +80,8 @@ pub struct SetupState {
     /// reaches the screen, and every log still says success.
     #[serde(rename = "trueLens")]
     pub true_lens: Option<bool>,
+    #[serde(rename = "lanUrl")]
+    pub lan_url: Option<String>,
 }
 
 pub struct Inputs<'a> {
@@ -161,7 +163,25 @@ pub fn build(i: Inputs) -> SetupState {
         catalog,
         unbound,
         true_lens,
+        lan_url: lan_url(),
     }
+}
+
+/// This machine's address on the local network, as the URL the plugin serves on.
+///
+/// Found by asking the OS which local address it would use to reach the outside, which
+/// is the one interface a phone on the same Wi-Fi can also reach. The socket is UDP and
+/// unconnected in any real sense - no packet is sent and the address is never contacted.
+/// Enumerating interfaces instead means picking between several, and the wrong pick is a
+/// URL that silently does not answer.
+pub fn lan_url() -> Option<String> {
+    let sock = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+    sock.connect("8.8.8.8:80").ok()?;
+    let ip = sock.local_addr().ok()?.ip();
+    if ip.is_loopback() || ip.is_unspecified() {
+        return None;
+    }
+    Some(format!("http://{ip}:8777/"))
 }
 
 /// Catalog.cs TrackInPlace — capture alone is enough when nothing is published;
@@ -327,6 +347,18 @@ mod tests {
         });
         e.track_name = None;
         assert!(!track_in_place(&e, Some(&in_game), &bound));
+    }
+
+    #[test]
+    fn lan_url_is_a_reachable_http_url_or_nothing() {
+        // A machine with no route has no LAN address to advertise, and saying nothing is
+        // correct there. When there is one it must be a plain http URL on the plugin's
+        // port, never a loopback address - the whole point is reaching it from elsewhere.
+        if let Some(url) = lan_url() {
+            assert!(url.starts_with("http://"), "{url}");
+            assert!(url.ends_with(":8777/"), "{url}");
+            assert!(!url.contains("127.0.0.1"), "{url}");
+        }
     }
 
     #[test]
