@@ -29,7 +29,10 @@ export default function Setup({
     <>
       <Section n="01" label="velocidrone" flush>
         {game ? (
-          <p className="font-mono text-[12px] leading-relaxed break-all text-foreground/90">
+          // select-text: this path is exactly what someone needs to paste into a support
+          // message, or navigate to by hand, when something about the install is wrong -
+          // the same reason the log below stays selectable.
+          <p className="font-mono text-[12px] leading-relaxed break-all text-foreground/90 select-text">
             {game}
           </p>
         ) : (
@@ -75,7 +78,10 @@ export default function Setup({
       </Section>
 
       {log.length ? (
-        <ol className="mt-6 border-t border-rule pt-4 font-mono text-[11px] leading-relaxed text-muted-foreground">
+        // select-text: this is what a person copies into a bug report when something
+        // goes wrong - collect-mac-diagnostics.sh exists because getting logs out of
+        // people matters. Set once here rather than per <li>: user-select inherits down.
+        <ol className="mt-6 border-t border-rule pt-4 font-mono text-[11px] leading-relaxed text-muted-foreground select-text">
           {log.map((line, i) => (
             <li key={i} className="break-all">
               {line}

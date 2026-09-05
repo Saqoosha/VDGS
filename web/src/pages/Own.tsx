@@ -247,7 +247,9 @@ function LanQr({ url }: { url: string }) {
         <p className="font-mono text-[10px] tracking-[0.22em] text-muted-foreground uppercase">
           on another screen
         </p>
-        <p className="mt-1 font-mono text-[13px] text-foreground/90">{url}</p>
+        {/* select-text: the whole point of this line is to be typed or copied onto a
+            second device, the one thing the QR code next to it cannot do for a laptop. */}
+        <p className="mt-1 font-mono text-[13px] text-foreground/90 select-text">{url}</p>
       </div>
     </div>
   )

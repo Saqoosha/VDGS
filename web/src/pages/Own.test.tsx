@@ -112,6 +112,15 @@ describe('create your own', () => {
     expect(screen.getByText('http://192.168.1.42:8777/')).toBeInTheDocument()
   })
 
+  // The rest of the app opts out of text selection at the shell; this address is the
+  // one thing on this screen that exists only to be typed or copied onto a second
+  // device. Class assertion only - jsdom cannot model an actual drag-select.
+  it('keeps the LAN address selectable', async () => {
+    const { default: Own } = await import('./Own')
+    render(<Own state={state({ running: true })} busy={false} />)
+    expect(screen.getByText('http://192.168.1.42:8777/')).toHaveClass('select-text')
+  })
+
   // The address exists unconditionally in real state (state.rs asks the OS for it
   // regardless of whether the game is running) - `lanUrl` alone is not proof anything is
   // listening there. A person scanning it while the game is closed gets connection

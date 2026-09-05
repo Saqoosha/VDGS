@@ -100,6 +100,17 @@
   body {
     @apply bg-background text-foreground antialiased;
   }
+  /* The companion shell turns off text selection (CompanionApp's root div), but a form
+     field's own value is not decoration - selecting inside it is how you edit it, and a
+     blanket rule on an ancestor does not reliably hand that back on every engine. Kept
+     as a plain element rule here, not a class on each usage, so every text input across
+     every page opts back in without hunting down each one; -webkit- is required because
+     the macOS webview is WebKit. */
+  input,
+  textarea {
+    -webkit-user-select: text;
+    user-select: text;
+  }
 }
 
 @layer components {

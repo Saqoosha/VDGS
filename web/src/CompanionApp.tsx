@@ -63,7 +63,12 @@ export default function CompanionApp() {
   // A window, not a page: it is exactly as tall as it is, so the tab content takes the
   // slack and Fly sits on the bottom edge instead of below it.
   return (
-    <div className="h-svh overflow-hidden text-foreground">
+    // Dragging across a native window should pan or click, not paint a text selection
+    // the way a browser page does - so the shell defaults to non-selectable and each
+    // page opts specific text back in (the LAN address, the log, an input's own value).
+    // This div, not chrome.tsx, is where that default belongs: chrome.tsx's Masthead is
+    // shared with the public site, which is an ordinary web page and stays selectable.
+    <div className="h-svh overflow-hidden text-foreground select-none">
       <ParticleField />
       <div className="relative mx-auto flex h-full w-full max-w-[44rem] flex-col px-6 py-7 md:px-8">
         <Masthead

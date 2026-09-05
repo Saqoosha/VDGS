@@ -73,6 +73,15 @@ describe('Setup', () => {
     expect(screen.getByText(/12:00:00\s+installed/)).toBeInTheDocument()
   })
 
+  // The log and the game path are what a person copies into a bug report -
+  // collect-mac-diagnostics.sh exists because getting that out of people matters. Class
+  // assertions only: jsdom does not model an actual drag-select.
+  it('keeps the log and the game path selectable, unlike the rest of the shell', () => {
+    render(<Setup state={state()} log={['12:00:00  installed']} />)
+    expect(screen.getByText(/12:00:00\s+installed/).closest('ol')).toHaveClass('select-text')
+    expect(screen.getByText('C:\\game')).toHaveClass('select-text')
+  })
+
   it('warns about True Lens only when the game has it on', () => {
     // null = unknown and false = off must not warn; only true is shown.
     rememberLang('en')
