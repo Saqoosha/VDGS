@@ -84,6 +84,18 @@ pub fn display_name(stored: &str) -> String {
     }
 }
 
+/// The inverse of [`display_name`].
+///
+/// The order is load-bearing and is the reverse of the decode. Percent-escape first, so
+/// the '+' characters this function *creates* from spaces are not themselves escaped;
+/// '%' goes first inside that, so an escape introduced later is not double-escaped.
+pub fn stored_name(display: &str) -> String {
+    display
+        .replace('%', "%25")
+        .replace('+', "%2b")
+        .replace(' ', "+")
+}
+
 pub fn list(db: &Path) -> rusqlite::Result<Vec<Track>> {
     let c = open_ro(db)?;
     let mut stmt = c.prepare(
@@ -349,6 +361,19 @@ mod tests {
         assert_eq!(display_name("VDGS+FDF+2026-08-22"), "VDGS FDF 2026-08-22");
         assert_eq!(display_name("Sols%2bStreet%2bLeague%2b1"), "Sols+Street+League+1");
         assert_eq!(display_name("50%+off"), "50% off"); // stray % survives
+    }
+
+    #[test]
+    fn stored_name_is_the_inverse_of_display_name() {
+        // Space becomes '+', and a literal '+' becomes '%2b' - the same two stages
+        // VelociDrone applies, in the order that survives a round trip.
+        assert_eq!(stored_name("VDGS my house"), "VDGS+my+house");
+        assert_eq!(stored_name("Sols+Street+League+1"), "Sols%2bStreet%2bLeague%2b1");
+        assert_eq!(stored_name("100% done"), "100%25+done");
+
+        for display in ["VDGS my house", "Sols+Street+League+1", "100% done", "plain"] {
+            assert_eq!(display_name(&stored_name(display)), display);
+        }
     }
 
     #[test]
