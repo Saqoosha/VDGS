@@ -17,5 +17,6 @@
   <ItemGroup>
     <Compile Include="..\VDGS\VdgsPaths.cs" Link="VdgsPaths.cs" />
     <Compile Include="..\VDGS\SplatMetaFile.cs" Link="SplatMetaFile.cs" />
+    <Compile Include="..\VDGS\SplatOrientation.cs" Link="SplatOrientation.cs" />
   </ItemGroup>
 </Project>
