@@ -106,6 +106,86 @@ describe('create your own', () => {
     expect(screen.getByText(/loading/i)).toBeInTheDocument()
   })
 
+  // ① installs a .ply and the host pushes a fresh `unbound` list back down; the person
+  // just picked that exact file from a dialog, so ②'s picker should already be on it
+  // rather than making them find it again in a dropdown.
+  it('selects a capture that newly appears in unbound', async () => {
+    const { default: Own } = await import('./Own')
+    const captureA = { name: 'my-house', splats: 1, collision: false, bytes: 1 }
+    const captureB = { name: 'garage', splats: 2, collision: false, bytes: 2 }
+    const { rerender } = render(
+      <Own state={state({ running: false, unbound: [captureA] })} busy={false} />,
+    )
+    expect(screen.getByRole('button', { name: /remove my-house/i })).toBeInTheDocument()
+
+    rerender(<Own state={state({ running: false, unbound: [captureA, captureB] })} busy={false} />)
+
+    expect(screen.getByRole('button', { name: /remove garage/i })).toBeInTheDocument()
+    const field = screen.getByLabelText(/track name/i) as HTMLInputElement
+    expect(field.value).toBe('VDGS garage')
+  })
+
+  // The `edited` flag exists so a hand-typed name survives an unrelated click; a capture
+  // arriving on its own is not the person's action either, and must be held to the same
+  // rule - it may move the picker, but it may not touch a name they already wrote.
+  it('does not overwrite a hand-typed track name when a capture arrives', async () => {
+    const { default: Own } = await import('./Own')
+    const user = userEvent.setup()
+    const captureA = { name: 'my-house', splats: 1, collision: false, bytes: 1 }
+    const captureB = { name: 'garage', splats: 2, collision: false, bytes: 2 }
+    const { rerender } = render(
+      <Own state={state({ running: false, unbound: [captureA] })} busy={false} />,
+    )
+    const field = screen.getByLabelText(/track name/i) as HTMLInputElement
+    await user.clear(field)
+    await user.type(field, 'My Own Name')
+    expect(field.value).toBe('My Own Name')
+
+    rerender(<Own state={state({ running: false, unbound: [captureA, captureB] })} busy={false} />)
+
+    // The picker still moves to the new capture - only the name is protected.
+    expect(screen.getByRole('button', { name: /remove garage/i })).toBeInTheDocument()
+    expect((screen.getByLabelText(/track name/i) as HTMLInputElement).value).toBe('My Own Name')
+  })
+
+  // Once a capture arrival has moved the selection off `unbound[0]`, a later push that
+  // does not add anything - a fresh array from the same JSON, nothing new in it - must
+  // not silently pull the selection back to the first entry.
+  it('leaves the selection alone when a push changes nothing about unbound', async () => {
+    const { default: Own } = await import('./Own')
+    const captureA = { name: 'my-house', splats: 1, collision: false, bytes: 1 }
+    const captureB = { name: 'garage', splats: 2, collision: false, bytes: 2 }
+    const { rerender } = render(
+      <Own state={state({ running: false, unbound: [captureA] })} busy={false} />,
+    )
+    rerender(<Own state={state({ running: false, unbound: [captureA, captureB] })} busy={false} />)
+    expect(screen.getByRole('button', { name: /remove garage/i })).toBeInTheDocument()
+
+    // Same names, new array/object instances - exactly what a re-serialized push looks
+    // like - and nothing else about the state changed either.
+    rerender(<Own state={state({
+      running: false,
+      unbound: [{ ...captureA }, { ...captureB }],
+    })} busy={false} />)
+
+    expect(screen.getByRole('button', { name: /remove garage/i })).toBeInTheDocument()
+  })
+
+  // Every capture is "new" to a component that has never run before, so the very first
+  // push must not be read as a batch of arrivals - that would fight the existing
+  // unbound[0] default and, worse, would be ambiguous about which of several captures
+  // "just" arrived when none of them did.
+  it('does not treat the first push as an arrival - the initial list keeps its default', async () => {
+    const { default: Own } = await import('./Own')
+    const captureA = { name: 'my-house', splats: 1, collision: false, bytes: 1 }
+    const captureB = { name: 'garage', splats: 2, collision: false, bytes: 2 }
+    render(<Own state={state({ running: false, unbound: [captureA, captureB] })} busy={false} />)
+
+    expect(screen.getByRole('button', { name: /remove my-house/i })).toBeInTheDocument()
+    const field = screen.getByLabelText(/track name/i) as HTMLInputElement
+    expect(field.value).toBe('VDGS my-house')
+  })
+
   it('offers the LAN address once the game is running', async () => {
     const { default: Own } = await import('./Own')
     render(<Own state={state({ running: true })} busy={false} />)

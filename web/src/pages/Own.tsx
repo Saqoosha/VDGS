@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import QRCode from 'qrcode'
 import { hosted, send } from '../bridge'
 import { Section } from '../chrome'
@@ -126,19 +126,38 @@ function MakeTrack({ prepare, unbound }: { prepare: boolean; unbound: Capture[] 
   // Once someone has typed their own name, switching the capture selector must not
   // stomp on it - that would be losing a name to a click on an unrelated control.
   const [edited, setEdited] = useState(false)
+  // Names already accounted for, so a fresh arrival - the one step ① just installed -
+  // can be told apart from a push that only reordered or dropped entries. Seeded from
+  // the very first `unbound` this component ever sees: everything already on screen at
+  // mount was not "just added" by anyone watching this render, so mount must not treat
+  // its own initial list as new arrivals and hijack a selection nobody made yet.
+  const seenRef = useRef(new Set(unbound.map((c) => c.name)))
+
+  const pick = (next: string) => {
+    setCapture(next)
+    if (!edited) setName(defaultTrackName(next))
+  }
 
   useEffect(() => {
+    const seen = seenRef.current
+    // First-in-array-order among the names missing from `seen`: deterministic even if
+    // the host ever reports more than one new capture in the same push (a hand-copied
+    // file plus a refresh, say) - the picker lands on exactly one, not whichever the
+    // Set happened to iterate last.
+    const arrived = unbound.find((c) => !seen.has(c.name))
+    seenRef.current = new Set(unbound.map((c) => c.name))
+
+    if (arrived) {
+      pick(arrived.name)
+      return
+    }
+
     if (unbound.some((c) => c.name === capture)) return
     const next = unbound[0]?.name ?? ''
     setCapture(next)
     if (!edited) setName(defaultTrackName(next))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [unbound])
-
-  const pick = (next: string) => {
-    setCapture(next)
-    if (!edited) setName(defaultTrackName(next))
-  }
 
   const create = () => {
     send('createTrack', undefined, { name, capture })
