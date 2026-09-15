@@ -38,7 +38,7 @@ pub struct CatalogEntryOut {
     pub bytes: u64,
     pub installed: bool,
     /// Installed, but the catalog has a newer cut of the same folder. Getting it again
-    /// overwrites the files in place and leaves the binding and placement alone.
+    /// swaps the folder for the new cut and leaves the binding and placement alone.
     pub update: bool,
 }
 

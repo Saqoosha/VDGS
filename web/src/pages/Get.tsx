@@ -111,7 +111,7 @@ function EntryRow({
           ) : null}
         </p>
       </div>
-      {/* An update is the same get: the files are overwritten in place, the binding and
+      {/* An update is the same get: the folder is swapped for the new cut, the binding and
           placement.json are left alone. */}
       <Button
         variant={entry.installed && !entry.update ? 'ghost' : 'default'}

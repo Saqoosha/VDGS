@@ -440,11 +440,13 @@ impl Host {
                 let install_result = (|| {
                     host.percent(None);
                     host.set_busy(Some(&format!("installing {}", entry.name)));
-                    let label = entry
-                        .install_as
-                        .as_deref()
-                        .unwrap_or(entry.name.as_str());
-                    game::install_archive(&root, &zip, label, log).map_err(|e| e.to_string())
+                    match entry.install_as.as_deref() {
+                        Some(install_as) => {
+                            game::install_capture_archive(&root, &zip, install_as, log)
+                        }
+                        None => game::install_archive(&root, &zip, &entry.name, log),
+                    }
+                    .map_err(|e| e.to_string())
                 })();
                 let _ = std::fs::remove_file(&zip);
                 install_result?;
