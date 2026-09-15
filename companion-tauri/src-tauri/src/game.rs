@@ -575,15 +575,23 @@ fn write_bindings_string(b: &Bindings) -> String {
     out
 }
 
-pub fn bind(root: &Path, track: &str, scene: &str) -> io::Result<()> {
+/// Binds `track` to `scene`. Returns false when the list was left as it was.
+///
+/// A first install replaces whatever the track pointed at - the capture just installed
+/// is what the person asked to see. Anything after that (`updating`) leaves the track's
+/// list alone: a second capture they added, or a capture of their own they pointed the
+/// track at instead, is their choice and outlives a re-download of ours.
+pub fn bind(root: &Path, track: &str, scene: &str, updating: bool) -> io::Result<bool> {
     let mut map = try_read_bindings(root)?;
-    // Already bound (an update, or a repeat install): leave the list alone, so a
-    // second capture the user added to this track survives.
-    if map.get(track).is_some_and(|list| list.iter().any(|s| s == scene)) {
-        return Ok(());
+    let existing = map.get(track);
+    if existing.is_some_and(|list| list.iter().any(|s| s == scene))
+        || (updating && existing.is_some_and(|list| !list.is_empty()))
+    {
+        return Ok(false);
     }
     map.insert(track.to_string(), vec![scene.to_string()]);
-    write_bindings(root, &map)
+    write_bindings(root, &map)?;
+    Ok(true)
 }
 
 pub fn unbind(root: &Path, track: &str) -> io::Result<bool> {
@@ -947,8 +955,8 @@ mod tests {
     #[test]
     fn bindings_roundtrip_and_unbind() {
         let root = tmp();
-        bind(&root, "VDGS X", "x-dir").unwrap();
-        bind(&root, "VDGS Y", "y-dir").unwrap();
+        bind(&root, "VDGS X", "x-dir", false).unwrap();
+        bind(&root, "VDGS Y", "y-dir", false).unwrap();
         let b = read_bindings(&root);
         assert_eq!(b["VDGS X"], vec!["x-dir"]);
         assert_eq!(b.len(), 2);
@@ -1042,18 +1050,21 @@ mod tests {
     }
 
     #[test]
-    fn bind_keeps_a_list_that_already_holds_the_capture() {
-        // An update re-binds the same capture; a second capture the user added to the
-        // track must survive that.
+    fn bind_keeps_the_users_list_on_update() {
         let root = tmp();
-        bind(&root, "VDGS X", "x-dir").unwrap();
         let path = root.join("vdgs/bindings.json");
+        assert!(bind(&root, "VDGS X", "x-dir", false).unwrap());
+        // A second capture the user added survives a re-bind of the same capture.
         std::fs::write(&path, br#"{"VDGS X": ["x-dir", "extra"]}"#).unwrap();
-        bind(&root, "VDGS X", "x-dir").unwrap();
+        assert!(!bind(&root, "VDGS X", "x-dir", true).unwrap());
         assert_eq!(read_bindings(&root)["VDGS X"], vec!["x-dir", "extra"]);
-        // A different capture still replaces, as before.
-        bind(&root, "VDGS X", "other").unwrap();
-        assert_eq!(read_bindings(&root)["VDGS X"], vec!["other"]);
+        // So does a track the user pointed at their own capture instead of ours.
+        std::fs::write(&path, br#"{"VDGS X": ["mine"]}"#).unwrap();
+        assert!(!bind(&root, "VDGS X", "x-dir", true).unwrap());
+        assert_eq!(read_bindings(&root)["VDGS X"], vec!["mine"]);
+        // A first install still replaces: the capture just installed is what was asked for.
+        assert!(bind(&root, "VDGS X", "x-dir", false).unwrap());
+        assert_eq!(read_bindings(&root)["VDGS X"], vec!["x-dir"]);
     }
 
     #[test]
@@ -1064,7 +1075,7 @@ mod tests {
         let corrupt = b"{\"Other\":[\"scene\"]\nnot-json";
         std::fs::write(&path, corrupt).unwrap();
         let before = std::fs::read(&path).unwrap();
-        assert!(bind(&root, "VDGS X", "x-dir").is_err());
+        assert!(bind(&root, "VDGS X", "x-dir", false).is_err());
         assert_eq!(std::fs::read(&path).unwrap(), before);
         assert_eq!(before, corrupt);
     }
@@ -1134,11 +1145,11 @@ mod tests {
             "{oops",
         ] {
             let root = tmp();
-            bind(&root, "Existing", "cap-a").unwrap();
+            bind(&root, "Existing", "cap-a", false).unwrap();
             let path = root.join("vdgs/bindings.json");
             std::fs::write(&path, bad).unwrap();
             assert!(
-                bind(&root, "New", "cap-b").is_err(),
+                bind(&root, "New", "cap-b", false).is_err(),
                 "bind should refuse {bad}"
             );
             assert_eq!(

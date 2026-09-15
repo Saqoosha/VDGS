@@ -349,8 +349,8 @@ mod tests {
         std::fs::write(&exe, b"").unwrap();
         std::fs::create_dir_all(root.join("vdgs/a")).unwrap();
         std::fs::write(root.join("vdgs/a/meta.json"), r#"{"splatCount":3}"#).unwrap();
-        game::bind(&root, "T", "a").unwrap();
-        game::bind(&root, "U", "zzz").unwrap();
+        game::bind(&root, "T", "a", false).unwrap();
+        game::bind(&root, "U", "zzz", false).unwrap();
         let s = build(Inputs {
             game: Some(&app),
             resource_dir: &root,

@@ -435,6 +435,10 @@ impl Host {
                     parsed = Some(t);
                 }
 
+                let updating = entry
+                    .install_as
+                    .as_deref()
+                    .is_some_and(|d| root.join("vdgs").join(d).is_dir());
                 let zip = catalog::download(&entry.scene, &temp, &mut |p| host.percent(Some(p)))
                     .map_err(|e| e.to_string())?;
                 let install_result = (|| {
@@ -499,8 +503,11 @@ impl Host {
 
                 if let Some(ref install_as) = entry.install_as {
                     let shown = tracks::display_name(&t.name);
-                    game::bind(&root, &shown, install_as).map_err(|e| e.to_string())?;
-                    log(format!("bound \"{shown}\" to {install_as}"));
+                    if game::bind(&root, &shown, install_as, updating).map_err(|e| e.to_string())? {
+                        log(format!("bound \"{shown}\" to {install_as}"));
+                    } else {
+                        log(format!("\"{shown}\" keeps its binding"));
+                    }
                 }
                 Ok(())
             })();
@@ -664,7 +671,7 @@ impl Host {
         }
         let shown = tracks::display_name(track_name);
         let scene = &scenes[0].name;
-        if let Err(e) = game::bind(&root, &shown, scene) {
+        if let Err(e) = game::bind(&root, &shown, scene, false) {
             self.log(&format!("failed: {e}"));
             return;
         }
