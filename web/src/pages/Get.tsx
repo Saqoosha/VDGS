@@ -111,12 +111,14 @@ function EntryRow({
           ) : null}
         </p>
       </div>
+      {/* An update is the same get: the files are overwritten in place, the binding and
+          placement.json are left alone. */}
       <Button
-        variant={entry.installed ? 'ghost' : 'default'}
-        disabled={disabled || entry.installed}
+        variant={entry.installed && !entry.update ? 'ghost' : 'default'}
+        disabled={disabled || (entry.installed && !entry.update)}
         onClick={() => send('get', entry.id)}
       >
-        {entry.installed ? 'Installed' : 'Get'}
+        {entry.update ? 'Update' : entry.installed ? 'Installed' : 'Get'}
       </Button>
     </li>
   )

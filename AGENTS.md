@@ -190,6 +190,11 @@ VDGS_BENCH_INSIDE=1 bash tools/bench-win.sh       # ドローン目線（カリ�
 VDGS_BENCH_INSIDE=1 VDGS_BENCH_CULL=0 bash tools/bench-win.sh   # カリング無しと比較
 ```
 
+**macOS 27 は Rosetta を落として上がってくる。** Unity 2021.3 / 2022.3 / 6000.0 の
+`UnityPackageManager` は x86_64 なので、Editor は UPM を待って**無言で固まる**（ログの末尾は
+`Assertion failed on expression: 's_EditorBuildSettings != NULL'` と `task not launched`、
+CPU 0%）。`softwareupdate --install-rosetta --agree-to-license` で戻る（2026-09-15）。
+
 **シェーダーを変えたら `bash tools/bake-shaders.sh` で焼き直す。** 焼かないとゲーム側は
 古いシェーダーのまま動き、C# だけ新しいという食い違いになる。
 
@@ -304,6 +309,11 @@ Y オフセットで持ち上げても直らない（位置の問題ではない
 - **巨大 splat はサイズで切る**（`--max-sigma 5`）。位置でも連結性でもない —
   extent 1.8 個分の幅がある splat は定義上すべてに接続している。utlida では 178 個
   （0.004%）が描画面積の 60% を占めていた
+- **鏡映・回転は SH 係数にも掛ける。** 位置とクォータニオンだけ動かすと視線依存の色を
+  反対側から読み、空が暗いまだらになる（utlida の空 202/σ 19 → 255/σ 0.5、SuperSplat は
+  254）。`align_ply.py` と `fit_transform.py` は `tools/splat_sh.py` 経由で回すようになった。
+  変換済みの `sh.bin` を直すのは `tools/vdgs_sh.py`。2026-09-16 までの配備データは全部
+  逆だった。理由と検算は alignment ドキュメント
 - **`splat-transform` は読み込み時に Z 軸 180 度回転を掛ける** — `(x, y, z)` が
   `(-x, -y, z)`。`--mirror y` の `(x, -y, z)` とは **X の符号だけ違う**。そこから出た
   メッシュをそのまま Unity に置くとキャプチャの鏡像を包むので、X を反転し、巻き順も

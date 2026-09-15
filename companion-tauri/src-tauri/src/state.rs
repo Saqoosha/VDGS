@@ -37,6 +37,9 @@ pub struct CatalogEntryOut {
     pub splats: u64,
     pub bytes: u64,
     pub installed: bool,
+    /// Installed, but the catalog has a newer cut of the same folder. Getting it again
+    /// overwrites the files in place and leaves the binding and placement alone.
+    pub update: bool,
 }
 
 #[derive(Serialize)]
@@ -220,11 +223,14 @@ fn catalog_state(
         .unwrap_or(&[])
         .iter()
         .map(|e| {
-            let have_capture = e.install_as.as_ref().is_some_and(|as_name| {
+            let found = e.install_as.as_ref().and_then(|as_name| {
                 scenes
                     .iter()
-                    .any(|s| s.name.eq_ignore_ascii_case(as_name))
+                    .find(|s| s.name.eq_ignore_ascii_case(as_name))
             });
+            let have_capture = found.is_some();
+            let installed = have_capture && track_in_place(e, in_game, bound);
+            let update = installed && found.is_some_and(|s| s.revision < e.revision);
             CatalogEntryOut {
                 id: e.id.clone(),
                 name: e.name.clone(),
@@ -233,7 +239,8 @@ fn catalog_state(
                 licence: e.licence.clone(),
                 splats: e.splats,
                 bytes: e.bytes(),
-                installed: have_capture && track_in_place(e, in_game, bound),
+                installed,
+                update,
             }
         })
         .collect();
@@ -398,7 +405,38 @@ mod tests {
                 sha256: None,
             }),
             track_name: Some(track_name.to_string()),
+            revision: 1,
         }
+    }
+
+    #[test]
+    fn update_is_offered_only_for_an_older_installed_cut() {
+        let mut e = entry("VDGS+X", Some("x-dir"));
+        let mut in_game = BTreeMap::new();
+        in_game.insert("VDGS X".to_string(), false);
+        let mut bound = game::Bindings::new();
+        bound.insert("VDGS X".into(), vec!["x-dir".into()]);
+        let scene = |revision| game::SceneInfo {
+            name: "x-dir".into(),
+            splats: 1,
+            collision: true,
+            bytes: 1,
+            converted: true,
+            revision,
+        };
+        let out = |e: &catalog::Entry, scenes: &[game::SceneInfo]| {
+            let c = catalog_state(Some(std::slice::from_ref(e)), None, "u", scenes, Some(&in_game), &bound).unwrap();
+            (c.entries[0].installed, c.entries[0].update)
+        };
+        // Same cut installed: installed, nothing to update.
+        assert_eq!(out(&e, &[scene(1)]), (true, false));
+        // The catalog moved on: still installed, and an update is offered.
+        e.revision = 2;
+        assert_eq!(out(&e, &[scene(1)]), (true, true));
+        // Already on the new cut.
+        assert_eq!(out(&e, &[scene(2)]), (true, false));
+        // Not installed at all: never "update", the button says get.
+        assert_eq!(out(&e, &[]), (false, false));
     }
 
     fn tmp() -> PathBuf {

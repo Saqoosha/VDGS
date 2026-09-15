@@ -332,6 +332,9 @@ pub struct SceneInfo {
     pub collision: bool,
     pub bytes: u64,
     pub converted: bool,
+    /// meta.json's `revision`; 1 when absent, which every capture cut before the field
+    /// existed is. Compared against the catalog's to offer an update.
+    pub revision: u64,
 }
 
 pub fn scenes(root: &Path) -> Vec<SceneInfo> {
@@ -364,6 +367,7 @@ pub fn scenes(root: &Path) -> Vec<SceneInfo> {
                 collision: dir.join("collision.bin").is_file(),
                 bytes: directory_size(&dir),
                 converted: true,
+                revision: meta_revision(&meta),
             });
         }
     }
@@ -399,12 +403,21 @@ pub fn scenes(root: &Path) -> Vec<SceneInfo> {
                 collision: vdgs.join(format!("{name}.collision.bin")).is_file(),
                 bytes,
                 converted: false,
+                revision: 1,
             });
         }
     }
 
     found.sort_by(|a, b| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()));
     found
+}
+
+fn meta_revision(meta_path: &Path) -> u64 {
+    fs::read_to_string(meta_path)
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .and_then(|v| v.get("revision").and_then(|n| n.as_u64()))
+        .unwrap_or(1)
 }
 
 fn splat_count(meta_path: &Path) -> u64 {

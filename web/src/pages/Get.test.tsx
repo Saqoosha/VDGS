@@ -1,6 +1,7 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import Get from './Get'
+import { send } from '../bridge'
 import type { CatalogEntry, SetupState } from '../types'
 
 vi.mock('../bridge', () => ({ send: vi.fn() }))
@@ -17,6 +18,7 @@ function entry(over: Partial<CatalogEntry> = {}): CatalogEntry {
     splats: 1497617,
     bytes: 123_657_212,
     installed: false,
+    update: false,
     ...over,
   }
 }
@@ -116,6 +118,19 @@ describe('Get', () => {
       <Get state={state({ catalog: { url: 'u', error: null, entries: [entry({ installed: true })] } })} />,
     )
     expect(screen.getByRole('button', { name: /installed/i })).toBeDisabled()
+  })
+
+  it('offers an update when the catalog has a newer cut of an installed capture', () => {
+    render(
+      <Get
+        state={state({ catalog: { url: 'u', error: null, entries: [entry({ installed: true, update: true })] } })}
+      />,
+    )
+    const button = screen.getByRole('button', { name: /^update$/i })
+    expect(button).toBeEnabled()
+    fireEvent.click(button)
+    // Same command as a first install: the files are overwritten in place.
+    expect(send).toHaveBeenCalledWith('get', 'fdf')
   })
 
   it('will not start a download while something else is running', () => {

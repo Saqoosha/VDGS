@@ -251,12 +251,19 @@ namespace VDGS
                 // The .ply groups f_rest by channel - 15 reds, then 15 greens, then 15
                 // blues - while the shader reads it coefficient by coefficient as rgb
                 // triples. Transpose, or every band comes out in the wrong colour.
+                // The reflection has to reach the view-dependent colour too. Under
+                // y -> -y every SH basis function that is odd in y changes sign: band 1's
+                // y (k=0), band 2's xy and yz (k=3, 4), band 3's y(3x^2-y^2), xyz and
+                // y(4z^2-x^2-y^2) (k=8, 9, 10). Mirroring the geometry alone evaluates
+                // each splat's colour from the opposite side of its lobe - invisible on a
+                // wall, and exactly the dark mottled sky a web viewer never shows.
                 int sh = i * 96;
                 for (int k = 0; k < 15; k++)
                 {
-                    PutHalf(shData, sh + k * 6,     F(bytes, b + oRest + k * 4));
-                    PutHalf(shData, sh + k * 6 + 2, F(bytes, b + oRest + (15 + k) * 4));
-                    PutHalf(shData, sh + k * 6 + 4, F(bytes, b + oRest + (30 + k) * 4));
+                    float s = (mirrorY && (k == 0 || k == 3 || k == 4 || k == 8 || k == 9 || k == 10)) ? -1f : 1f;
+                    PutHalf(shData, sh + k * 6,     s * F(bytes, b + oRest + k * 4));
+                    PutHalf(shData, sh + k * 6 + 2, s * F(bytes, b + oRest + (15 + k) * 4));
+                    PutHalf(shData, sh + k * 6 + 4, s * F(bytes, b + oRest + (30 + k) * 4));
                 }
             }
 

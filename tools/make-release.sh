@@ -221,7 +221,14 @@ $( [ "$HAVE_COLLISION" = 1 ] \
 Licence: $SCENE_LICENCE
 EOF
 
-  SCENE_ZIP="$OUT/vdgs-scene-$SCENE.zip"
+  # A republished cut keeps the folder name (installAs) and bumps meta.json's revision;
+  # the archive name carries it because a published name can never be reused - the
+  # files are served immutable for a year (docs/distribution). The first cut stays
+  # unsuffixed so the names already published keep matching.
+  REVISION=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('revision', 1))" \
+             "$SCENE_DIR/meta.json")
+  SUFFIX=""; [ "$REVISION" -gt 1 ] && SUFFIX="-r$REVISION"
+  SCENE_ZIP="$OUT/vdgs-scene-$SCENE$SUFFIX.zip"
   rm -f "$SCENE_ZIP"
   ( cd "$STAGE/scene" && zip -qr "$SCENE_ZIP" . )
   echo "-> $SCENE_ZIP  ($(du -h "$SCENE_ZIP" | cut -f1))"

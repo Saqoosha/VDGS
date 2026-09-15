@@ -29,6 +29,10 @@ pub struct Entry {
     pub install_as: Option<String>,
     pub track: Option<FileRef>,
     pub track_name: Option<String>,
+    /// Which cut of the capture this is. A republished capture keeps its `installAs` (so
+    /// the folder and the binding stay) and bumps this; an installed folder whose
+    /// meta.json says less is out of date. Absent means 1, the same as before the field.
+    pub revision: u64,
 }
 
 impl Entry {
@@ -94,6 +98,7 @@ pub fn parse(json: &str) -> Result<Vec<Entry>, Error> {
         let author = str_field(e, "author");
         let licence = str_field(e, "licence");
         let splats = num_field(e, "splats");
+        let revision = e.get("revision").and_then(|v| v.as_u64()).unwrap_or(1);
 
         let (scene, install_as) = match e.get("scene").filter(|s| s.is_object()) {
             Some(scene) => (Some(read_file(scene)), str_field(scene, "installAs")),
@@ -120,6 +125,7 @@ pub fn parse(json: &str) -> Result<Vec<Entry>, Error> {
             install_as,
             track,
             track_name,
+            revision,
         });
     }
     Ok(found)
@@ -323,6 +329,14 @@ mod tests {
         assert_eq!(e[0].install_as.as_deref(), Some("A-dir"));
         assert_eq!(e[0].track_name.as_deref(), Some("VDGS+A"));
         assert_eq!(e[0].bytes(), 11);
+        assert_eq!(e[0].revision, 1, "no revision field means the first cut");
+    }
+
+    #[test]
+    fn parse_reads_revision() {
+        let json = r#"{"formatVersion":1,"scenes":[{"id":"a","name":"A","revision":2,
+      "scene":{"url":"https://x/s.zip","bytes":10,"installAs":"A-dir"}}]}"#;
+        assert_eq!(parse(json).unwrap()[0].revision, 2);
     }
 
     #[test]

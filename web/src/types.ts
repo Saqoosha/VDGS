@@ -88,6 +88,8 @@ export type CatalogEntry = {
   splats: number
   bytes: number
   installed: boolean
+  /** Installed, and the catalog has a newer cut of the same folder. */
+  update: boolean
 }
 
 export type CatalogState = {

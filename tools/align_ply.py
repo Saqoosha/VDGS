@@ -25,6 +25,8 @@ import sys
 
 import numpy as np
 
+import splat_sh
+
 
 # ----------------------------------------------------------------- ply io
 
@@ -235,6 +237,21 @@ def check_floor_is_down(rows, props):
         print("      ply with Y inverted relative to Unity).")
 
 
+def transform_sh(rows, props, R):
+    """Carry the view-dependent colour through the same orthogonal transform as the geometry.
+
+    Positions and quaternions were always moved; f_rest_* was not, so every splat's colour
+    was being read from the wrong side of its lobe. Harmless on walls, and the reason the
+    sky came out as dark blotches where SuperSplat showed a flat bright one. splat_sh.py
+    has the numbers and derives the per-band matrix from the shader's own basis.
+    """
+    rest = [f"f_rest_{k}" for k in range(45)]
+    if not all(r in props for r in rest):
+        return
+    cols = [props.index(r) for r in rest]
+    rows[:, cols] = splat_sh.rotate_f_rest(rows[:, cols], R)
+
+
 def mirror_axis(rows, props, axis):
     """
     Reflect the cloud across one axis, orientations included.
@@ -267,6 +284,10 @@ def mirror_axis(rows, props, axis):
         if k != i:
             out[:, 1 + k] = -q[:, 1 + k]
     rows[:, rot] = out.astype(np.float32)
+
+    M = np.eye(3)
+    M[i, i] = -1.0
+    transform_sh(rows, props, M)
 
 
 def scene_extent(xyz):
@@ -350,6 +371,8 @@ def apply_transform(rows, props, R, floor_y, scale):
     q /= norm
     rq = mat_to_quat(R)
     rows[:, rot_idx] = quat_mul(np.broadcast_to(rq, q.shape), q).astype(np.float32)
+
+    transform_sh(rows, props, R)
 
     # Sizes are stored as log, so a multiply becomes an add.
     if abs(scale - 1.0) > 1e-9:
