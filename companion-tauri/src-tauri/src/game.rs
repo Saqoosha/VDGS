@@ -360,6 +360,10 @@ pub fn scenes(root: &Path) -> Vec<SceneInfo> {
                 Ok(n) => n,
                 Err(_) => continue,
             };
+            // .<name>.new / .<name>.old are this app's own staging and backup folders.
+            if name.starts_with('.') {
+                continue;
+            }
             seen.insert(name.to_ascii_lowercase());
             found.push(SceneInfo {
                 name,
@@ -646,12 +650,20 @@ pub fn install_capture_archive(
     let retired = vdgs.join(format!(".{install_as}.old"));
     // A previous run that died between the two renames left only the backup: put it back
     // before anything else. A backup beside a live folder is one whose cleanup failed.
+    let step = |what: String, e: io::Error| catalog::Error::Msg(format!("{what}: {e}"));
     if retired.exists() && !target.exists() {
-        fs::rename(&retired, &target)?;
+        fs::rename(&retired, &target)
+            .map_err(|e| step(format!("restoring {} to {}", retired.display(), target.display()), e))?;
         log(format!("restored {install_as} from an interrupted update"));
     }
-    let _ = fs::remove_dir_all(&staging);
-    fs::create_dir_all(&staging)?;
+    // Leftovers are removed, not unpacked over: a stale file in the staging area would
+    // ride into the new folder, which is the trap this swap exists to close.
+    if staging.exists() {
+        fs::remove_dir_all(&staging)
+            .map_err(|e| step(format!("removing the old staging folder {}", staging.display()), e))?;
+    }
+    fs::create_dir_all(&staging)
+        .map_err(|e| step(format!("creating {}", staging.display()), e))?;
 
     let result = (|| -> Result<(), catalog::Error> {
         catalog::extract(zip, &staging, &[], log)?;
@@ -663,28 +675,46 @@ pub fn install_capture_archive(
         }
         let placement = target.join("placement.json");
         if placement.is_file() {
-            fs::copy(&placement, unpacked.join("placement.json"))?;
+            fs::copy(&placement, unpacked.join("placement.json"))
+                .map_err(|e| step(format!("keeping your {}", placement.display()), e))?;
             log("kept your placement.json".into());
         }
         if target.exists() {
-            let _ = fs::remove_dir_all(&retired);
-            fs::rename(&target, &retired)?;
+            if retired.exists() {
+                fs::remove_dir_all(&retired)
+                    .map_err(|e| step(format!("removing the old backup {}", retired.display()), e))?;
+            }
+            fs::rename(&target, &retired)
+                .map_err(|e| step(format!("moving {} aside to {}", target.display(), retired.display()), e))?;
         }
         if let Err(e) = fs::rename(&unpacked, &target) {
-            if retired.exists() && fs::rename(&retired, &target).is_err() {
-                return Err(catalog::Error::Msg(format!(
-                    "{e}; the previous files are kept in {}",
-                    retired.display()
-                )));
+            let what = format!("putting the new {install_as} in place ({} -> {})", unpacked.display(), target.display());
+            if retired.exists() {
+                if let Err(back) = fs::rename(&retired, &target) {
+                    return Err(catalog::Error::Msg(format!(
+                        "{what}: {e}; and the previous one could not be put back ({back}). \
+                         Your previous files, placement.json included, are in {} - rename that folder to {} by hand.",
+                        retired.display(), target.display()
+                    )));
+                }
             }
-            return Err(e.into());
+            return Err(step(what, e));
         }
         Ok(())
     })();
-    let _ = fs::remove_dir_all(&staging);
+    if let Err(e) = fs::remove_dir_all(&staging) {
+        if staging.exists() {
+            log(format!("could not remove {}: {e} - delete it by hand", staging.display()));
+        }
+    }
     result?;
-    // Only a completed swap retires the backup.
-    let _ = fs::remove_dir_all(&retired);
+    // Only a completed swap retires the backup. A backup that will not go is said out
+    // loud: it is a full copy of a capture, and the game would list it as one.
+    if let Err(e) = fs::remove_dir_all(&retired) {
+        if retired.exists() {
+            log(format!("could not remove the old copy {}: {e} - delete it by hand", retired.display()));
+        }
+    }
     log(format!("installed {install_as}"));
     Ok(())
 }
@@ -892,6 +922,17 @@ mod tests {
         assert!(!s[1].converted && s[1].splats == 7);
         // No revision key, and a bare .ply, both read as the first cut.
         assert_eq!((s[0].revision, s[1].revision), (1, 1));
+    }
+
+    #[test]
+    fn scenes_skip_the_apps_own_dot_folders() {
+        let root = tmp();
+        let v = root.join("vdgs");
+        for d in ["X", ".X.old", ".X.new"] {
+            std::fs::create_dir_all(v.join(d)).unwrap();
+            std::fs::write(v.join(d).join("meta.json"), r#"{"splatCount": 1, "chunkCount": 1}"#).unwrap();
+        }
+        assert_eq!(scenes(&root).iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), ["X"]);
     }
 
     #[test]
