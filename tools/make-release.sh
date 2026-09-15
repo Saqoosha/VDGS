@@ -227,7 +227,7 @@ EOF
   # unsuffixed so the names already published keep matching.
   REVISION=$(python3 -c "import json,sys
 r = json.load(open(sys.argv[1])).get('revision', 1)
-if not isinstance(r, int) or r < 1: sys.exit(f'meta.json revision must be a positive integer, got {r!r}')
+if isinstance(r, bool) or not isinstance(r, int) or r < 1: sys.exit(f'meta.json revision must be a positive integer, got {r!r}')
 print(r)" "$SCENE_DIR/meta.json")
   SUFFIX=""
   if [ "$REVISION" -gt 1 ]; then SUFFIX="-r$REVISION"; fi
