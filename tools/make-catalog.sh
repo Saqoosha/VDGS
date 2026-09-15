@@ -89,7 +89,9 @@ for name in sorted(os.listdir(entries_dir)):
     # The entry says which cut is current; the archive name carries it (first cut
     # unsuffixed) and the archive's own meta.json must agree, or the app would offer an
     # update that installs the same bytes - or worse, an older cut over a newer one.
-    revision = int(meta.get("revision", 1))
+    revision = meta.get("revision", 1)
+    if isinstance(revision, bool) or not isinstance(revision, int) or revision < 1:
+        sys.exit("%s: revision must be an integer >= 1, got %r" % (meta["id"], revision))
 
     suffix = "-r%d" % revision if revision > 1 else ""
     zip_path = os.path.join(release, "vdgs-scene-%s%s.zip" % (install_as, suffix))
