@@ -573,6 +573,11 @@ fn write_bindings_string(b: &Bindings) -> String {
 
 pub fn bind(root: &Path, track: &str, scene: &str) -> io::Result<()> {
     let mut map = try_read_bindings(root)?;
+    // Already bound (an update, or a repeat install): leave the list alone, so a
+    // second capture the user added to this track survives.
+    if map.get(track).is_some_and(|list| list.iter().any(|s| s == scene)) {
+        return Ok(());
+    }
     map.insert(track.to_string(), vec![scene.to_string()]);
     write_bindings(root, &map)
 }
@@ -801,6 +806,17 @@ mod tests {
         );
         assert!(s[0].converted && s[0].collision && s[0].splats == 12);
         assert!(!s[1].converted && s[1].splats == 7);
+        // No revision key, and a bare .ply, both read as the first cut.
+        assert_eq!((s[0].revision, s[1].revision), (1, 1));
+    }
+
+    #[test]
+    fn scenes_read_revision_from_meta() {
+        let root = tmp();
+        let v = root.join("vdgs");
+        std::fs::create_dir_all(v.join("r2")).unwrap();
+        std::fs::write(v.join("r2/meta.json"), r#"{"splatCount": 1, "chunkCount": 1, "revision": 2}"#).unwrap();
+        assert_eq!(scenes(&root)[0].revision, 2);
     }
 
     #[test]
@@ -814,6 +830,21 @@ mod tests {
         assert!(unbind(&root, "VDGS X").unwrap());
         assert!(!unbind(&root, "VDGS X").unwrap());
         assert_eq!(read_bindings(&root).len(), 1);
+    }
+
+    #[test]
+    fn bind_keeps_a_list_that_already_holds_the_capture() {
+        // An update re-binds the same capture; a second capture the user added to the
+        // track must survive that.
+        let root = tmp();
+        bind(&root, "VDGS X", "x-dir").unwrap();
+        let path = root.join("vdgs/bindings.json");
+        std::fs::write(&path, br#"{"VDGS X": ["x-dir", "extra"]}"#).unwrap();
+        bind(&root, "VDGS X", "x-dir").unwrap();
+        assert_eq!(read_bindings(&root)["VDGS X"], vec!["x-dir", "extra"]);
+        // A different capture still replaces, as before.
+        bind(&root, "VDGS X", "other").unwrap();
+        assert_eq!(read_bindings(&root)["VDGS X"], vec!["other"]);
     }
 
     #[test]

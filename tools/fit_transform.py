@@ -10,8 +10,12 @@ splats deleted and a retrain reorders everything anyway.
 So it is estimated: coarse-align by centroid and principal axes, then scaled ICP against a
 KD-tree. Both point sets describe the same field, so this converges from a crude start.
 
-    python3 fit_transform.py --src raw.ply --ref aligned.ply --out matrix.json
+    python3 fit_transform.py --src raw.ply --ref aligned.ply --exact --out matrix.json
+    python3 fit_transform.py --src raw.ply --ref aligned.ply --out matrix.json   # ICP fallback
     python3 fit_transform.py --src new.ply --apply matrix.json --out new-aligned.ply
+
+--exact matches splats by (sh0, opacity) and is the answer whenever both files come from
+the same training run; the ICP path is for when they do not.
 
 The residual is printed and is the thing to judge: it should land near the capture's own
 noise floor. A residual that stays at metres means the two files are not the same scene,
@@ -153,21 +157,19 @@ def fit(src, ref, iters, sample, seed=0):
     return scale, R, t, float(dist[keep].mean())
 
 
-FINGERPRINT = ["f_dc_0", "f_dc_1", "f_dc_2", "opacity", "f_rest_0", "f_rest_1", "f_rest_2"]
+# Only columns no transform touches: sh0 and opacity. Band-1 SH used to be here and is
+# now rotated along with the geometry (splat_sh), so it no longer survives the chain.
+FINGERPRINT = ["f_dc_0", "f_dc_1", "f_dc_2", "opacity"]
 
 
 def fit_exact(src_path, ref_path):
     """Solve the transform from splats that are provably the same splat in both files.
 
-    A similarity transform moves positions, orientations and log-scales and touches
-    nothing else, and no cleanup step edits colour: so a splat's (sh0, opacity, first SH
-    coefficients) is a fingerprint that survives the whole alignment chain. Matching on
-    it gives a million exact correspondences, and Umeyama on those is a closed-form
-    answer rather than an ICP that can settle into a mirrored or rotated local minimum
-    (the ICP path here found scale 31.1 for FDF; the exact answer is 33.14).
-
-    Reflections are allowed - the chain contains --mirror y - which is the one thing the
-    textbook Umeyama forbids.
+    A similarity transform moves positions, orientations, log-scales and (now) SH, and
+    no cleanup step edits sh0 or opacity: so those four floats are a fingerprint that
+    survives the whole alignment chain. Matching on them gives millions of exact
+    correspondences, and Umeyama on those is closed-form rather than an ICP that can
+    settle into a wrong minimum. Reflections are allowed - the chain contains --mirror y.
     """
     props_s, _, data_s, _ = read_ply(src_path, want_all=True)
     props_r, _, data_r, _ = read_ply(ref_path, want_all=True)
@@ -285,12 +287,9 @@ def main():
         for i in range(4):
             data[:, cols[f"rot_{i}"]] = out[:, i].astype(np.float32)
 
-        # The view-dependent colour goes through the same R (rotation and mirror at
-        # once - splat_sh handles any orthogonal matrix). Leaving it behind is what put
-        # a dark mottled sky on every capture that went through this tool.
-        rest = [f"f_rest_{k}" for k in range(45)]
-        if all(r in cols for r in rest):
-            rc = [cols[r] for r in rest]
+        # SH goes through the same R (reflection included); see tools/splat_sh.py.
+        rc = splat_sh.f_rest_columns(props)
+        if rc:
             data[:, rc] = splat_sh.rotate_f_rest(data[:, rc], R)
 
         # Scales are stored as logs, so a uniform scale is an addition.

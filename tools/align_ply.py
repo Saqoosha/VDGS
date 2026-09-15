@@ -238,23 +238,17 @@ def check_floor_is_down(rows, props):
 
 
 def transform_sh(rows, props, R):
-    """Carry the view-dependent colour through the same orthogonal transform as the geometry.
-
-    Positions and quaternions were always moved; f_rest_* was not, so every splat's colour
-    was being read from the wrong side of its lobe. Harmless on walls, and the reason the
-    sky came out as dark blotches where SuperSplat showed a flat bright one. splat_sh.py
-    has the numbers and derives the per-band matrix from the shader's own basis.
-    """
-    rest = [f"f_rest_{k}" for k in range(45)]
-    if not all(r in props for r in rest):
+    """Carry the SH through the same orthogonal transform as the geometry (see splat_sh.py)."""
+    cols = splat_sh.f_rest_columns(props)
+    if not cols:
+        print("  no SH in file; nothing to transform")
         return
-    cols = [props.index(r) for r in rest]
     rows[:, cols] = splat_sh.rotate_f_rest(rows[:, cols], R)
 
 
 def mirror_axis(rows, props, axis):
     """
-    Reflect the cloud across one axis, orientations included.
+    Reflect the cloud across one axis, orientations and spherical harmonics included.
 
     A reflection is not a rotation - its matrix has determinant -1 - so it cannot be
     folded into the rotation path. For a unit quaternion (w,x,y,z), reflecting across
@@ -355,7 +349,7 @@ def prune_giants(rows, props, pct):
 
 
 def apply_transform(rows, props, R, floor_y, scale):
-    """Rotate, drop the floor to y=0 and scale - positions, orientations and sizes."""
+    """Rotate, drop the floor to y=0 and scale - positions, orientations, sizes and SH."""
     ix, iy, iz = props.index("x"), props.index("y"), props.index("z")
     out = rows[:, [ix, iy, iz]].astype(np.float64) @ R.T
     out[:, 1] -= floor_y

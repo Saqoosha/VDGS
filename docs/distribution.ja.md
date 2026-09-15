@@ -214,7 +214,8 @@ spent」。二度やりかけて二度とも止まった（`vdgs-companion-2026.
 導入済みフォルダの revision（無ければ 1）がカタログより低いとき **Update** を出し、押すと
 同じ `get` — ファイルは上書き、`placement.json` と紐付けは温存。**`revision` を知らない
 古い companion は更新を出さない**ので、この仕組みを最初に使うときは companion も出す
-（2026-09-16、SH の修正で初めて使った）。
+（2026-09-16、SH の修正で初めて使った）。`revision` を書くのは `vdgs_sh.py --revision N`
+だけで、`PlyExporter` は書かない — ply から変換し直した cut は `meta.json` に手で足す。
 
 **見張りは digest で、サイズではない。** `publish.sh` は各オブジェクトに sha256 を user
 metadata として刻み、次回はそれと突き合わせる。同じ日の companion 3 版が

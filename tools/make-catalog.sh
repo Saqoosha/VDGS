@@ -77,13 +77,8 @@ def zip_meta(zip_path):
 
 def splat_count(zip_path):
     """The count the app shows, read out of the capture's own meta.json rather than
-    restated in the entry - two places to write it is one place to get it wrong."""
-    import zipfile
-    with zipfile.ZipFile(zip_path) as z:
-        for name in z.namelist():
-            if name.endswith("/meta.json"):
-                return int(json.loads(z.read(name))["splatCount"])
-    return 0
+    restated in the entry."""
+    return int(zip_meta(zip_path).get("splatCount", 0))
 
 scenes, skipped = [], []
 for name in sorted(os.listdir(entries_dir)):
@@ -99,6 +94,11 @@ for name in sorted(os.listdir(entries_dir)):
     suffix = "-r%d" % revision if revision > 1 else ""
     zip_path = os.path.join(release, "vdgs-scene-%s%s.zip" % (install_as, suffix))
     if not os.path.exists(zip_path):
+        if revision > 1:
+            # A republished capture without its new archive is not "not packaged yet":
+            # publishing this catalog would drop a capture people already have.
+            sys.exit("%s: revision %d declared but %s is not in build/release - run make-release.sh --scene first"
+                     % (meta["id"], revision, os.path.basename(zip_path)))
         skipped.append((meta["id"], "no %s" % os.path.basename(zip_path)))
         continue
     packed = int(zip_meta(zip_path).get("revision", 1))

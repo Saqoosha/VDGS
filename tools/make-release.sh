@@ -225,9 +225,12 @@ EOF
   # the archive name carries it because a published name can never be reused - the
   # files are served immutable for a year (docs/distribution). The first cut stays
   # unsuffixed so the names already published keep matching.
-  REVISION=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('revision', 1))" \
-             "$SCENE_DIR/meta.json")
-  SUFFIX=""; [ "$REVISION" -gt 1 ] && SUFFIX="-r$REVISION"
+  REVISION=$(python3 -c "import json,sys
+r = json.load(open(sys.argv[1])).get('revision', 1)
+if not isinstance(r, int) or r < 1: sys.exit(f'meta.json revision must be a positive integer, got {r!r}')
+print(r)" "$SCENE_DIR/meta.json")
+  SUFFIX=""
+  if [ "$REVISION" -gt 1 ]; then SUFFIX="-r$REVISION"; fi
   SCENE_ZIP="$OUT/vdgs-scene-$SCENE$SUFFIX.zip"
   rm -f "$SCENE_ZIP"
   ( cd "$STAGE/scene" && zip -qr "$SCENE_ZIP" . )

@@ -86,8 +86,8 @@ public static class RenderCompare
         // Culling must not change a single pixel; -vdgsCull 0 is how that gets proven.
         r.m_FrustumCulling = cull != 0;
         r.m_CullMargin = ParseFloat("-vdgsCullMargin", r.m_CullMargin);
-        // The knobs that separate this renderer from upstream, so each can be turned
-        // back to upstream (or towards PlayCanvas) and the image difference measured.
+        // The three knobs that differ from upstream, plus SH order, so each can be
+        // varied and the image difference against a reference measured.
         r.m_SHOrder = ParseInt("-vdgsSHOrder", r.m_SHOrder);
         r.m_GaussCut = ParseFloat("-vdgsGaussCut", r.m_GaussCut);
         r.m_CullCenterSlack = ParseFloat("-vdgsCullCenterSlack", r.m_CullCenterSlack);

@@ -2,24 +2,23 @@
 """
 Carry a 3DGS capture's spherical harmonics through the same transform as its geometry.
 
-Every tool here that rotates or mirrors a .ply moves the positions and the orientation
-quaternions and leaves f_rest_* alone. The view-dependent colour then gets evaluated from
-the wrong side of each gaussian's lobe. Diffuse surfaces hide it, because sh0 dominates;
-the big translucent sky gaussians do not, because they were trained to be white from one
-side and nothing from the other. Measured on utlida at the SuperSplat camera: sky
-201/255 with a std of 18.9 before, 255/0.5 after, against 254/2.7 in SuperSplat itself.
+Until 2026-09-16 every tool here that rotated or mirrored a .ply moved the positions and
+the quaternions and left f_rest_* alone, so the view-dependent colour was evaluated from
+the wrong side of each gaussian's lobe (numbers in docs/alignment.ja.md). align_ply.py,
+fit_transform.py --apply and PlyLoader now go through this module.
 
-The transform per band is not written out by hand. The shader's own basis functions are
-evaluated on a set of directions before and after the transform, and the matrix that maps
-one onto the other is solved by least squares. That works for any orthogonal matrix,
-reflections included, and the basis definitions cannot drift from the shader's because
-they are copied from it (GaussianSplatting.hlsl, ShadeSH).
+The per-band matrix is not written by hand: the shader's basis functions (transcribed
+from ShadeSH in GaussianSplatting.hlsl; keep in sync by hand, `--check` verifies the
+mirror diagonal) are sampled before and after the transform and the map between them is
+solved by least squares. That holds for any orthogonal matrix, reflections included.
 
-    python3 tools/splat_sh.py --check                          # print D for a Y mirror
-    python3 tools/splat_sh.py --apply matrix.json in.ply out.ply   # SH only, geometry untouched
+    python3 tools/splat_sh.py --check                             # self-test, exits 1 on drift
+    python3 tools/splat_sh.py --apply matrix.json in.ply out.ply   # SH only, for a ply whose
+    python3 tools/splat_sh.py --mirror y in.ply out.ply            # geometry was moved without it
 
-Library use: rotate_f_rest(f_rest, R) where f_rest is (n, 45) in the .ply's channel-major
-layout (15 red, 15 green, 15 blue) and R is the 3x3 that was applied to the positions.
+Library use: rotate_f_rest(f_rest, R) with f_rest (n, 3*b) in the .ply's channel-major
+layout (b coefficients per channel, b in 3/8/15 for degree 1/2/3) and R the 3x3 that was
+applied to the positions.
 """
 import argparse
 import json
@@ -82,13 +81,33 @@ def transform_matrix(R, samples=4096, seed=0):
     return D
 
 
+PER_CHANNEL = {3: 1, 8: 2, 15: 3}   # coefficients per channel -> SH degree
+
+
+def f_rest_columns(props):
+    """Column indices of f_rest_0..N-1 for a degree-1/2/3 ply; [] when there is no SH.
+
+    Exits on a count that is not 9, 24 or 45 - moving the geometry and leaving such a
+    file's SH behind is exactly the bug this module exists to fix.
+    """
+    n = sum(1 for p in props if p.startswith("f_rest_"))
+    if n == 0:
+        return []
+    if n // 3 not in PER_CHANNEL or n % 3:
+        sys.exit(f"f_rest_* count {n} is not a full SH degree (9, 24 or 45)")
+    return [props.index(f"f_rest_{k}") for k in range(n)]
+
+
 def rotate_f_rest(f_rest, R):
-    """Apply D to (n, 45) f_rest in the .ply's channel-major layout. Returns a new array."""
-    D = transform_matrix(R)
+    """Apply D to (n, 3*b) f_rest in the .ply's channel-major layout. Returns a new array."""
+    b = f_rest.shape[1] // 3
+    if b not in PER_CHANNEL or f_rest.shape[1] % 3:
+        raise ValueError(f"f_rest has {f_rest.shape[1]} columns; expected 9, 24 or 45")
+    D = transform_matrix(R)[:b, :b]     # block-diagonal, so the leading bands stand alone
     out = np.empty_like(f_rest)
     for c in range(3):
-        blk = f_rest[:, c * 15:(c + 1) * 15].astype(np.float64)
-        out[:, c * 15:(c + 1) * 15] = (blk @ D.T).astype(f_rest.dtype)
+        blk = f_rest[:, c * b:(c + 1) * b].astype(np.float64)
+        out[:, c * b:(c + 1) * b] = (blk @ D.T).astype(f_rest.dtype)
     return out
 
 
@@ -117,7 +136,8 @@ def _read_ply(path):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--check", action="store_true", help="print the matrix for a Y mirror and exit")
+    ap.add_argument("--check", action="store_true",
+                    help="self-test: the mirror-y diagonal against the hand-derived signs; exit 1 on drift")
     ap.add_argument("--apply", metavar="MATRIX.json", help="fit_transform.py output; only its R is used")
     ap.add_argument("--mirror", choices=list(MIRROR), help="instead of --apply: a single axis mirror")
     ap.add_argument("ply_in", nargs="?")
@@ -127,14 +147,18 @@ def main():
     if args.check:
         D = transform_matrix(MIRROR["y"])
         np.set_printoptions(precision=2, suppress=True, linewidth=160)
-        print("mirror y -> diagonal of D (expect -1 at f_rest 0, 3, 4, 8, 9, 10):")
+        expect = np.ones(15)
+        expect[[0, 3, 4, 8, 9, 10]] = -1          # the basis functions odd in y; PlyLoader.cs uses the same list
+        print("mirror y -> diagonal of D:")
         print(np.diag(D))
         off = np.abs(D - np.diag(np.diag(D))).max()
         print(f"largest off-diagonal entry {off:.1e}")
         rz = np.array([[-1.0, 0, 0], [0, -1.0, 0], [0, 0, 1.0]])
-        print("rotate 180 about z -> diagonal (odd in x xor odd in y flip):")
+        print("rotate 180 about z -> diagonal:")
         print(np.diag(transform_matrix(rz)))
-        return
+        ok = np.allclose(np.diag(D), expect, atol=1e-9) and off < 1e-9
+        print("OK" if ok else "MISMATCH: basis() has drifted from ShadeSH")
+        sys.exit(0 if ok else 1)
 
     if not (args.ply_in and args.ply_out) or not (args.apply or args.mirror):
         ap.error("need --apply MATRIX.json or --mirror AXIS, plus ply_in ply_out")
@@ -144,10 +168,9 @@ def main():
         R = MIRROR[args.mirror]
 
     header, props, data = _read_ply(args.ply_in)
-    rest = [f"f_rest_{k}" for k in range(45)]
-    if any(r not in props for r in rest):
-        sys.exit("input carries no degree-3 SH (f_rest_0..44); nothing to transform")
-    cols = [props.index(r) for r in rest]
+    cols = f_rest_columns(props)
+    if not cols:
+        sys.exit("input carries no SH (f_rest_*); nothing to transform")
     data[:, cols] = rotate_f_rest(data[:, cols], R)
     with open(args.ply_out, "wb") as f:
         f.write(header.encode())

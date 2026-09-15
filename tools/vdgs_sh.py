@@ -2,19 +2,18 @@
 """
 Transform the spherical harmonics of an already-converted VDGS capture in place.
 
-Every deployed capture was converted from a .ply whose geometry had been mirrored or
-rotated with its SH left alone (tools/splat_sh.py explains the damage). The .ply that
-the deployed files were made from is not always still around - the last cleanup pass
-ran on another machine - so this rewrites sh.bin and chunk.bin directly. pos.bin,
-other.bin, color.bin, collision.bin and placement.json are copied byte for byte.
+Captures deployed before 2026-09-16 were converted from a .ply whose geometry had been
+mirrored or rotated with its SH left alone (tools/splat_sh.py). When the source .ply is
+not available any more, this rewrites sh.bin and chunk.bin directly; every other file is
+copied unchanged, except that --revision N rewrites meta.json's revision.
 
 Only the High quality layout is handled: SH as Norm11 (11.10.11 bits per coefficient,
 chunk-relative) with per-chunk f16 bounds in ChunkInfo (64 bytes, see ARCHITECTURE).
 
-    python3 tools/vdgs_sh.py --matrix build/fit/FDF-matrix.json in-dir out-dir
+    python3 tools/vdgs_sh.py --matrix build/fit/FDF-matrix.json --revision 2 in-dir out-dir
     python3 tools/vdgs_sh.py --mirror y in-dir out-dir
-    python3 tools/vdgs_sh.py --check-frame final.ply in-dir      # is in-dir a subset of final.ply?
-    python3 tools/vdgs_sh.py --roundtrip in-dir                  # decode/encode only, report drift
+    python3 tools/vdgs_sh.py --check-frame final.ply in-dir      # is in-dir a subset of final.ply? (needs scipy)
+    python3 tools/vdgs_sh.py --roundtrip in-dir                  # decode/encode only; exits 1 on drift
 """
 import argparse
 import json
@@ -58,7 +57,7 @@ def load(d):
 
 
 def decode(chunks, sh):
-    """(n, 15, 3) float32 SH coefficients in world terms."""
+    """(n, 15, 3) float32 SH coefficients, dequantised (absolute, not chunk-relative)."""
     n = sh.shape[0]
     ci = np.arange(n) // CHUNK
     lo = np.stack([f16_lo(chunks["sh"][:, c]) for c in range(3)], axis=1)[ci]   # (n, 3)
@@ -81,7 +80,7 @@ def encode(coeffs, chunks):
         span = hi - lo
         span[span == 0] = 1.0
         norm = np.clip((blk - lo) / span, 0.0, 1.0)
-        # Same truncating quantiser as the converter (EncodeFloat3ToNorm11).
+        # Same truncating quantiser as upstream GaussianSplatAssetCreator.EncodeFloat3ToNorm11.
         x = np.minimum((norm[:, :, 0] * 2047.5).astype(np.uint32), 2047)
         y = np.minimum((norm[:, :, 1] * 1023.5).astype(np.uint32), 1023)
         z = np.minimum((norm[:, :, 2] * 2047.5).astype(np.uint32), 2047)
@@ -131,10 +130,13 @@ def main():
     if args.roundtrip:
         c2, w2 = encode(coeffs, chunks)
         back = decode(c2, w2)
-        print(f"roundtrip: words changed {100 * (w2 != sh).mean():.3f}%  "
-              f"max |coeff drift| {np.abs(back - coeffs).max():.5f}  "
-              f"(quantum {np.median((f16_hi(chunks['sh'][:, 0]) - f16_lo(chunks['sh'][:, 0])) / 2047):.5f})")
-        return
+        changed = (w2 != sh).mean()
+        drift = np.abs(back - coeffs).max()
+        quantum = np.median((f16_hi(chunks['sh'][:, 0]) - f16_lo(chunks['sh'][:, 0])) / 2047)
+        print(f"roundtrip: words changed {100 * changed:.3f}%  max |coeff drift| {drift:.5f}  (quantum {quantum:.5f})")
+        ok = changed < 0.001 and drift <= 2 * quantum
+        print("OK" if ok else "MISMATCH: encoder does not reproduce the converter's words")
+        sys.exit(0 if ok else 1)
 
     if not args.out_dir or not (args.matrix or args.mirror):
         ap.error("need --matrix or --mirror, plus out_dir")
