@@ -633,12 +633,24 @@ pub fn install_capture_archive(
             "VelociDrone is running. Close it first - files in use cannot be replaced.".into(),
         ));
     }
+    // The name comes from the catalog and ends up in remove_dir_all: one plain folder
+    // name, nothing that could walk out of vdgs/.
+    if !is_plain_folder_name(install_as) {
+        return Err(catalog::Error::Msg(format!(
+            "refusing to install as {install_as:?}: not a plain folder name"
+        )));
+    }
     let vdgs = root.join("vdgs");
     let target = vdgs.join(install_as);
     let staging = vdgs.join(format!(".{install_as}.new"));
     let retired = vdgs.join(format!(".{install_as}.old"));
+    // A previous run that died between the two renames left only the backup: put it back
+    // before anything else. A backup beside a live folder is one whose cleanup failed.
+    if retired.exists() && !target.exists() {
+        fs::rename(&retired, &target)?;
+        log(format!("restored {install_as} from an interrupted update"));
+    }
     let _ = fs::remove_dir_all(&staging);
-    let _ = fs::remove_dir_all(&retired);
     fs::create_dir_all(&staging)?;
 
     let result = (|| -> Result<(), catalog::Error> {
@@ -655,21 +667,36 @@ pub fn install_capture_archive(
             log("kept your placement.json".into());
         }
         if target.exists() {
+            let _ = fs::remove_dir_all(&retired);
             fs::rename(&target, &retired)?;
         }
         if let Err(e) = fs::rename(&unpacked, &target) {
-            if retired.exists() {
-                let _ = fs::rename(&retired, &target);
+            if retired.exists() && fs::rename(&retired, &target).is_err() {
+                return Err(catalog::Error::Msg(format!(
+                    "{e}; the previous files are kept in {}",
+                    retired.display()
+                )));
             }
             return Err(e.into());
         }
         Ok(())
     })();
     let _ = fs::remove_dir_all(&staging);
-    let _ = fs::remove_dir_all(&retired);
     result?;
+    // Only a completed swap retires the backup.
+    let _ = fs::remove_dir_all(&retired);
     log(format!("installed {install_as}"));
     Ok(())
+}
+
+/// One path component with no way out of its parent: what a catalog `installAs` and a
+/// capture folder name must be.
+pub fn is_plain_folder_name(name: &str) -> bool {
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && !name.starts_with('.')
+        && !name.contains(['/', '\\', ':', '\0'])
 }
 
 fn zip_carries_ui(zip: &Path) -> Result<bool, catalog::Error> {
@@ -923,6 +950,33 @@ mod tests {
         assert_eq!(std::fs::read(root.join("vdgs/bindings.json")).unwrap(), b"{\"T\":[\"X\"]}");
         assert!(!root.join("README.txt").exists());
         assert!(!root.join("vdgs/.X.new").exists() && !root.join("vdgs/.X.old").exists());
+    }
+
+    #[test]
+    fn install_capture_archive_refuses_a_name_that_is_not_a_folder() {
+        let root = tmp();
+        let zip_path = root.join("cap.zip");
+        std::fs::write(&zip_path, b"not even a zip").unwrap();
+        let mut log = |_s: String| {};
+        for bad in ["../x", "a/b", "..", ".", "", ".hidden", "a\\b"] {
+            assert!(install_capture_archive(&root, &zip_path, bad, &mut log).is_err(), "{bad:?}");
+        }
+        assert!(!root.join("vdgs").exists(), "nothing may be created for a refused name");
+    }
+
+    #[test]
+    fn install_capture_archive_restores_a_backup_left_by_an_interrupted_update() {
+        let root = tmp();
+        let zip_path = root.join("bad.zip");
+        std::fs::write(&zip_path, b"not a zip").unwrap();
+        let old = root.join("vdgs/.X.old");
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::write(old.join("sh.bin"), b"old-sh").unwrap();
+        let mut log = |_s: String| {};
+        // The archive is unreadable, so this run fails - but the backup is back in place.
+        assert!(install_capture_archive(&root, &zip_path, "X", &mut log).is_err());
+        assert_eq!(std::fs::read(root.join("vdgs/X/sh.bin")).unwrap(), b"old-sh");
+        assert!(!old.exists());
     }
 
     #[test]
