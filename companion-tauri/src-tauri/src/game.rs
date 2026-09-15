@@ -627,7 +627,8 @@ pub fn install_archive(
     Ok(())
 }
 
-/// Installs one capture archive as `vdgs/<install_as>/`, replacing whatever is there.
+/// Installs one capture archive as `vdgs/<install_as>/`, replacing the capture there.
+/// Returns true when it replaced one (an update), false for a first install.
 ///
 /// The archive is unpacked beside the target and swapped in with a rename, so a
 /// failure part-way leaves the old folder untouched, and a file the new cut no longer
@@ -639,14 +640,14 @@ pub fn install_capture_archive(
     zip: &Path,
     install_as: &str,
     log: &mut dyn FnMut(String),
-) -> Result<(), catalog::Error> {
+) -> Result<bool, catalog::Error> {
     if crate::launch::is_running() {
         return Err(catalog::Error::Msg(
             "VelociDrone is running. Close it first - files in use cannot be replaced.".into(),
         ));
     }
     // The name comes from the catalog and ends up in remove_dir_all: one plain folder
-    // name, nothing that could walk out of vdgs/.
+    // name, nothing that could walk out of vdgs/, and not the mod's own ui folder.
     if !is_plain_folder_name(install_as) {
         return Err(catalog::Error::Msg(format!(
             "refusing to install as {install_as:?}: not a plain folder name"
@@ -664,6 +665,15 @@ pub fn install_capture_archive(
             .map_err(|e| step(format!("restoring {} to {}", retired.display(), target.display()), e))?;
         log(format!("restored {install_as} from an interrupted update"));
     }
+    // Only a capture is replaced. A file, or a folder that is not a capture (the mod's
+    // ui/ is the one that matters), stays.
+    let replacing = target.exists();
+    if replacing && !(target.is_dir() && target.join("meta.json").is_file()) {
+        return Err(catalog::Error::Msg(format!(
+            "{} exists and is not a capture - not replacing it",
+            target.display()
+        )));
+    }
     // Leftovers are removed, not unpacked over: a stale file in the staging area would
     // ride into the new folder, which is the trap this swap exists to close.
     if staging.exists() {
@@ -674,7 +684,13 @@ pub fn install_capture_archive(
         .map_err(|e| step(format!("creating {}", staging.display()), e))?;
 
     let result = (|| -> Result<(), catalog::Error> {
-        catalog::extract(zip, &staging, &[], log)?;
+        catalog::extract(zip, &staging, &[], log).map_err(|e| {
+            catalog::Error::Msg(format!(
+                "unpacking {} into {}: {e} (your previous {install_as} is untouched)",
+                zip.display(),
+                staging.display()
+            ))
+        })?;
         let unpacked = staging.join("vdgs").join(install_as);
         if !unpacked.join("meta.json").is_file() {
             return Err(catalog::Error::Msg(format!(
@@ -724,17 +740,20 @@ pub fn install_capture_archive(
         }
     }
     log(format!("installed {install_as}"));
-    Ok(())
+    Ok(replacing)
 }
 
-/// One path component with no way out of its parent: what a catalog `installAs` and a
-/// capture folder name must be.
+/// One path component with no way out of its parent, and not a name the mod reserves:
+/// what a catalog `installAs` and a capture folder name must be. Trailing dots and
+/// spaces are out because Windows strips them, and the folder would then never match.
 pub fn is_plain_folder_name(name: &str) -> bool {
     !name.is_empty()
         && name != "."
         && name != ".."
         && !name.starts_with('.')
+        && !name.ends_with(['.', ' '])
         && !name.contains(['/', '\\', ':', '\0'])
+        && !name.eq_ignore_ascii_case("ui")
 }
 
 fn zip_carries_ui(zip: &Path) -> Result<bool, catalog::Error> {
@@ -992,7 +1011,7 @@ mod tests {
         std::fs::write(x.join("placement.json"), b"mine").unwrap();
         std::fs::write(root.join("vdgs/bindings.json"), b"{\"T\":[\"X\"]}").unwrap();
         let mut log = |_s: String| {};
-        install_capture_archive(&root, &zip_path, "X", &mut log).unwrap();
+        assert!(install_capture_archive(&root, &zip_path, "X", &mut log).unwrap(), "an update");
         assert_eq!(std::fs::read(x.join("sh.bin")).unwrap(), b"new-sh");
         assert!(!x.join("chunk.bin").exists(), "a file the new cut does not ship must go");
         assert_eq!(std::fs::read(x.join("placement.json")).unwrap(), b"mine");
@@ -1007,7 +1026,7 @@ mod tests {
         let zip_path = root.join("cap.zip");
         std::fs::write(&zip_path, b"not even a zip").unwrap();
         let mut log = |_s: String| {};
-        for bad in ["../x", "a/b", "..", ".", "", ".hidden", "a\\b"] {
+        for bad in ["../x", "a/b", "..", ".", "", ".hidden", "a\\b", "ui", "UI", "x.", "x "] {
             assert!(install_capture_archive(&root, &zip_path, bad, &mut log).is_err(), "{bad:?}");
         }
         assert!(!root.join("vdgs").exists(), "nothing may be created for a refused name");
@@ -1026,6 +1045,30 @@ mod tests {
         assert!(install_capture_archive(&root, &zip_path, "X", &mut log).is_err());
         assert_eq!(std::fs::read(root.join("vdgs/X/sh.bin")).unwrap(), b"old-sh");
         assert!(!old.exists());
+    }
+
+    #[test]
+    fn install_capture_archive_leaves_a_folder_that_is_not_a_capture() {
+        let root = tmp();
+        let zip_path = root.join("cap.zip");
+        {
+            let f = std::fs::File::create(&zip_path).unwrap();
+            let mut w = zip::ZipWriter::new(f);
+            w.start_file("vdgs/X/meta.json", zip::write::SimpleFileOptions::default()).unwrap();
+            std::io::Write::write_all(&mut w, b"{}").unwrap();
+            w.finish().unwrap();
+        }
+        let x = root.join("vdgs/X");
+        std::fs::create_dir_all(&x).unwrap();
+        std::fs::write(x.join("index.html"), b"not a capture").unwrap();
+        let mut log = |_s: String| {};
+        assert!(install_capture_archive(&root, &zip_path, "X", &mut log).is_err());
+        assert_eq!(std::fs::read(x.join("index.html")).unwrap(), b"not a capture");
+        // A file in the way is refused the same way.
+        std::fs::remove_dir_all(&x).unwrap();
+        std::fs::write(&x, b"a file").unwrap();
+        assert!(install_capture_archive(&root, &zip_path, "X", &mut log).is_err());
+        assert_eq!(std::fs::read(&x).unwrap(), b"a file");
     }
 
     #[test]

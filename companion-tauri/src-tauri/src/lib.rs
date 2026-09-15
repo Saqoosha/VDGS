@@ -435,10 +435,7 @@ impl Host {
                     parsed = Some(t);
                 }
 
-                let updating = entry
-                    .install_as
-                    .as_deref()
-                    .is_some_and(|d| root.join("vdgs").join(d).is_dir());
+                let mut updating = false;
                 let zip = catalog::download(&entry.scene, &temp, &mut |p| host.percent(Some(p)))
                     .map_err(|e| e.to_string())?;
                 let install_result = (|| {
@@ -447,6 +444,7 @@ impl Host {
                     match entry.install_as.as_deref() {
                         Some(install_as) => {
                             game::install_capture_archive(&root, &zip, install_as, log)
+                                .map(|replaced| updating = replaced)
                         }
                         None => game::install_archive(&root, &zip, &entry.name, log),
                     }
