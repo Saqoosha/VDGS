@@ -727,6 +727,26 @@ curl -sSL https://raw.githubusercontent.com/Saqoosha/VDGS/master/tools/collect-m
 **`bash <(curl ...)` は使わない。** process substitution は bash 固有で、
 **fish は構文エラーで落ちる**。相手のシェルは選べない。パイプなら通る。
 
+### アプリのアイコン
+
+`companion-tauri/icon-src/master.png`（1024 全面）が元絵で、`python3 tools/make-icons.py` が
+`src-tauri/icons/` を全部焼く。字は Fraunces Variable italic（`web/src/chrome.tsx` の wordmark と
+同じ）を本物のフォントで描いて、生成した点群の背景に重ねてある。**元絵を差し替えたら焼き直す**。
+
+**macOS 26 以降は `.icns` だけでは灰色の台が付く。** 透明の余白がある旧テンプレ形の `.icns` を
+「未対応の古いアイコン」と判定して、既定の台に乗せる。正解は Icon Composer の `icon.icon`
+（全面 1024 のレイヤー 1 枚、glass 無し）で、Tauri 2.9.4 が `bundle.icon` に並んだ `.icon` を
+`actool`（26 以上）で `Assets.car` に焼き、`CFBundleIconName` を書く。`.icns` は macOS 15 以前の
+fallback として残す——あちらは OS がマスクを掛けないので、全面正方形にすると角が尖る。
+`icon.json` は手書きで足りる（`fill.solid` ＋ `groups[0].layers[0].image-name`）。
+
+**macOS 27 では `cargo tauri build` が `serde_derive` / `tokio_macros` で落ちる。** Cargo の
+release 既定 `strip = "debuginfo"` が host 側の proc-macro dylib にも効いて、27 の dyld が
+`mis-aligned LINKEDIT string pool` で dlopen を拒み、rustc は `E0463 can't find crate` と
+だけ言う。dylib は `target/release/deps/` に在るので探しても無駄で、`python3 -c
+"import ctypes; ctypes.CDLL('<dylib>')"` が本当の理由を出す。対処は `Cargo.toml` の
+`[profile.release.build-override] strip = false`。出荷バイナリは変わらない。
+
 ### macOS の署名と公証
 
 **Developer ID は個人（Tomohiko Koyama / VCFY2GFR89）。** 公証は Canopy と同じ keychain

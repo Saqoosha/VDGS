@@ -27,3 +27,11 @@ sysinfo = "0.32"
 dirs = "5"
 percent-encoding = "2"
 thiserror = "1"
+
+# Cargo's release default `strip = "debuginfo"` also strips the proc-macro dylibs it builds
+# for the host, and the dyld in macOS 27 refuses to load those ("mis-aligned LINKEDIT
+# string pool") - so `cargo tauri build` dies inside serde_derive / tokio_macros before
+# any of our code compiles. Keep host-side build artifacts unstripped; the shipped
+# binary is unchanged.
+[profile.release.build-override]
+strip = false
