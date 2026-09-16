@@ -358,8 +358,8 @@ fly-and-adjust screen, so the companion's own window is where it normally happen
 **Reach for the browser build only when a second screen genuinely helps.** Once the game is
 running, the mod serves the same app at **`http://<host>:8777/`** — but a browser has no
 Tauri folder picker or downloader, so the setup strip, the track table and Fly do not
-appear there; **only the Tweak screen works.** The companion prints this URL and a QR code
-at the top of the Tweak screen. Alt-tabbing out of a
+appear there; **only the Tweak screen works** (it is not laid out for a phone yet, and the
+companion does not show the address). Alt-tabbing out of a
 fullscreen game is the worst possible move, so with both hands on the transmitter, open that
 address from another device on the LAN (a phone, say) instead — the same setup as watching
 the game on one screen and running Parsec on another. **On Windows the firewall asks about

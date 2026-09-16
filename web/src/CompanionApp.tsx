@@ -80,7 +80,7 @@ export default function CompanionApp() {
             />
           </div>
           <div className="chrome-scroll -mx-6 min-h-0 flex-1 overflow-y-auto px-6 py-6 md:-mx-8 md:px-8">
-            <Tweak track={null} lanUrl={null} />
+            <Tweak track={null} />
           </div>
         </div>
       </div>
@@ -160,14 +160,7 @@ export default function CompanionApp() {
           ) : null}
           <div className="pt-6">
             {tweak ? (
-              <Tweak
-                track={tweak}
-                onBack={() => setTweak(null)}
-                // The LAN address is an invitation to a second screen, and good for
-                // nothing while the game is closed: state.rs reports an address the OS
-                // could route to regardless of whether the plugin's server exists yet.
-                lanUrl={running ? (state?.lanUrl ?? null) : null}
-              />
+              <Tweak track={tweak} onBack={() => setTweak(null)} />
             ) : (
               <Tracks
                 state={state}
@@ -185,19 +178,32 @@ export default function CompanionApp() {
             row, and Add track is the way in, which must not scroll away with the first
             screen of rows. */}
         <div className="shrink-0 pb-7">
-          {!tweak ? (
-            <div className="mb-4">
-              <TracksToolbar state={state} busy={opBusy} picked={picked} />
-            </div>
-          ) : null}
-          <Button
-            size="lg"
-            disabled={!game || busy}
-            onClick={() => send('fly')}
-            className="h-14 w-full font-mono text-base tracking-[0.3em] uppercase"
-          >
-            Fly
-          </Button>
+          {tweak ? (
+            // Where Fly sits otherwise: the game is already running while this screen
+            // is up, so Fly would be dead anyway, and the way back cannot be missed here.
+            <Button
+              size="lg"
+              variant="outline"
+              onClick={() => setTweak(null)}
+              className="h-14 w-full font-mono text-base tracking-[0.3em] uppercase"
+            >
+              ← tracks
+            </Button>
+          ) : (
+            <>
+              <div className="mb-4">
+                <TracksToolbar state={state} busy={opBusy} picked={picked} />
+              </div>
+              <Button
+                size="lg"
+                disabled={!game || busy}
+                onClick={() => send('fly')}
+                className="h-14 w-full font-mono text-base tracking-[0.3em] uppercase"
+              >
+                Fly
+              </Button>
+            </>
+          )}
         </div>
       </div>
     </div>

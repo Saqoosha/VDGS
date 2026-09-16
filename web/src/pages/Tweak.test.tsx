@@ -44,7 +44,7 @@ describe('the tweak screen', () => {
   it('shows the controls for the track it was opened on', () => {
     pluginLive = true
     pluginState = status()
-    render(<Tweak track="VDGS Himeji" onBack={() => {}} lanUrl={null} />)
+    render(<Tweak track="VDGS Himeji" onBack={() => {}} />)
     expect(screen.getByText(/scale/i)).toBeInTheDocument()
   })
 
@@ -57,7 +57,7 @@ describe('the tweak screen', () => {
       loaded: ['fdf'],
       available: [scene({ name: 'fdf' })],
     })
-    render(<Tweak track="VDGS Himeji" onBack={() => {}} lanUrl={null} />)
+    render(<Tweak track="VDGS Himeji" onBack={() => {}} />)
     expect(screen.getByText(/the game moved to/i)).toBeInTheDocument()
     expect(screen.queryByText(/^scale$/i)).toBeNull()
   })
@@ -70,12 +70,12 @@ describe('the tweak screen', () => {
     delete old.x
     delete old.z
     pluginState = status({ available: [old as unknown as Scene] })
-    render(<Tweak track="VDGS Himeji" onBack={() => {}} lanUrl={null} />)
+    render(<Tweak track="VDGS Himeji" onBack={() => {}} />)
     expect(screen.getByText(/older than this app/i)).toBeInTheDocument()
   })
 
   it('says the plugin is not answering when it is not', () => {
-    render(<Tweak track="VDGS Himeji" onBack={() => {}} lanUrl={null} />)
+    render(<Tweak track="VDGS Himeji" onBack={() => {}} />)
     expect(screen.getByText(/not answering/i)).toBeInTheDocument()
   })
 })
