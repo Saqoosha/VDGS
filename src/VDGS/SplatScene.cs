@@ -160,6 +160,9 @@ namespace VDGS
                     report.AppendLine("skipping reserved dir: " + name);
                     continue;
                 }
+                // .<name>.new / .<name>.old are the companion's staging and backup folders.
+                if (name.StartsWith("."))
+                    continue;
                 if (!File.Exists(Path.Combine(dir, "meta.json")))
                     continue;
                 found.Add(new SplatScene(dir));

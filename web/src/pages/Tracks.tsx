@@ -1,16 +1,21 @@
-import { useEffect, useState } from 'react'
-import { Section } from '../chrome'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Dialog } from 'radix-ui'
-import { Progress } from '../components/Progress'
-import { Ring } from '../components/Ring'
-import { formatBytes } from '../format'
-import { filterByName } from '../search'
-import { send } from '../bridge'
-import { useStatus } from '../useStatus'
-import { busyIsSetup } from '../SetupStrip'
-import type { CatalogEntry, CatalogState, SetupState, TrackEntry } from '../types'
+import { useEffect, useState } from "react";
+import { Section } from "../chrome";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Dialog } from "radix-ui";
+import { Progress } from "../components/Progress";
+import { Ring } from "../components/Ring";
+import { formatBytes } from "../format";
+import { filterByName } from "../search";
+import { send } from "../bridge";
+import { useStatus } from "../useStatus";
+import { busyIsSetup } from "../SetupStrip";
+import type {
+  CatalogEntry,
+  CatalogState,
+  SetupState,
+  TrackEntry,
+} from "../types";
 
 /**
  * The track table: one row per track, and everything that happens to a track.
@@ -22,12 +27,13 @@ import type { CatalogEntry, CatalogState, SetupState, TrackEntry } from '../type
  * it has, its row's action follows from what state it is actually in.
  */
 type Row =
-  | ({ kind: 'catalog' } & CatalogEntry)
-  // catalogId is the id to hand `get` when the capture is not on this machine yet.
-  | ({ kind: 'track' } & TrackEntry & { catalogId?: string })
+  | ({ kind: "catalog" } & CatalogEntry)
+  // catalogId is the id to hand `get` when the capture is not on this machine yet, or
+  // again when the catalog has a newer cut of it (update).
+  | ({ kind: "track" } & TrackEntry & { catalogId?: string; update?: boolean });
 
 function rowName(row: Row): string {
-  return row.kind === 'catalog' ? row.name : row.track
+  return row.kind === "catalog" ? row.name : row.track;
 }
 
 /**
@@ -44,8 +50,8 @@ function resolveCatalogId(
   capture: string | null,
   catalog: CatalogState | null,
 ): string | undefined {
-  if (!capture || !catalog) return undefined
-  return catalog.entries.find((e) => e.installAs === capture)?.id
+  if (!capture || !catalog) return undefined;
+  return catalog.entries.find((e) => e.installAs === capture)?.id;
 }
 
 /**
@@ -60,7 +66,7 @@ function busyFor(busy: string | null | undefined, name: string): boolean {
     busy === `installing ${name}` ||
     busy === `removing ${name}` ||
     busy === `unbinding ${name}`
-  )
+  );
 }
 
 /**
@@ -69,24 +75,28 @@ function busyFor(busy: string | null | undefined, name: string): boolean {
  * not the track's, so both are tried.
  */
 function busyNames(row: Row, catalog: CatalogState | null): string[] {
-  const names = [rowName(row)]
-  if (row.kind === 'track' && row.catalogId) {
-    const entry = catalog?.entries.find((e) => e.id === row.catalogId)
-    if (entry) names.push(entry.name)
+  const names = [rowName(row)];
+  if (row.kind === "track" && row.catalogId) {
+    const entry = catalog?.entries.find((e) => e.id === row.catalogId);
+    if (entry) names.push(entry.name);
   }
-  return names
+  return names;
 }
 
-function rowBusy(busy: string | null | undefined, row: Row, catalog: CatalogState | null): boolean {
-  return busyNames(row, catalog).some((n) => busyFor(busy, n))
+function rowBusy(
+  busy: string | null | undefined,
+  row: Row,
+  catalog: CatalogState | null,
+): boolean {
+  return busyNames(row, catalog).some((n) => busyFor(busy, n));
 }
 
 function rowKey(row: Row): string {
-  return row.kind === 'catalog' ? `catalog:${row.id}` : `track:${row.track}`
+  return row.kind === "catalog" ? `catalog:${row.id}` : `track:${row.track}`;
 }
 
 /** The .ply someone just chose, waiting for a track name before anything is written. */
-export type Picked = { path: string; stem: string }
+export type Picked = { path: string; stem: string };
 
 export default function Tracks({
   state,
@@ -97,70 +107,82 @@ export default function Tracks({
   q,
   onSearch,
 }: {
-  state: SetupState | null
-  busy: boolean
-  picked: Picked | null
+  state: SetupState | null;
+  busy: boolean;
+  picked: Picked | null;
   /** The name dialog is gone - created or cancelled - and the shell should forget the pick. */
-  onPickedDone: () => void
-  onTweak: (track: string) => void
+  onPickedDone: () => void;
+  onTweak: (track: string) => void;
   /** The search text. Owned by the shell, so it survives a trip to the tweak screen. */
-  q: string
-  onSearch: (q: string) => void
+  q: string;
+  onSearch: (q: string) => void;
 }) {
   // Which track the plugin has on screen right now, if it is answering at all. Tweak
   // goes over the plugin's HTTP API and only reaches the loaded capture, so it is
   // offered on exactly that row - a live Tweak on a track that is not loaded would open
   // a screen of controls that move something else.
-  const { state: plugin, live } = useStatus(!!state?.running)
-  const loadedTrack = live ? (plugin?.track ?? null) : null
+  const { state: plugin, live } = useStatus(!!state?.running);
+  const loadedTrack = live ? (plugin?.track ?? null) : null;
   // Which half of the table to show. Local, not the shell's: unlike the search text it
   // is a glance-and-reset kind of thing, and coming back from Tweak should show all.
-  const [only, setOnly] = useState<Only>('all')
-  const game = state?.game ?? null
-  const tracks = state?.tracks ?? []
-  const unbound = state?.unbound ?? []
-  const catalog = state?.catalog ?? null
+  const [only, setOnly] = useState<Only>("all");
+  const game = state?.game ?? null;
+  const tracks = state?.tracks ?? [];
+  const unbound = state?.unbound ?? [];
+  const catalog = state?.catalog ?? null;
   // Add track, Get and Remove all touch a file the game holds open (user11.db, or a
   // capture on disk) and need it closed - the same guard each of those jobs enforces on
   // the Rust side. Unbind only writes bindings.json, which is ours, not the game's, so it is
   // deliberately left off this fold (see Actions below) and gated on `busy` alone.
-  const fileBusy = busy || !!state?.running
+  const fileBusy = busy || !!state?.running;
 
   // Fetched once, on the way in: the catalog is only of interest here, and a machine
   // with no network should not greet every tab with an error.
   useEffect(() => {
-    if (!catalog && !busy) send('refreshCatalog')
+    if (!catalog && !busy) send("refreshCatalog");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, []);
 
-  const trackRows: Row[] = tracks.map((t) => ({
-    kind: 'track',
-    ...t,
-    catalogId: resolveCatalogId(t.capture, catalog),
-  }))
+  const trackRows: Row[] = tracks.map((t) => {
+    const catalogId = resolveCatalogId(t.capture, catalog);
+    return {
+      kind: "track",
+      ...t,
+      catalogId,
+      update:
+        !!catalogId &&
+        !!catalog?.entries.find((e) => e.id === catalogId)?.update,
+    };
+  });
   // A catalog entry already claimed by a track - installed, or already the Get target of
   // that track's own row above - is not listed again on its own: it is either here or
   // waiting, and a track row already says which. Only entries no track points at yet
   // show up as their own "available" row.
   const claimed = new Set(
-    trackRows.flatMap((r) => (r.kind === 'track' && r.catalogId ? [r.catalogId] : [])),
-  )
+    trackRows.flatMap((r) =>
+      r.kind === "track" && r.catalogId ? [r.catalogId] : [],
+    ),
+  );
   const catalogRows: Row[] = (catalog?.entries ?? [])
     .filter((e) => !e.installed && !claimed.has(e.id))
-    .map((e) => ({ kind: 'catalog', ...e }))
+    .map((e) => ({ kind: "catalog", ...e }));
   // What is on this machine first, then what could be: a Get row between two flyable
   // ones reads as a gap in the list, and the catalog will outgrow the machine's own
   // tracks many times over. Name order within each half.
   const byName = (a: Row, b: Row) =>
-    rowName(a).toLowerCase().localeCompare(rowName(b).toLowerCase())
-  const rows = [...trackRows.sort(byName), ...catalogRows.sort(byName)]
+    rowName(a).toLowerCase().localeCompare(rowName(b).toLowerCase());
+  const rows = [...trackRows.sort(byName), ...catalogRows.sort(byName)];
   const wanted = rows.filter((r) =>
-    only === 'all' ? true : only === 'installed' ? r.kind === 'track' : r.kind === 'catalog',
-  )
+    only === "all"
+      ? true
+      : only === "installed"
+        ? r.kind === "track"
+        : r.kind === "catalog",
+  );
   const shown = filterByName(
     wanted.map((row) => ({ row, name: rowName(row) })),
     q,
-  ).map((r) => r.row)
+  ).map((r) => r.row);
 
   return (
     <Section label="tracks">
@@ -183,7 +205,7 @@ export default function Tracks({
       <div>
         {!rows.length && !picked ? (
           <p className="font-mono text-[11px] tracking-[0.14em] text-muted-foreground uppercase">
-            {game ? 'no tracks yet — add one below' : 'no game folder'}
+            {game ? "no tracks yet — add one below" : "no game folder"}
           </p>
         ) : !shown.length && !picked ? (
           <p className="font-mono text-[11px] tracking-[0.14em] text-muted-foreground uppercase">
@@ -197,7 +219,7 @@ export default function Tracks({
                 row={row}
                 busy={busy}
                 fileBusy={fileBusy}
-                loaded={row.kind === 'track' && row.track === loadedTrack}
+                loaded={row.kind === "track" && row.track === loadedTrack}
                 onTweak={onTweak}
                 progress={
                   state?.busy && rowBusy(state.busy, row, catalog)
@@ -216,13 +238,16 @@ export default function Tracks({
           <div className="mt-5 font-mono text-[11px] leading-relaxed text-muted-foreground">
             <span>installed, on no track:</span>
             {unbound.map((c) => (
-              <span key={c.name} className="ml-3 inline-flex items-baseline gap-2">
+              <span
+                key={c.name}
+                className="ml-3 inline-flex items-baseline gap-2"
+              >
                 {c.name}
                 <Button
                   variant="ghost"
                   size="sm"
                   disabled={fileBusy}
-                  onClick={() => send('removeCapture', c.name)}
+                  onClick={() => send("removeCapture", c.name)}
                   aria-label={`Remove ${c.name}`}
                   className="h-5 px-1.5 text-[10px]"
                 >
@@ -240,13 +265,13 @@ export default function Tracks({
         ) : null}
       </div>
     </Section>
-  )
+  );
 }
 
 /** Which rows to show: everything, only what is on this machine, or only what is not. */
-type Only = 'all' | 'installed' | 'available'
+type Only = "all" | "installed" | "available";
 
-const ONLY: Only[] = ['all', 'installed', 'available']
+const ONLY: Only[] = ["all", "installed", "available"];
 
 /** The field under the section label, with the filter at its end. */
 function FindField({
@@ -255,10 +280,10 @@ function FindField({
   only,
   onOnly,
 }: {
-  q: string
-  onChange: (q: string) => void
-  only: Only
-  onOnly: (o: Only) => void
+  q: string;
+  onChange: (q: string) => void;
+  only: Only;
+  onOnly: (o: Only) => void;
 }) {
   return (
     <div className="flex items-baseline gap-4 border-b border-rule pb-1.5">
@@ -290,8 +315,8 @@ function FindField({
             onClick={() => onOnly(o)}
             className={
               only === o
-                ? 'text-signal underline decoration-signal/60 underline-offset-4'
-                : 'text-muted-foreground hover:text-foreground'
+                ? "text-signal underline decoration-signal/60 underline-offset-4"
+                : "text-muted-foreground hover:text-foreground"
             }
           >
             {o}
@@ -299,7 +324,7 @@ function FindField({
         ))}
       </div>
     </div>
-  )
+  );
 }
 
 /**
@@ -311,13 +336,13 @@ export function TracksToolbar({
   busy,
   picked,
 }: {
-  state: SetupState | null
-  busy: boolean
-  picked: Picked | null
+  state: SetupState | null;
+  busy: boolean;
+  picked: Picked | null;
 }) {
-  const game = state?.game ?? null
-  const catalog = state?.catalog ?? null
-  const fileBusy = busy || !!state?.running
+  const game = state?.game ?? null;
+  const catalog = state?.catalog ?? null;
+  const fileBusy = busy || !!state?.running;
   return (
     <div className="flex flex-wrap items-center gap-3">
       {/* The .ply is the whole input: the host opens a picker for it, hands the path
@@ -326,11 +351,15 @@ export function TracksToolbar({
       <Button
         variant="outline"
         disabled={!game || fileBusy || !!picked}
-        onClick={() => send('pickPly')}
+        onClick={() => send("pickPly")}
       >
         Add track
       </Button>
-      <Button variant="outline" disabled={fileBusy} onClick={() => send('refreshCatalog')}>
+      <Button
+        variant="outline"
+        disabled={fileBusy}
+        onClick={() => send("refreshCatalog")}
+      >
         Refresh
       </Button>
       {catalog ? (
@@ -339,7 +368,7 @@ export function TracksToolbar({
         </span>
       ) : null}
     </div>
-  )
+  );
 }
 
 function TrackRow({
@@ -350,14 +379,14 @@ function TrackRow({
   onTweak,
   progress,
 }: {
-  row: Row
-  busy: boolean
-  fileBusy: boolean
+  row: Row;
+  busy: boolean;
+  fileBusy: boolean;
   /** The plugin has this track's capture on screen right now. */
-  loaded: boolean
-  onTweak: (track: string) => void
+  loaded: boolean;
+  onTweak: (track: string) => void;
   /** The host's current job is about this row (see busyFor). */
-  progress: { what: string; percent: number | null } | null
+  progress: { what: string; percent: number | null } | null;
 }) {
   return (
     <li className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 border-b border-rule/80 py-4 last:border-b-0">
@@ -368,25 +397,27 @@ function TrackRow({
           // happening now, and a person watching this row is watching the right place.
           <Ring what={progress.what} percent={progress.percent} />
         ) : null}
-        {!progress && row.kind === 'track' && row.captureInstalled ? (
+        {!progress && row.kind === "track" && row.captureInstalled ? (
           // Live only on the row the plugin is showing. Elsewhere it stays visible but
           // off, with the reason in its title: a button that vanishes teaches nobody
           // that flying is what turns it on.
           <Button
-            variant={loaded ? 'default' : 'outline'}
+            variant={loaded ? "default" : "outline"}
             size="sm"
             disabled={!loaded}
-            title={loaded ? undefined : 'fly this track first'}
+            title={loaded ? undefined : "fly this track first"}
             onClick={() => onTweak(row.track)}
             aria-label={`Tweak ${row.track}`}
           >
             Tweak
           </Button>
         ) : null}
-        {!progress ? <Actions row={row} busy={busy} fileBusy={fileBusy} /> : null}
+        {!progress ? (
+          <Actions row={row} busy={busy} fileBusy={fileBusy} />
+        ) : null}
       </div>
     </li>
-  )
+  );
 }
 
 /**
@@ -400,12 +431,18 @@ function TrackRow({
  * and the person went looking. A modal cannot be missed and cannot be left half-done
  * behind another click; Escape and the backdrop are Cancel.
  */
-function NameDialog({ picked, onDone }: { picked: Picked; onDone: () => void }) {
-  const [name, setName] = useState(`VDGS ${picked.stem}`)
+function NameDialog({
+  picked,
+  onDone,
+}: {
+  picked: Picked;
+  onDone: () => void;
+}) {
+  const [name, setName] = useState(`VDGS ${picked.stem}`);
   const create = () => {
-    send('addTrack', undefined, { path: picked.path, name })
-    onDone()
-  }
+    send("addTrack", undefined, { path: picked.path, name });
+    onDone();
+  };
   return (
     <Dialog.Root open onOpenChange={(open) => !open && onDone()}>
       <Dialog.Portal>
@@ -423,8 +460,8 @@ function NameDialog({ picked, onDone }: { picked: Picked; onDone: () => void }) 
           <form
             className="mt-5"
             onSubmit={(e) => {
-              e.preventDefault()
-              if (name.trim()) create()
+              e.preventDefault();
+              if (name.trim()) create();
             }}
           >
             <label className="flex items-baseline gap-4 border-b border-rule pb-1.5">
@@ -451,21 +488,25 @@ function NameDialog({ picked, onDone }: { picked: Picked; onDone: () => void }) 
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
-  )
+  );
 }
 
 function RowBody({ row }: { row: Row }) {
-  if (row.kind === 'catalog') {
+  if (row.kind === "catalog") {
     return (
       <div className="min-w-0">
-        <p className="font-serif text-[1.65rem] leading-tight font-light">{row.name}</p>
+        <p className="font-serif text-[1.65rem] leading-tight font-light">
+          {row.name}
+        </p>
         {row.description ? (
-          <p className="mt-1 text-[13px] leading-snug text-muted-foreground">{row.description}</p>
+          <p className="mt-1 text-[13px] leading-snug text-muted-foreground">
+            {row.description}
+          </p>
         ) : null}
         <p className="mt-1.5 font-mono text-[11px] tracking-[0.04em] text-muted-foreground">
-          {row.splats ? row.splats.toLocaleString() : '—'} splats
+          {row.splats ? row.splats.toLocaleString() : "—"} splats
           <span className="mx-2 text-rule">/</span>
-          {formatBytes(row.bytes) ?? '—'}
+          {formatBytes(row.bytes) ?? "—"}
           {row.author ? (
             <>
               <span className="mx-2 text-rule">/</span>
@@ -482,13 +523,15 @@ function RowBody({ row }: { row: Row }) {
           ) : null}
         </p>
       </div>
-    )
+    );
   }
 
   return (
     <div className="min-w-0">
       <div className="flex flex-wrap items-baseline gap-3">
-        <p className="font-serif text-[1.65rem] leading-tight font-light">{row.track}</p>
+        <p className="font-serif text-[1.65rem] leading-tight font-light">
+          {row.track}
+        </p>
         {!row.inGame ? (
           // A binding whose track is not in the database shows nothing and says nothing,
           // in the game or here, unless it is called out.
@@ -501,11 +544,11 @@ function RowBody({ row }: { row: Row }) {
         <p className="mt-1.5 font-mono text-[11px] tracking-[0.04em] text-muted-foreground">
           {row.capture}
           <span className="mx-2 text-rule">/</span>
-          {row.splats ? row.splats.toLocaleString() : '—'} splats
+          {row.splats ? row.splats.toLocaleString() : "—"} splats
           <span className="mx-2 text-rule">/</span>
           {/* A .ply is read and converted every time the capture is shown, which is
               seconds of stutter a converted directory does not cost. */}
-          {row.converted ? 'converted' : 'ply'}
+          {row.converted ? "converted" : "ply"}
           {formatBytes(row.bytes) ? (
             <>
               <span className="mx-2 text-rule">/</span>
@@ -515,65 +558,91 @@ function RowBody({ row }: { row: Row }) {
           <span className="mx-2 text-rule">/</span>
           {/* Without a mesh the capture is flown straight through, and nothing in the
               game says so - which is why it is stated either way. */}
-          {row.collision ? 'collision' : 'no collision'}
+          {row.collision ? "collision" : "no collision"}
         </p>
       ) : (
         <p className="mt-1.5 font-mono text-[11px] tracking-[0.04em] text-destructive">
-          {row.capture ?? 'nothing'} is not installed
+          {row.capture ?? "nothing"} is not installed
         </p>
       )}
     </div>
-  )
+  );
 }
 
-function Actions({ row, busy, fileBusy }: { row: Row; busy: boolean; fileBusy: boolean }) {
-  if (row.kind === 'catalog') {
+function Actions({
+  row,
+  busy,
+  fileBusy,
+}: {
+  row: Row;
+  busy: boolean;
+  fileBusy: boolean;
+}) {
+  if (row.kind === "catalog") {
     return (
-      <Button disabled={fileBusy} onClick={() => send('get', row.id)}>
+      <Button disabled={fileBusy} onClick={() => send("get", row.id)}>
         Get
       </Button>
-    )
+    );
   }
   if (!row.captureInstalled) {
     // A button that fires `get` with an id the host cannot find would look live and do
     // nothing - worse than no button, because nothing tells whoever clicked it that it
     // failed. Offer Get only once a real catalog entry has been resolved.
     return row.catalogId ? (
-      <Button disabled={fileBusy} onClick={() => send('get', row.catalogId)}>
+      <Button disabled={fileBusy} onClick={() => send("get", row.catalogId)}>
         Get
       </Button>
-    ) : null
+    ) : null;
   }
+  // An update is the same get: the folder is swapped for the new cut, the binding and
+  // placement.json are left alone.
+  const update =
+    row.update && row.catalogId ? (
+      <Button
+        size="sm"
+        disabled={fileBusy}
+        onClick={() => send("get", row.catalogId)}
+      >
+        Update
+      </Button>
+    ) : null;
   // Always shown, beside Tweak: they used to appear on hover only, which hid one of the
   // row's two actions behind a gesture while the other sat in plain view. Removal asks
   // before it acts, so being visible costs nothing.
   if (row.fromServer) {
     return (
+      <>
+        {update}
+        <Button
+          variant="outline"
+          size="sm"
+          // busy, not fileBusy: Unbind only writes bindings.json, a file the game never
+          // holds open (unbind_track carries no is_running guard on the Rust side, on
+          // purpose - the plugin picks the change up from its own poll within a second).
+          // Gating it on the game being closed would strand anyone trying to fix a
+          // binding for a capture they are actively flying to compare against.
+          disabled={busy}
+          onClick={() => send("unbindTrack", row.track)}
+          aria-label={`Unbind ${row.track}`}
+        >
+          Unbind
+        </Button>
+      </>
+    );
+  }
+  return (
+    <>
+      {update}
       <Button
         variant="outline"
         size="sm"
-        // busy, not fileBusy: Unbind only writes bindings.json, a file the game never
-        // holds open (unbind_track carries no is_running guard on the Rust side, on
-        // purpose - the plugin picks the change up from its own poll within a second).
-        // Gating it on the game being closed would strand anyone trying to fix a
-        // binding for a capture they are actively flying to compare against.
-        disabled={busy}
-        onClick={() => send('unbindTrack', row.track)}
-        aria-label={`Unbind ${row.track}`}
+        disabled={fileBusy}
+        onClick={() => send("removeTrack", row.track)}
+        aria-label={`Remove ${row.track}`}
       >
-        Unbind
+        Remove
       </Button>
-    )
-  }
-  return (
-    <Button
-      variant="outline"
-      size="sm"
-      disabled={fileBusy}
-      onClick={() => send('removeTrack', row.track)}
-      aria-label={`Remove ${row.track}`}
-    >
-      Remove
-    </Button>
-  )
+    </>
+  );
 }

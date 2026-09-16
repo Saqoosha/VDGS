@@ -251,12 +251,17 @@ namespace VDGS
                 // The .ply groups f_rest by channel - 15 reds, then 15 greens, then 15
                 // blues - while the shader reads it coefficient by coefficient as rgb
                 // triples. Transpose, or every band comes out in the wrong colour.
+                // The reflection reaches the SH too: under y -> -y the basis functions
+                // odd in y change sign - band 1's y (k=0), band 2's xy, yz (k=3, 4),
+                // band 3's y(3x^2-y^2), xyz, y(4z^2-x^2-y^2) (k=8, 9, 10). The list is
+                // what `python3 tools/splat_sh.py --check` prints from the shader basis.
                 int sh = i * 96;
                 for (int k = 0; k < 15; k++)
                 {
-                    PutHalf(shData, sh + k * 6,     F(bytes, b + oRest + k * 4));
-                    PutHalf(shData, sh + k * 6 + 2, F(bytes, b + oRest + (15 + k) * 4));
-                    PutHalf(shData, sh + k * 6 + 4, F(bytes, b + oRest + (30 + k) * 4));
+                    float s = (mirrorY && (k == 0 || k == 3 || k == 4 || k == 8 || k == 9 || k == 10)) ? -1f : 1f;
+                    PutHalf(shData, sh + k * 6,     s * F(bytes, b + oRest + k * 4));
+                    PutHalf(shData, sh + k * 6 + 2, s * F(bytes, b + oRest + (15 + k) * 4));
+                    PutHalf(shData, sh + k * 6 + 4, s * F(bytes, b + oRest + (30 + k) * 4));
                 }
             }
 

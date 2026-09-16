@@ -332,6 +332,9 @@ pub struct SceneInfo {
     pub collision: bool,
     pub bytes: u64,
     pub converted: bool,
+    /// meta.json's `revision`; 1 when absent, which every capture cut before the field
+    /// existed is. Compared against the catalog's to offer an update.
+    pub revision: u64,
 }
 
 pub fn scenes(root: &Path) -> Vec<SceneInfo> {
@@ -357,6 +360,10 @@ pub fn scenes(root: &Path) -> Vec<SceneInfo> {
                 Ok(n) => n,
                 Err(_) => continue,
             };
+            // .<name>.new / .<name>.old are this app's own staging and backup folders.
+            if name.starts_with('.') {
+                continue;
+            }
             seen.insert(name.to_ascii_lowercase());
             found.push(SceneInfo {
                 name,
@@ -364,6 +371,7 @@ pub fn scenes(root: &Path) -> Vec<SceneInfo> {
                 collision: dir.join("collision.bin").is_file(),
                 bytes: directory_size(&dir),
                 converted: true,
+                revision: meta_revision(&meta),
             });
         }
     }
@@ -399,12 +407,21 @@ pub fn scenes(root: &Path) -> Vec<SceneInfo> {
                 collision: vdgs.join(format!("{name}.collision.bin")).is_file(),
                 bytes,
                 converted: false,
+                revision: 1,
             });
         }
     }
 
     found.sort_by(|a, b| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()));
     found
+}
+
+fn meta_revision(meta_path: &Path) -> u64 {
+    fs::read_to_string(meta_path)
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .and_then(|v| v.get("revision").and_then(|n| n.as_u64()))
+        .unwrap_or(1)
 }
 
 fn splat_count(meta_path: &Path) -> u64 {
@@ -567,10 +584,23 @@ fn write_bindings_string(b: &Bindings) -> String {
     out
 }
 
-pub fn bind(root: &Path, track: &str, scene: &str) -> io::Result<()> {
+/// Binds `track` to `scene`. Returns false when the list was left as it was.
+///
+/// A first install replaces whatever the track pointed at - the capture just installed
+/// is what the person asked to see. Anything after that (`updating`) leaves the track's
+/// list alone: a second capture they added, or a capture of their own they pointed the
+/// track at instead, is their choice and outlives a re-download of ours.
+pub fn bind(root: &Path, track: &str, scene: &str, updating: bool) -> io::Result<bool> {
     let mut map = try_read_bindings(root)?;
+    let existing = map.get(track);
+    if existing.is_some_and(|list| list.iter().any(|s| s == scene))
+        || (updating && existing.is_some_and(|list| !list.is_empty()))
+    {
+        return Ok(false);
+    }
     map.insert(track.to_string(), vec![scene.to_string()]);
-    write_bindings(root, &map)
+    write_bindings(root, &map)?;
+    Ok(true)
 }
 
 pub fn unbind(root: &Path, track: &str) -> io::Result<bool> {
@@ -604,6 +634,135 @@ pub fn install_archive(
     }
     log(format!("installed {label}"));
     Ok(())
+}
+
+/// Installs one capture archive as `vdgs/<install_as>/`, replacing the capture there.
+/// Returns true when it replaced one (an update), false for a first install.
+///
+/// The archive is unpacked beside the target and swapped in with a rename, so a
+/// failure part-way leaves the old folder untouched, and a file the new cut no longer
+/// ships (a stale chunk.bin - the trap ARCHITECTURE warns about) does not survive from
+/// the old one. Only the user's placement.json is carried over; bindings.json lives
+/// outside the folder and is never touched.
+pub fn install_capture_archive(
+    root: &Path,
+    zip: &Path,
+    install_as: &str,
+    log: &mut dyn FnMut(String),
+) -> Result<bool, catalog::Error> {
+    if crate::launch::is_running() {
+        return Err(catalog::Error::Msg(
+            "VelociDrone is running. Close it first - files in use cannot be replaced.".into(),
+        ));
+    }
+    // The name comes from the catalog and ends up in remove_dir_all: one plain folder
+    // name, nothing that could walk out of vdgs/, and not the mod's own ui folder.
+    if !is_plain_folder_name(install_as) {
+        return Err(catalog::Error::Msg(format!(
+            "refusing to install as {install_as:?}: not a plain folder name"
+        )));
+    }
+    let vdgs = root.join("vdgs");
+    let target = vdgs.join(install_as);
+    let staging = vdgs.join(format!(".{install_as}.new"));
+    let retired = vdgs.join(format!(".{install_as}.old"));
+    // A previous run that died between the two renames left only the backup: put it back
+    // before anything else. A backup beside a live folder is one whose cleanup failed.
+    let step = |what: String, e: io::Error| catalog::Error::Msg(format!("{what}: {e}"));
+    if retired.exists() && !target.exists() {
+        fs::rename(&retired, &target)
+            .map_err(|e| step(format!("restoring {} to {}", retired.display(), target.display()), e))?;
+        log(format!("restored {install_as} from an interrupted update"));
+    }
+    // Only a capture is replaced. A file, or a folder that is not a capture (the mod's
+    // ui/ is the one that matters), stays.
+    let replacing = target.exists();
+    if replacing && !(target.is_dir() && target.join("meta.json").is_file()) {
+        return Err(catalog::Error::Msg(format!(
+            "{} exists and is not a capture - not replacing it",
+            target.display()
+        )));
+    }
+    // Leftovers are removed, not unpacked over: a stale file in the staging area would
+    // ride into the new folder, which is the trap this swap exists to close.
+    if staging.exists() {
+        fs::remove_dir_all(&staging)
+            .map_err(|e| step(format!("removing the old staging folder {}", staging.display()), e))?;
+    }
+    fs::create_dir_all(&staging)
+        .map_err(|e| step(format!("creating {}", staging.display()), e))?;
+
+    let result = (|| -> Result<(), catalog::Error> {
+        catalog::extract(zip, &staging, &[], log).map_err(|e| {
+            catalog::Error::Msg(format!(
+                "unpacking {} into {}: {e} (your previous {install_as} is untouched)",
+                zip.display(),
+                staging.display()
+            ))
+        })?;
+        let unpacked = staging.join("vdgs").join(install_as);
+        if !unpacked.join("meta.json").is_file() {
+            return Err(catalog::Error::Msg(format!(
+                "the archive does not carry vdgs/{install_as}/meta.json"
+            )));
+        }
+        let placement = target.join("placement.json");
+        if placement.is_file() {
+            fs::copy(&placement, unpacked.join("placement.json"))
+                .map_err(|e| step(format!("keeping your {}", placement.display()), e))?;
+            log("kept your placement.json".into());
+        }
+        if target.exists() {
+            if retired.exists() {
+                fs::remove_dir_all(&retired)
+                    .map_err(|e| step(format!("removing the old backup {}", retired.display()), e))?;
+            }
+            fs::rename(&target, &retired)
+                .map_err(|e| step(format!("moving {} aside to {}", target.display(), retired.display()), e))?;
+        }
+        if let Err(e) = fs::rename(&unpacked, &target) {
+            let what = format!("putting the new {install_as} in place ({} -> {})", unpacked.display(), target.display());
+            if retired.exists() {
+                if let Err(back) = fs::rename(&retired, &target) {
+                    return Err(catalog::Error::Msg(format!(
+                        "{what}: {e}; and the previous one could not be put back ({back}). \
+                         Your previous files, placement.json included, are in {} - rename that folder to {} by hand.",
+                        retired.display(), target.display()
+                    )));
+                }
+            }
+            return Err(step(what, e));
+        }
+        Ok(())
+    })();
+    if let Err(e) = fs::remove_dir_all(&staging) {
+        if staging.exists() {
+            log(format!("could not remove {}: {e} - delete it by hand", staging.display()));
+        }
+    }
+    result?;
+    // Only a completed swap retires the backup. A backup that will not go is said out
+    // loud: it is a full copy of a capture, and the game would list it as one.
+    if let Err(e) = fs::remove_dir_all(&retired) {
+        if retired.exists() {
+            log(format!("could not remove the old copy {}: {e} - delete it by hand", retired.display()));
+        }
+    }
+    log(format!("installed {install_as}"));
+    Ok(replacing)
+}
+
+/// One path component with no way out of its parent, and not a name the mod reserves:
+/// what a catalog `installAs` and a capture folder name must be. Trailing dots and
+/// spaces are out because Windows strips them, and the folder would then never match.
+pub fn is_plain_folder_name(name: &str) -> bool {
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && !name.starts_with('.')
+        && !name.ends_with(['.', ' '])
+        && !name.contains(['/', '\\', ':', '\0'])
+        && !name.eq_ignore_ascii_case("ui")
 }
 
 fn zip_carries_ui(zip: &Path) -> Result<bool, catalog::Error> {
@@ -913,19 +1072,167 @@ mod tests {
         );
         assert!(s[0].converted && s[0].collision && s[0].splats == 12);
         assert!(!s[1].converted && s[1].splats == 7);
+        // No revision key, and a bare .ply, both read as the first cut.
+        assert_eq!((s[0].revision, s[1].revision), (1, 1));
+    }
+
+    #[test]
+    fn scenes_skip_the_apps_own_dot_folders() {
+        let root = tmp();
+        let v = root.join("vdgs");
+        for d in ["X", ".X.old", ".X.new"] {
+            std::fs::create_dir_all(v.join(d)).unwrap();
+            std::fs::write(v.join(d).join("meta.json"), r#"{"splatCount": 1, "chunkCount": 1}"#).unwrap();
+        }
+        assert_eq!(scenes(&root).iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), ["X"]);
+    }
+
+    #[test]
+    fn scenes_read_revision_from_meta() {
+        let root = tmp();
+        let v = root.join("vdgs");
+        std::fs::create_dir_all(v.join("r2")).unwrap();
+        std::fs::write(v.join("r2/meta.json"), r#"{"splatCount": 1, "chunkCount": 1, "revision": 2}"#).unwrap();
+        assert_eq!(scenes(&root)[0].revision, 2);
     }
 
     #[test]
     fn bindings_roundtrip_and_unbind() {
         let root = tmp();
-        bind(&root, "VDGS X", "x-dir").unwrap();
-        bind(&root, "VDGS Y", "y-dir").unwrap();
+        bind(&root, "VDGS X", "x-dir", false).unwrap();
+        bind(&root, "VDGS Y", "y-dir", false).unwrap();
         let b = read_bindings(&root);
         assert_eq!(b["VDGS X"], vec!["x-dir"]);
         assert_eq!(b.len(), 2);
         assert!(unbind(&root, "VDGS X").unwrap());
         assert!(!unbind(&root, "VDGS X").unwrap());
         assert_eq!(read_bindings(&root).len(), 1);
+    }
+
+    #[test]
+    fn install_capture_archive_replaces_the_folder_and_keeps_placement() {
+        let root = tmp();
+        let zip_path = root.join("cap.zip");
+        {
+            let f = std::fs::File::create(&zip_path).unwrap();
+            let mut w = zip::ZipWriter::new(f);
+            let o = zip::write::SimpleFileOptions::default();
+            for (name, body) in [
+                ("vdgs/X/meta.json", b"{\"revision\":2}".as_slice()),
+                ("vdgs/X/sh.bin", b"new-sh"),
+                ("vdgs/X/placement.json", b"shipped"),
+                ("README.txt", b"note"),
+            ] {
+                w.start_file(name, o).unwrap();
+                std::io::Write::write_all(&mut w, body).unwrap();
+            }
+            w.finish().unwrap();
+        }
+        let x = root.join("vdgs/X");
+        std::fs::create_dir_all(&x).unwrap();
+        std::fs::write(x.join("meta.json"), b"{}").unwrap();
+        std::fs::write(x.join("sh.bin"), b"old-sh").unwrap();
+        std::fs::write(x.join("chunk.bin"), b"stale").unwrap();
+        std::fs::write(x.join("placement.json"), b"mine").unwrap();
+        std::fs::write(root.join("vdgs/bindings.json"), b"{\"T\":[\"X\"]}").unwrap();
+        let mut log = |_s: String| {};
+        assert!(install_capture_archive(&root, &zip_path, "X", &mut log).unwrap(), "an update");
+        assert_eq!(std::fs::read(x.join("sh.bin")).unwrap(), b"new-sh");
+        assert!(!x.join("chunk.bin").exists(), "a file the new cut does not ship must go");
+        assert_eq!(std::fs::read(x.join("placement.json")).unwrap(), b"mine");
+        assert_eq!(std::fs::read(root.join("vdgs/bindings.json")).unwrap(), b"{\"T\":[\"X\"]}");
+        assert!(!root.join("README.txt").exists());
+        assert!(!root.join("vdgs/.X.new").exists() && !root.join("vdgs/.X.old").exists());
+    }
+
+    #[test]
+    fn install_capture_archive_refuses_a_name_that_is_not_a_folder() {
+        let root = tmp();
+        let zip_path = root.join("cap.zip");
+        std::fs::write(&zip_path, b"not even a zip").unwrap();
+        let mut log = |_s: String| {};
+        for bad in ["../x", "a/b", "..", ".", "", ".hidden", "a\\b", "ui", "UI", "x.", "x "] {
+            assert!(install_capture_archive(&root, &zip_path, bad, &mut log).is_err(), "{bad:?}");
+        }
+        assert!(!root.join("vdgs").exists(), "nothing may be created for a refused name");
+    }
+
+    #[test]
+    fn install_capture_archive_restores_a_backup_left_by_an_interrupted_update() {
+        let root = tmp();
+        let zip_path = root.join("bad.zip");
+        std::fs::write(&zip_path, b"not a zip").unwrap();
+        let old = root.join("vdgs/.X.old");
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::write(old.join("sh.bin"), b"old-sh").unwrap();
+        let mut log = |_s: String| {};
+        // The archive is unreadable, so this run fails - but the backup is back in place.
+        assert!(install_capture_archive(&root, &zip_path, "X", &mut log).is_err());
+        assert_eq!(std::fs::read(root.join("vdgs/X/sh.bin")).unwrap(), b"old-sh");
+        assert!(!old.exists());
+    }
+
+    #[test]
+    fn install_capture_archive_leaves_a_folder_that_is_not_a_capture() {
+        let root = tmp();
+        let zip_path = root.join("cap.zip");
+        {
+            let f = std::fs::File::create(&zip_path).unwrap();
+            let mut w = zip::ZipWriter::new(f);
+            w.start_file("vdgs/X/meta.json", zip::write::SimpleFileOptions::default()).unwrap();
+            std::io::Write::write_all(&mut w, b"{}").unwrap();
+            w.finish().unwrap();
+        }
+        let x = root.join("vdgs/X");
+        std::fs::create_dir_all(&x).unwrap();
+        std::fs::write(x.join("index.html"), b"not a capture").unwrap();
+        let mut log = |_s: String| {};
+        assert!(install_capture_archive(&root, &zip_path, "X", &mut log).is_err());
+        assert_eq!(std::fs::read(x.join("index.html")).unwrap(), b"not a capture");
+        // A file in the way is refused the same way.
+        std::fs::remove_dir_all(&x).unwrap();
+        std::fs::write(&x, b"a file").unwrap();
+        assert!(install_capture_archive(&root, &zip_path, "X", &mut log).is_err());
+        assert_eq!(std::fs::read(&x).unwrap(), b"a file");
+    }
+
+    #[test]
+    fn install_capture_archive_refuses_an_archive_without_the_folder() {
+        let root = tmp();
+        let zip_path = root.join("bad.zip");
+        {
+            let f = std::fs::File::create(&zip_path).unwrap();
+            let mut w = zip::ZipWriter::new(f);
+            w.start_file("vdgs/Y/meta.json", zip::write::SimpleFileOptions::default()).unwrap();
+            std::io::Write::write_all(&mut w, b"{}").unwrap();
+            w.finish().unwrap();
+        }
+        let x = root.join("vdgs/X");
+        std::fs::create_dir_all(&x).unwrap();
+        std::fs::write(x.join("sh.bin"), b"old-sh").unwrap();
+        let mut log = |_s: String| {};
+        assert!(install_capture_archive(&root, &zip_path, "X", &mut log).is_err());
+        // The old folder is untouched and nothing is left behind.
+        assert_eq!(std::fs::read(x.join("sh.bin")).unwrap(), b"old-sh");
+        assert!(!root.join("vdgs/.X.new").exists() && !root.join("vdgs/Y").exists());
+    }
+
+    #[test]
+    fn bind_keeps_the_users_list_on_update() {
+        let root = tmp();
+        let path = root.join("vdgs/bindings.json");
+        assert!(bind(&root, "VDGS X", "x-dir", false).unwrap());
+        // A second capture the user added survives a re-bind of the same capture.
+        std::fs::write(&path, br#"{"VDGS X": ["x-dir", "extra"]}"#).unwrap();
+        assert!(!bind(&root, "VDGS X", "x-dir", true).unwrap());
+        assert_eq!(read_bindings(&root)["VDGS X"], vec!["x-dir", "extra"]);
+        // So does a track the user pointed at their own capture instead of ours.
+        std::fs::write(&path, br#"{"VDGS X": ["mine"]}"#).unwrap();
+        assert!(!bind(&root, "VDGS X", "x-dir", true).unwrap());
+        assert_eq!(read_bindings(&root)["VDGS X"], vec!["mine"]);
+        // A first install still replaces: the capture just installed is what was asked for.
+        assert!(bind(&root, "VDGS X", "x-dir", false).unwrap());
+        assert_eq!(read_bindings(&root)["VDGS X"], vec!["x-dir"]);
     }
 
     #[test]
@@ -936,7 +1243,7 @@ mod tests {
         let corrupt = b"{\"Other\":[\"scene\"]\nnot-json";
         std::fs::write(&path, corrupt).unwrap();
         let before = std::fs::read(&path).unwrap();
-        assert!(bind(&root, "VDGS X", "x-dir").is_err());
+        assert!(bind(&root, "VDGS X", "x-dir", false).is_err());
         assert_eq!(std::fs::read(&path).unwrap(), before);
         assert_eq!(before, corrupt);
     }
@@ -1142,11 +1449,11 @@ mod tests {
             "{oops",
         ] {
             let root = tmp();
-            bind(&root, "Existing", "cap-a").unwrap();
+            bind(&root, "Existing", "cap-a", false).unwrap();
             let path = root.join("vdgs/bindings.json");
             std::fs::write(&path, bad).unwrap();
             assert!(
-                bind(&root, "New", "cap-b").is_err(),
+                bind(&root, "New", "cap-b", false).is_err(),
                 "bind should refuse {bad}"
             );
             assert_eq!(

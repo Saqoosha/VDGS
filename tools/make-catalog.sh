@@ -65,15 +65,20 @@ def digest(path):
             h.update(chunk)
     return h.hexdigest()
 
-def splat_count(zip_path):
-    """The count the app shows, read out of the capture's own meta.json rather than
-    restated in the entry - two places to write it is one place to get it wrong."""
+def zip_meta(zip_path):
+    """The capture's own meta.json, read out of the archive."""
     import zipfile
     with zipfile.ZipFile(zip_path) as z:
         for name in z.namelist():
             if name.endswith("/meta.json"):
-                return int(json.loads(z.read(name))["splatCount"])
-    return 0
+                return json.loads(z.read(name))
+    return {}
+
+
+def splat_count(zip_path):
+    """The count the app shows, read out of the capture's own meta.json rather than
+    restated in the entry."""
+    return int(zip_meta(zip_path).get("splatCount", 0))
 
 scenes, skipped = [], []
 for name in sorted(os.listdir(entries_dir)):
@@ -81,11 +86,27 @@ for name in sorted(os.listdir(entries_dir)):
         continue
     meta = json.load(open(os.path.join(entries_dir, name)))
     install_as = meta["installAs"]
+    # The entry says which cut is current; the archive name carries it (first cut
+    # unsuffixed) and the archive's own meta.json must agree, or the app would offer an
+    # update that installs the same bytes - or worse, an older cut over a newer one.
+    revision = meta.get("revision", 1)
+    if isinstance(revision, bool) or not isinstance(revision, int) or revision < 1:
+        sys.exit("%s: revision must be an integer >= 1, got %r" % (meta["id"], revision))
 
-    zip_path = os.path.join(release, "vdgs-scene-%s.zip" % install_as)
+    suffix = "-r%d" % revision if revision > 1 else ""
+    zip_path = os.path.join(release, "vdgs-scene-%s%s.zip" % (install_as, suffix))
     if not os.path.exists(zip_path):
+        if revision > 1:
+            # A republished capture without its new archive is not "not packaged yet":
+            # publishing this catalog would drop a capture people already have.
+            sys.exit("%s: revision %d declared but %s is not in build/release - run make-release.sh --scene first"
+                     % (meta["id"], revision, os.path.basename(zip_path)))
         skipped.append((meta["id"], "no %s" % os.path.basename(zip_path)))
         continue
+    packed = int(zip_meta(zip_path).get("revision", 1))
+    if packed != revision:
+        sys.exit("%s: entry says revision %d but %s carries revision %d"
+                 % (meta["id"], revision, os.path.basename(zip_path), packed))
 
     shutil.copy2(zip_path, os.path.join(out, "scene", os.path.basename(zip_path)))
     entry = {
@@ -95,6 +116,7 @@ for name in sorted(os.listdir(entries_dir)):
         "author": meta.get("author"),
         "licence": meta.get("licence"),
         "captured": meta.get("captured"),
+        "revision": revision,
         "splats": splat_count(zip_path),
         "scene": {
             "url": "%s/scene/%s" % (base, os.path.basename(zip_path)),

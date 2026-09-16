@@ -438,16 +438,20 @@ impl Host {
                     parsed = Some(t);
                 }
 
+                let mut updating = false;
                 let zip = catalog::download(&entry.scene, &temp, &mut |p| host.percent(Some(p)))
                     .map_err(|e| e.to_string())?;
                 let install_result = (|| {
                     host.percent(None);
                     host.set_busy(Some(&format!("installing {}", entry.name)));
-                    let label = entry
-                        .install_as
-                        .as_deref()
-                        .unwrap_or(entry.name.as_str());
-                    game::install_archive(&root, &zip, label, log).map_err(|e| e.to_string())
+                    match entry.install_as.as_deref() {
+                        Some(install_as) => {
+                            game::install_capture_archive(&root, &zip, install_as, log)
+                                .map(|replaced| updating = replaced)
+                        }
+                        None => game::install_archive(&root, &zip, &entry.name, log),
+                    }
+                    .map_err(|e| e.to_string())
                 })();
                 let _ = std::fs::remove_file(&zip);
                 install_result?;
@@ -500,8 +504,11 @@ impl Host {
 
                 if let Some(ref install_as) = entry.install_as {
                     let shown = tracks::display_name(&t.name);
-                    game::bind(&root, &shown, install_as).map_err(|e| e.to_string())?;
-                    log(format!("bound \"{shown}\" to {install_as}"));
+                    if game::bind(&root, &shown, install_as, updating).map_err(|e| e.to_string())? {
+                        log(format!("bound \"{shown}\" to {install_as}"));
+                    } else {
+                        log(format!("\"{shown}\" keeps its binding"));
+                    }
                 }
                 Ok(())
             })();
@@ -771,7 +778,7 @@ fn create_track_job(
         )),
     }
 
-    game::bind(root, display, capture).map_err(|e| e.to_string())?;
+    game::bind(root, display, capture, false).map_err(|e| e.to_string())?;
     log(format!("bound \"{display}\" to {capture}"));
     Ok(())
 }
@@ -1441,7 +1448,7 @@ mod tests {
         let root = tmp();
         let stored = tracks::stored_name("VDGS my house");
         tracks::import(&db, &stored, 16, 0, "{}").unwrap();
-        game::bind(&root, "VDGS my house", "my-house").unwrap();
+        game::bind(&root, "VDGS my house", "my-house", false).unwrap();
         let capture_dir = root.join("vdgs/my-house");
         std::fs::create_dir_all(&capture_dir).unwrap();
         std::fs::write(capture_dir.join("meta.json"), b"{}").unwrap();
@@ -1515,7 +1522,7 @@ mod tests {
         let root = tmp();
         let stored = tracks::stored_name("VDGS my house");
         tracks::import(&db, &stored, 16, 0, "{}").unwrap();
-        game::bind(&root, "VDGS my house", "my-house").unwrap();
+        game::bind(&root, "VDGS my house", "my-house", false).unwrap();
         let unrelated = root.join("vdgs/unrelated-scene");
         std::fs::create_dir_all(&unrelated).unwrap();
         std::fs::write(unrelated.join("meta.json"), b"{}").unwrap();
@@ -1627,7 +1634,7 @@ mod tests {
         let root = tmp();
         let stored = tracks::stored_name("VDGS my house");
         tracks::import(&db, &stored, 16, 0, "{}").unwrap();
-        game::bind(&root, "VDGS my house", "my-house").unwrap();
+        game::bind(&root, "VDGS my house", "my-house", false).unwrap();
 
         let mut logged = Vec::new();
         let result = remove_track_job(&root, &db, "VDGS my house", true, &[], &mut |s| {

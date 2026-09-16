@@ -25,6 +25,8 @@ import sys
 
 import numpy as np
 
+import splat_sh
+
 
 # ----------------------------------------------------------------- ply io
 
@@ -235,9 +237,18 @@ def check_floor_is_down(rows, props):
         print("      ply with Y inverted relative to Unity).")
 
 
+def transform_sh(rows, props, R):
+    """Carry the SH through the same orthogonal transform as the geometry (see splat_sh.py)."""
+    cols = splat_sh.f_rest_columns(props)
+    if not cols:
+        print("  no SH in file; nothing to transform")
+        return
+    rows[:, cols] = splat_sh.rotate_f_rest(rows[:, cols], R)
+
+
 def mirror_axis(rows, props, axis):
     """
-    Reflect the cloud across one axis, orientations included.
+    Reflect the cloud across one axis, orientations and spherical harmonics included.
 
     A reflection is not a rotation - its matrix has determinant -1 - so it cannot be
     folded into the rotation path. For a unit quaternion (w,x,y,z), reflecting across
@@ -267,6 +278,10 @@ def mirror_axis(rows, props, axis):
         if k != i:
             out[:, 1 + k] = -q[:, 1 + k]
     rows[:, rot] = out.astype(np.float32)
+
+    M = np.eye(3)
+    M[i, i] = -1.0
+    transform_sh(rows, props, M)
 
 
 def scene_extent(xyz):
@@ -334,7 +349,7 @@ def prune_giants(rows, props, pct):
 
 
 def apply_transform(rows, props, R, floor_y, scale):
-    """Rotate, drop the floor to y=0 and scale - positions, orientations and sizes."""
+    """Rotate, drop the floor to y=0 and scale - positions, orientations, sizes and SH."""
     ix, iy, iz = props.index("x"), props.index("y"), props.index("z")
     out = rows[:, [ix, iy, iz]].astype(np.float64) @ R.T
     out[:, 1] -= floor_y
@@ -350,6 +365,8 @@ def apply_transform(rows, props, R, floor_y, scale):
     q /= norm
     rq = mat_to_quat(R)
     rows[:, rot_idx] = quat_mul(np.broadcast_to(rq, q.shape), q).astype(np.float32)
+
+    transform_sh(rows, props, R)
 
     # Sizes are stored as log, so a multiply becomes an add.
     if abs(scale - 1.0) > 1e-9:

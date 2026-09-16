@@ -161,6 +161,7 @@ const devState: SetupState = {
         splats: 1497617,
         bytes: 123_657_212,
         installed: true,
+        update: true,
         installAs: 'FDF-2026-08-24',
       },
       {
@@ -172,6 +173,7 @@ const devState: SetupState = {
         splats: 3_900_000,
         bytes: 402_000_000,
         installed: false,
+        update: false,
         installAs: 'JDL-2026-R5',
       },
     ],

@@ -105,6 +105,8 @@ export type CatalogEntry = {
   splats: number
   bytes: number
   installed: boolean
+  /** Installed, and the catalog has a newer cut of the same folder. */
+  update: boolean
   /**
    * The capture directory this entry installs as - a different namespace from `id`. This
    * is what a track's bound capture name is matched against to find which id to hand

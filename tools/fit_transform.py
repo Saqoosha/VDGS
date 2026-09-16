@@ -10,8 +10,12 @@ splats deleted and a retrain reorders everything anyway.
 So it is estimated: coarse-align by centroid and principal axes, then scaled ICP against a
 KD-tree. Both point sets describe the same field, so this converges from a crude start.
 
-    python3 fit_transform.py --src raw.ply --ref aligned.ply --out matrix.json
+    python3 fit_transform.py --src raw.ply --ref aligned.ply --exact --out matrix.json
+    python3 fit_transform.py --src raw.ply --ref aligned.ply --out matrix.json   # ICP fallback
     python3 fit_transform.py --src new.ply --apply matrix.json --out new-aligned.ply
+
+--exact matches splats by (sh0, opacity) and is the answer whenever both files come from
+the same training run; the ICP path is for when they do not.
 
 The residual is printed and is the thing to judge: it should land near the capture's own
 noise floor. A residual that stays at metres means the two files are not the same scene,
@@ -23,6 +27,8 @@ import json
 import sys
 
 import numpy as np
+
+import splat_sh
 
 
 def read_ply(path, want_all=False):
@@ -151,6 +157,56 @@ def fit(src, ref, iters, sample, seed=0):
     return scale, R, t, float(dist[keep].mean())
 
 
+# Only columns no transform touches: sh0 and opacity. Band-1 SH used to be here and is
+# now rotated along with the geometry (splat_sh), so it no longer survives the chain.
+FINGERPRINT = ["f_dc_0", "f_dc_1", "f_dc_2", "opacity"]
+
+
+def fit_exact(src_path, ref_path):
+    """Solve the transform from splats that are provably the same splat in both files.
+
+    A similarity transform moves positions, orientations, log-scales and (now) SH, and
+    no cleanup step edits sh0 or opacity: so those four floats are a fingerprint that
+    survives the whole alignment chain. Matching on them gives millions of exact
+    correspondences, and Umeyama on those is closed-form rather than an ICP that can
+    settle into a wrong minimum. Reflections are allowed - the chain contains --mirror y.
+    """
+    props_s, _, data_s, _ = read_ply(src_path, want_all=True)
+    props_r, _, data_r, _ = read_ply(ref_path, want_all=True)
+    for k in FINGERPRINT:
+        if k not in props_s or k not in props_r:
+            sys.exit(f"--exact needs {k} in both files")
+
+    def keyed(props, data):
+        cols = [props.index(k) for k in FINGERPRINT]
+        key = np.ascontiguousarray(data[:, cols].astype(np.float32)).view(
+            np.dtype((np.void, 4 * len(cols)))).ravel()
+        xyz = data[:, [props.index("x"), props.index("y"), props.index("z")]].astype(np.float64)
+        # Keep only fingerprints that occur once in this file; duplicates cannot be paired.
+        u, idx, cnt = np.unique(key, return_index=True, return_counts=True)
+        one = cnt == 1
+        return u[one], xyz[idx[one]]
+
+    ks, ps = keyed(props_s, data_s)
+    kr, pr = keyed(props_r, data_r)
+    common, i_s, i_r = np.intersect1d(ks, kr, assume_unique=True, return_indices=True)
+    print(f"  fingerprints: src {len(ks)} unique, ref {len(kr)} unique, matched {len(common)}")
+    if len(common) < 1000:
+        sys.exit("too few exact matches - are these the same training run?")
+    a, b = ps[i_s], pr[i_r]
+
+    mu_a, mu_b = a.mean(axis=0), b.mean(axis=0)
+    a0, b0 = a - mu_a, b - mu_b
+    U, D, Vt = np.linalg.svd(b0.T @ a0 / len(a))
+    R = U @ Vt                                   # reflection allowed: no sign fix-up
+    scale = D.sum() / (a0 ** 2).sum(axis=1).mean()
+    t = mu_b - scale * R @ mu_a
+    resid = np.linalg.norm(scale * (a @ R.T) + t - b, axis=1)
+    print(f"  det {np.linalg.det(R):+.3f}  scale {scale:.6f}  residual mean {resid.mean():.6f}"
+          f"  p99 {np.percentile(resid, 99):.6f}")
+    return scale, R, t, float(resid.mean())
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -160,6 +216,8 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--iters", type=int, default=30)
     ap.add_argument("--sample", type=int, default=60000)
+    ap.add_argument("--exact", action="store_true",
+                    help="match splats by colour fingerprint instead of ICP (see fit_exact)")
     args = ap.parse_args()
 
     if args.apply:
@@ -229,6 +287,11 @@ def main():
         for i in range(4):
             data[:, cols[f"rot_{i}"]] = out[:, i].astype(np.float32)
 
+        # SH goes through the same R (reflection included); see tools/splat_sh.py.
+        rc = splat_sh.f_rest_columns(props)
+        if rc:
+            data[:, rc] = splat_sh.rotate_f_rest(data[:, rc], R)
+
         # Scales are stored as logs, so a uniform scale is an addition.
         for i in range(3):
             data[:, cols[f"scale_{i}"]] += np.float32(np.log(scale))
@@ -241,9 +304,12 @@ def main():
 
     if not args.ref:
         sys.exit("need --ref (to fit) or --apply (to use a fit)")
-    src, ref = read_ply(args.src), read_ply(args.ref)
-    print(f"src {len(src)} pts, ref {len(ref)} pts")
-    scale, R, t, resid = fit(src, ref, args.iters, args.sample)
+    if args.exact:
+        scale, R, t, resid = fit_exact(args.src, args.ref)
+    else:
+        src, ref = read_ply(args.src), read_ply(args.ref)
+        print(f"src {len(src)} pts, ref {len(ref)} pts")
+        scale, R, t, resid = fit(src, ref, args.iters, args.sample)
     json.dump({"scale": float(scale), "R": R.tolist(), "t": t.tolist(),
                "residual": resid}, open(args.out, "w"), indent=2)
     print(f"\nwrote {args.out}   residual {resid:.4f} in reference units")

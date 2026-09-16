@@ -80,6 +80,33 @@ describe('the merged track table', () => {
     expect(vi.mocked(send)).toHaveBeenCalledWith('get', 'fdf-2026-08-24')
   })
 
+  // An update is the same get: the host swaps the folder for the new cut and leaves the
+  // binding and placement alone. It shows only when the catalog says the installed
+  // folder is older, beside the row's usual action.
+  it('offers Update on an installed track when the catalog has a newer cut, and sends the entry\'s id', () => {
+    render(<Tracks state={state({
+      tracks: [track({ capture: 'fdf' })],
+      catalog: { url: 'u', error: null, entries: [
+        { id: 'fdf-2026-08-24', name: 'FDF', description: null, author: null, licence: null,
+          splats: 1, bytes: 1, installed: true, update: true, installAs: 'fdf' },
+      ] },
+    })} busy={false} {...noop} />)
+    fireEvent.click(screen.getByRole('button', { name: /update/i }))
+    expect(vi.mocked(send)).toHaveBeenCalledWith('get', 'fdf-2026-08-24')
+    expect(screen.getByRole('button', { name: /remove/i })).toBeInTheDocument()
+  })
+
+  it('offers no Update on an installed track that is current', () => {
+    render(<Tracks state={state({
+      tracks: [track({ capture: 'fdf' })],
+      catalog: { url: 'u', error: null, entries: [
+        { id: 'fdf-2026-08-24', name: 'FDF', description: null, author: null, licence: null,
+          splats: 1, bytes: 1, installed: true, update: false, installAs: 'fdf' },
+      ] },
+    })} busy={false} {...noop} />)
+    expect(screen.queryByRole('button', { name: /update/i })).toBeNull()
+  })
+
   it('offers no action for a missing capture when there is no catalog to resolve it against', () => {
     render(<Tracks state={state({
       tracks: [track({ captureInstalled: false, capture: 'fdf' })],
