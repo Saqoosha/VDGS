@@ -12,95 +12,51 @@ follows is only the part VDGS touches.
 
 ---
 
-## The order is the whole thing
+## What the companion handles: naming, binding, placement
 
-**Name it, bind it, then build it.** Any other order costs you work.
+**Starting a new track from your own capture is mostly done with the companion's
+`Add track`.** Pick a `.ply`, type a name and Create — that copies the file into
+`<game>/vdgs/`, creates the track and binds it in one job — then Fly and tune the
+placement from **Tweak**. Binding lands in the same job that creates the track, so
+**the old ordering trap — build first, rename later, watch the picture
+disappear — cannot happen for a track made this way** (a job that fails partway leaves
+the copied capture listed as installed, on no track). The walkthrough is in
+[USAGE.md](USAGE.md).
 
-**What shows is decided by the track's name alone** (`bindings.json`). So:
+**There is no scenery to pick.** The seed template the companion clones already carries a
+`scene_id`, and its gates sit where they do because of that one scenery — there is no room
+to choose a different one. Looking scenery numbers up with `--export-track --list` is gone.
 
-- Renaming a track after building it **breaks the binding and the picture disappears**.
-  Re-binding fixes it, but a released `bindings.sample.json` assumes the name it shipped
-  with — so **if you intend to publish, keep the name you started with**
-- Bind before you open the editor and **the capture is there the whole time you are
-  building**
+What is left in this file are the four steps the companion does not reach yet — **from
+here on it is the game's own track editor and this repo's tools.**
 
-## 1. Pick a scenery
+## Renaming a track breaks its binding
 
-A track sits on one of VelociDrone's sceneries (`scene_id`), and **a capture is placed
-relative to that scenery's origin** — so `scene_id` is also the number that decides whether
-a published track lands where its capture is.
+**What shows is decided by the track's name alone** (`bindings.json`). For a track the
+companion just created, the name and the binding land in the same job — but **rename the
+track afterward and the binding breaks, and the picture disappears.** Re-binding fixes it,
+but a released `bindings.sample.json` assumes the name it shipped with, so **if you intend
+to publish, do not rename it partway through.**
 
-**Pick a flat, empty one.** The game's own terrain and buildings otherwise compete with the
-capture; `SplatBackdrop` boxes the capture in black precisely to keep the outside world out
-of the picture.
-
-What each number is on your install:
-
-```powershell
-VDGS.exe --export-track --list
-# [local]  scene  16  VDGS FDF
-# [server] scene  33  ...
-```
-
-**The same works on macOS** — it moved across when the two companions became one; the C#
-version was Windows-only. Call the binary inside the bundle:
-
-```bash
-"/Applications/VDGS Companion.app/Contents/MacOS/VDGS Companion" --export-track --list
-```
-
-**All three published VDGS tracks sit on `scene 16`.** Whether that number is the same
-across installs is not verified here, so **read your own list rather than trusting the
-number**.
-
-## 2. Bind first
-
-Put the capture down and bind it to the track's name. The browser UI
-(`http://localhost:8777/`) is quickest: `01 CONTROL` shows the current track, so
-**Bind shown splat to this track** is one press.
-
-By hand, `<game>/vdgs/bindings.json`:
-
-```json
-{ "My Track": ["my-capture"] }
-```
-
-**An unbound track shows nothing**, which is less harmful than showing the wrong capture.
-
-To fly a track without its capture, start the game without `-force-d3d12` - VelociDrone's
-own launcher does not pass it. The splat shaders bake as unsupported without D3D12, so no
-capture is read at all.
-
-## 3. Get the placement right
-
-**Scale** and **Height** live in `02 LIBRARY`. **Changes are saved to `placement.json` as
-you make them**, so once it looks right you can go straight to building.
-
-**Placement belongs to the capture, not to the course.** It is relative to the scenery's
-origin, so another course on the same scenery inherits it. The other way round: a
-**`placement.json` that came with a download is tuned to the track it shipped with**, so
-adjust it here if you are laying your own course.
-
-The sliders are logarithmic. **Height reaches ±200 m** — some captures have their origin
-200 m underground. Type an exact value into the box beside it when you need one.
-
-## 4. Build
+## 1. Build
 
 Build in the game's editor as usual. **The mod takes no keys at all** — F7 (save scene) and
-the arrow keys (move object) stay the game's. Everything is driven from the browser.
+the arrow keys (move object) stay the game's. Placement is tuned from the
+**Tweak** screen.
 
-Three things matter from the VDGS side:
+Two things matter from the VDGS side:
 
 - **The game must be running with `-force-d3d12`.** Without it no capture draws at all and
   nothing says why. The companion's `FLY` always passes it
 - **Do not linger in the menus.** Left on the main menu under D3D12 the **game crashes**
   after about five minutes. It crashes with the plugin removed too, so the mod is not
   involved — see [AGENTS.md](../AGENTS.md). Inside the editor or a track it does not happen
-- **Swapping what is shown stalls a frame** (tens of megabytes go to the GPU). A bare `.ply`
-  is **re-parsed every time**: 13–14 seconds at four million splats. **Convert before you
-  build** and that wait all but disappears ([USAGE.md](USAGE.md) §4-2)
 
-## 5. Bake collision
+**Swapping what is shown stalls a frame** (tens of megabytes go to the GPU). A bare `.ply`
+is **re-parsed every time**: 13–14 seconds at four million splats.
+**Convert before you build** and that wait all but disappears ([USAGE.md](USAGE.md) §4-2).
+
+## 2. Bake collision
 
 **Without it you fly through the walls and the floor.** The bake is [SCENES.md](SCENES.md)
 §4.
@@ -109,10 +65,10 @@ Three things matter from the VDGS side:
 covers 0.104 m and **any wall thinner than 10 cm is passed through**. That is why the level
 set band is baked at four times the voxel size.
 
-**show solid** in the browser UI draws the shell, so you can see whether the walls read
-from the inside before committing.
+**Collision view** on the **Tweak** screen draws the shell, so you can see
+whether the walls read from the inside before committing.
 
-## 6. Export it
+## 3. Export
 
 ```powershell
 VDGS.exe --export-track "My Track" My-Track.track.json
@@ -125,7 +81,7 @@ What comes out is a small JSON of four fields — `name`, `scene_id`, `type`, `v
 `value` is the game's own string **byte for byte**, unformatted, so an imported track does
 not differ from the original in any way. FDF's is 3,772 bytes.
 
-## 7. Publish it
+## 4. Publish
 
 Write `catalog/entries/<id>.json`, package, upload — all in
 [catalog/README.md](../catalog/README.md).

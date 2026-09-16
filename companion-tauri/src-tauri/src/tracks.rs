@@ -10,6 +10,8 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum Error {
+    #[error("{0}")]
+    Msg(String),
     #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error(transparent)]
@@ -84,6 +86,38 @@ pub fn display_name(stored: &str) -> String {
     }
 }
 
+/// The inverse of [`display_name`].
+///
+/// The order is load-bearing and is the reverse of the decode. Percent-escape first, so
+/// the '+' characters this function *creates* from spaces are not themselves escaped;
+/// '%' goes first inside that, so an escape introduced later is not double-escaped.
+pub fn stored_name(display: &str) -> String {
+    display
+        .replace('%', "%25")
+        .replace('+', "%2b")
+        .replace(' ', "+")
+}
+
+/// Pulls the three columns a track row needs out of a `.track.json`.
+///
+/// `value` is the game's own string and is copied byte for byte - a reformatted value is
+/// a different track as far as VelociDrone is concerned.
+pub fn seed_value(seed_json: &str) -> Result<(i64, i64, String), Error> {
+    let v: serde_json::Value = serde_json::from_str(seed_json)
+        .map_err(|e| Error::Msg(format!("seed template is not JSON: {e}")))?;
+    let scene = v
+        .get("scene_id")
+        .and_then(|n| n.as_i64())
+        .ok_or_else(|| Error::Msg("seed template has no scene_id".into()))?;
+    let kind = v.get("type").and_then(|n| n.as_i64()).unwrap_or(0);
+    let value = v
+        .get("value")
+        .and_then(|s| s.as_str())
+        .ok_or_else(|| Error::Msg("seed template has no value".into()))?
+        .to_string();
+    Ok((scene, kind, value))
+}
+
 pub fn list(db: &Path) -> rusqlite::Result<Vec<Track>> {
     let c = open_ro(db)?;
     let mut stmt = c.prepare(
@@ -133,7 +167,20 @@ pub fn true_lens_on(db: &Path) -> Option<bool> {
     }
 }
 
-/// Exact stored name first, then display_name(row.name). Input is never decoded.
+/// Exact stored name, then display_name(row.name) == name, then display space on both
+/// sides. Input is never decoded on its own - only compared against a decoded row.
+///
+/// The third pass exists because two writers hand this function differently-encoded
+/// spellings of what a person would call the same track. VelociDrone's own track editor
+/// writes a literal space; `create_track_job` (and anything else going through
+/// `stored_name`) writes the form-encoded spelling. Neither of the first two passes
+/// catches an encoded `name` against an editor's space-spelled row: the raw comparison
+/// fails because the bytes differ, and `display_name(&t.name) == name` fails because the
+/// left side is decoded and the right is not. Decoding both sides is what makes an
+/// editor-written "VDGS my house" and a companion-written "VDGS+my+house" resolve to the
+/// same row - without it, `import` cannot see the existing track, reports `Added`, and a
+/// second row appears with an identical display name; `remove` then has no way to tell
+/// them apart either.
 pub fn find(db: &Path, name: &str) -> rusqlite::Result<Option<Track>> {
     let all = list(db)?;
     for t in &all {
@@ -143,6 +190,12 @@ pub fn find(db: &Path, name: &str) -> rusqlite::Result<Option<Track>> {
     }
     for t in &all {
         if display_name(&t.name) == name {
+            return Ok(Some(t.clone()));
+        }
+    }
+    let wanted = display_name(name);
+    for t in &all {
+        if display_name(&t.name) == wanted {
             return Ok(Some(t.clone()));
         }
     }
@@ -345,10 +398,38 @@ mod tests {
     use super::*;
 
     #[test]
+    fn seed_value_reads_scene_kind_and_value() {
+        let seed = r#"{"name":"VDGS Template","scene_id":16,"type":0,"value":"{\"gates\":[]}"}"#;
+        let (scene, kind, value) = seed_value(seed).unwrap();
+        assert_eq!(scene, 16);
+        assert_eq!(kind, 0);
+        assert_eq!(value, "{\"gates\":[]}");
+    }
+
+    #[test]
+    fn seed_value_rejects_a_seed_without_a_value() {
+        let seed = r#"{"name":"VDGS Template","scene_id":16,"type":0}"#;
+        assert!(seed_value(seed).is_err());
+    }
+
+    #[test]
     fn display_name_decodes_plus_then_percent() {
         assert_eq!(display_name("VDGS+FDF+2026-08-22"), "VDGS FDF 2026-08-22");
         assert_eq!(display_name("Sols%2bStreet%2bLeague%2b1"), "Sols+Street+League+1");
         assert_eq!(display_name("50%+off"), "50% off"); // stray % survives
+    }
+
+    #[test]
+    fn stored_name_is_the_inverse_of_display_name() {
+        // Space becomes '+', and a literal '+' becomes '%2b' - the same two stages
+        // VelociDrone applies, in the order that survives a round trip.
+        assert_eq!(stored_name("VDGS my house"), "VDGS+my+house");
+        assert_eq!(stored_name("Sols+Street+League+1"), "Sols%2bStreet%2bLeague%2b1");
+        assert_eq!(stored_name("100% done"), "100%25+done");
+
+        for display in ["VDGS my house", "Sols+Street+League+1", "100% done", "plain"] {
+            assert_eq!(display_name(&stored_name(display)), display);
+        }
     }
 
     #[test]

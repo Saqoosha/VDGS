@@ -100,6 +100,7 @@ namespace VDGS
                     SetBackdrop = ApplyBackdrop,
                     SetCollision = ApplyCollision,
                     SetCollisionView = ApplyCollisionView,
+                    SetOrientation = ApplyOrientation,
                 };
                 if (!m_Web.Start(WebControl.kDefaultPort, report))
                 {
@@ -128,6 +129,8 @@ namespace VDGS
             var loaded = new System.Collections.Generic.List<string>();
             foreach (var s in m_Scenes)
             {
+                // One placement read per scene - see BuildStatusSnapshot's doc comment.
+                var status = s.BuildStatusSnapshot();
                 available.Add(new System.Collections.Generic.Dictionary<string, object>
                 {
                     { "name", s.Name },
@@ -140,15 +143,20 @@ namespace VDGS
                     { "shFormat", s.ShFormat },
                     { "bytes", s.Bytes },
                     { "shown", s.Spawned },
-                    { "scale", s.Scale },
-                    { "y", s.YOffset },
-                    { "backdrop", s.BackdropOn },
+                    { "scale", status.Scale },
+                    { "y", status.YOffset },
+                    { "x", status.XOffset },
+                    { "z", status.ZOffset },
+                    { "up", status.Up },
+                    { "turn", status.Turn },
+                    { "mirror", status.MirrorY },
+                    { "backdrop", status.BackdropOn },
                     // Two fields, not one: the UI must be able to tell "no collision mesh
                     // generated" apart from "mesh generated and switched off", or a missing
                     // file reads as a setting somebody turned off.
                     { "hasCollision", s.HasCollision },
-                    { "collision", s.CollisionOn },
-                    { "collisionView", s.CollisionView },
+                    { "collision", status.CollisionOn },
+                    { "collisionView", status.CollisionView },
                 });
                 if (s.Spawned) loaded.Add(s.Name);
             }
@@ -253,8 +261,8 @@ namespace VDGS
             try { File.AppendAllText(m_TrackLogPath, log.ToString()); } catch { }
         }
 
-        /// <summary>Resizes / raises a capture. Applies live and writes placement.json.</summary>
-        private void ApplyTransform(string name, float? scale, float? y)
+        /// <summary>Resizes / moves a capture. Applies live and writes placement.json.</summary>
+        private void ApplyTransform(string name, float? scale, float? y, float? x, float? z)
         {
             EnsureDiscovered();
             var log = new StringBuilder();
@@ -264,7 +272,26 @@ namespace VDGS
             foreach (var s in m_Scenes)
             {
                 if (!string.IsNullOrEmpty(name) && s.Name != name) continue;
-                s.SetTransform(scale, y, log);
+                s.SetTransform(scale, y, x, z, log);
+                hit = true;
+            }
+            if (!hit) log.AppendLine("no splat named '" + (name ?? "-") + "'");
+
+            try { File.AppendAllText(Probe.LogPath, log.ToString()); } catch { }
+        }
+
+        /// <summary>Sets up / turn / mirror for a capture. Applies live and writes placement.json.</summary>
+        private void ApplyOrientation(string name, string up, float? turn, bool? mirror)
+        {
+            EnsureDiscovered();
+            var log = new StringBuilder();
+            log.AppendLine("======== orientation @ " + DateTime.Now.ToString("HH:mm:ss") + " ========");
+
+            var hit = false;
+            foreach (var s in m_Scenes)
+            {
+                if (!string.IsNullOrEmpty(name) && s.Name != name) continue;
+                s.SetOrientation(up, turn, mirror, log);
                 hit = true;
             }
             if (!hit) log.AppendLine("no splat named '" + (name ?? "-") + "'");
@@ -459,6 +486,12 @@ namespace VDGS
             if (m_TrackPollTimer < 1f) return;
             m_TrackPollTimer = 0f;
 
+            // Whether the current track was bound before the reload: only a binding that
+            // was there and is now gone is a reason to despawn. A capture shown by hand on
+            // a track that never had one must survive an unrelated edit to the file.
+            var currentWasBound = !string.IsNullOrEmpty(m_CurrentTrack) && m_Bindings.Has(m_CurrentTrack);
+            var bindingsChanged = m_Bindings.ReloadIfChanged();
+
             var log = new StringBuilder();
             string name;
             try { name = TrackName.Current(log); }
@@ -522,6 +555,40 @@ namespace VDGS
                                + (m_CurrentTrack ?? "-") + "' -> '" + (name ?? "-") + "'");
                 m_CurrentTrack = name;
                 ApplyTrackBinding(name, log);
+            }
+            // The track itself did not change, but the binding it points at might have -
+            // companion's Unbind (and a hand edit) writes bindings.json without touching
+            // the track name, so nothing above this line would ever notice. Without this,
+            // editing a binding while its track stays current spawns nothing, despawns
+            // nothing, and logs nothing: the documented recovery for "my downloaded track
+            // got renamed and the capture vanished" is rebinding it here, and that fix
+            // would silently do nothing until the next track change happened to trigger it.
+            else if (bindingsChanged && !string.IsNullOrEmpty(m_CurrentTrack))
+            {
+                if (m_Bindings.Has(m_CurrentTrack))
+                {
+                    log.AppendLine("  bindings.json changed for the current track - reapplying '"
+                                   + m_CurrentTrack + "'");
+                    ApplyTrackBinding(m_CurrentTrack, log);
+                }
+                else if (currentWasBound)
+                {
+                    // ApplyTrackBinding's own early return leaves the screen alone for an
+                    // unbound track, because a capture spawned by hand through /api/load
+                    // with no binding must survive an unrelated poll finding no binding.
+                    // This is a different case: bindings.json itself just changed to drop
+                    // this track's binding, so despawning is carrying out what the file
+                    // says, not guessing - the same thing Unbind already does above for
+                    // the /api/unbind path when the removed binding is the live track.
+                    log.AppendLine("  bindings.json changed for the current track - '"
+                                   + m_CurrentTrack + "' is no longer bound");
+                    foreach (var s in m_Scenes)
+                    {
+                        if (!s.Spawned) continue;
+                        s.Despawn();
+                        log.AppendLine("  " + s.Name + ": despawned");
+                    }
+                }
             }
 
             // A view asked for at spawn time could not be applied then - the collider's mesh

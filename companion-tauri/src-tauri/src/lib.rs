@@ -304,38 +304,41 @@ impl Host {
         });
     }
 
-    fn install_zip(self: &Arc<Self>) {
-        let Some(app) = self.inner.lock().unwrap().game.clone() else {
+    /// Picks a .ply and hands its path back to the page - nothing is copied yet.
+    ///
+    /// Adding a track is file -> name -> create, and the copy waits for the name: a
+    /// capture that lands in `<game>/vdgs/` before the person has committed to a track
+    /// is the "installed, on no track" state the earlier layout kept producing (cancel
+    /// at the name step and the file stayed). The page opens the name dialog on `picked`
+    /// and sends `addTrack {path, name}` when it is confirmed; cancel sends nothing.
+    fn pick_ply(self: &Arc<Self>) {
+        if self.inner.lock().unwrap().game.is_none() {
             return;
-        };
+        }
+        if launch::is_running() {
+            self.error_dialog(
+                "VelociDrone is running. Close it first - the track database is in use.",
+            );
+            return;
+        }
         let Some(picked) = self
             .app
             .dialog()
             .file()
-            .add_filter("Zip archives", &["zip"])
+            .add_filter("Gaussian splat capture", &["ply"])
             .blocking_pick_file()
         else {
             return;
         };
-        let Ok(zip) = picked.into_path() else {
+        let Ok(ply) = picked.into_path() else {
             return;
         };
-        let label = zip
-            .file_name()
+        let stem = ply
+            .file_stem()
             .and_then(|s| s.to_str())
-            .unwrap_or("archive")
+            .unwrap_or("capture")
             .to_string();
-        let what = format!("installing {label}");
-        self.run_busy(&what, move |_host, log| {
-            if launch::is_running() {
-                return Err(
-                    "VelociDrone is running. Close it first - files in use cannot be replaced."
-                        .into(),
-                );
-            }
-            let root = game::root(&app);
-            game::install_archive(&root, &zip, &label, log).map_err(|e| e.to_string())
-        });
+        self.post(json!({"type":"picked","path": ply.to_string_lossy(),"stem": stem}));
     }
 
     fn refresh_catalog(self: &Arc<Self>) {
@@ -517,9 +520,21 @@ impl Host {
         });
     }
 
+    /// Removing a track now removes its bound capture too - not just the binding.
+    ///
+    /// The old design kept the capture on the theory that it is hundreds of megabytes and
+    /// a track is a small click, so you might want to rebind the same capture to a
+    /// different track later. That reasoning only holds if the person can tell what is
+    /// left behind and why - and they could not. The first real user to hit this in
+    /// testing removed two tracks and found both captures still listed as installed -
+    /// "confusing, so users will confuse."
     fn remove_track(self: &Arc<Self>, name: &str) {
-        let Some(app) = self.inner.lock().unwrap().game.clone() else {
-            return;
+        let (app, catalog) = {
+            let inner = self.inner.lock().unwrap();
+            let Some(app) = inner.game.clone() else {
+                return;
+            };
+            (app, inner.catalog.clone())
         };
         let db = tracks::db_path();
         let row = if db.is_file() {
@@ -528,22 +543,61 @@ impl Host {
             None
         };
         let mine = row.as_ref().is_some_and(|t| !t.from_server);
+
+        // Read the bound captures now, before `unbind` erases this exact mapping - by the
+        // time the job below runs there is nothing left to say which captures this track
+        // was showing. A track can be bound to more than one (`bindings.json` maps a name
+        // to a list), so this is a list even though the common case holds one.
+        let root = game::root(&app);
+        let all_bindings = game::try_read_bindings(&root).unwrap_or_default();
+        let captures = all_bindings.get(name).cloned().unwrap_or_default();
+
+        // Binding the same capture to a second track is ordinary - `game::bind` never
+        // refuses it. So a capture this track is bound to may
+        // also be named under some other key in the same map, and deleting it here would
+        // silently break that other track's binding without telling anyone. Split the list
+        // now, purely to word the dialog correctly; `remove_track_job` re-derives the same
+        // question against a fresh read right before it would actually delete anything,
+        // because this snapshot can go stale while the confirmation sits on screen.
+        let (to_delete, kept_shared): (Vec<String>, Vec<String>) = captures
+            .iter()
+            .cloned()
+            .partition(|c| !capture_used_elsewhere(&all_bindings, name, c));
+
+        let capture_sentence =
+            capture_removal_sentence(&to_delete, &kept_shared, catalog.as_deref());
+        let extra = capture_sentence
+            .map(|s| format!(" {s}"))
+            .unwrap_or_default();
+
         let question = if mine {
             format!(
                 "Remove the track \"{name}\" from VelociDrone?\n\n\
-                 Its binding goes with it. The capture stays where it is, and the \
-                 database is copied first."
+                 Its binding goes with it.{extra} The database is copied first."
             )
         } else if row.is_none() {
+            if extra.is_empty() {
+                format!(
+                    "Stop showing a capture on \"{name}\"?\n\n\
+                     There is no such track in VelociDrone, so only the binding goes."
+                )
+            } else {
+                format!(
+                    "Stop showing a capture on \"{name}\"?\n\n\
+                     There is no such track in VelociDrone, so the binding goes.{extra}"
+                )
+            }
+        } else if extra.is_empty() {
             format!(
                 "Stop showing a capture on \"{name}\"?\n\n\
-                 There is no such track in VelociDrone, so only the binding goes."
+                 The track came from the official track server, so it is left alone - \
+                 only the binding goes."
             )
         } else {
             format!(
                 "Stop showing a capture on \"{name}\"?\n\n\
                  The track came from the official track server, so it is left alone - \
-                 only the binding goes."
+                 the binding goes.{extra}"
             )
         };
         if !self.confirm(&question) {
@@ -551,129 +605,96 @@ impl Host {
         }
         let name = name.to_string();
         self.run_busy(&format!("removing {name}"), move |_host, log| {
+            remove_track_job(&root, &db, &name, mine, &captures, log)
+        });
+    }
+
+    fn unbind_track(self: &Arc<Self>, track: &str) {
+        let Some(app) = self.inner.lock().unwrap().game.clone() else {
+            return;
+        };
+        let track = track.to_string();
+        self.run_busy(&format!("unbinding {track}"), move |_host, log| {
+            // No is_running guard: bindings.json is ours, not the game's, and the plugin
+            // picks the change up from its own poll within a second.
             let root = game::root(&app);
-            if game::unbind(&root, &name).map_err(|e| e.to_string())? {
-                log(format!("unbound \"{name}\""));
-            }
-            if !mine {
-                return Ok(());
-            }
-            if launch::is_running() {
-                return Err(
-                    "VelociDrone is running. Close it first - it keeps its track database open."
-                        .into(),
-                );
-            }
-            let (removed, backup) = tracks::remove(&db, &name).map_err(|e| e.to_string())?;
-            if removed {
-                let backup_name = backup
-                    .as_ref()
-                    .and_then(|p| p.file_name())
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("?");
-                log(format!(
-                    "removed track \"{name}\" (backup: {backup_name})"
-                ));
+            if game::unbind(&root, &track).map_err(|e| e.to_string())? {
+                log(format!("unbound \"{track}\""));
             } else {
-                log("the track was already gone from the database".into());
+                log(format!("\"{track}\" was not bound"));
             }
             Ok(())
         });
     }
 
-    fn add_track(&self) {
+    fn remove_capture(self: &Arc<Self>, name: &str) {
+        let (app, catalog) = {
+            let inner = self.inner.lock().unwrap();
+            let Some(app) = inner.game.clone() else {
+                return;
+            };
+            (app, inner.catalog.clone())
+        };
+        // The same question Remove asks for a track: this is hundreds of megabytes gone
+        // on one click, and whether it can come back depends on the catalog.
+        let fetchable = capture_is_fetchable(name, catalog.as_deref());
+        let question = if fetchable {
+            format!("Remove the capture \"{name}\"? It can be fetched again from the catalog.")
+        } else {
+            format!(
+                "Remove the capture \"{name}\"? Without the original .ply it cannot be recovered."
+            )
+        };
+        if !self.confirm(&question) {
+            return;
+        }
+        let name = name.to_string();
+        self.run_busy(&format!("removing {name}"), move |_host, log| {
+            if launch::is_running() {
+                return Err(
+                    "VelociDrone is running. Close it first - files in use cannot be removed."
+                        .into(),
+                );
+            }
+            let root = game::root(&app);
+            if game::remove_capture(&root, &name).map_err(|e| e.to_string())? {
+                log(format!("removed {name}"));
+            } else {
+                log(format!("{name} was not there"));
+            }
+            Ok(())
+        });
+    }
+
+    /// Copies the picked .ply in and creates a track bound to it, as one job.
+    ///
+    /// The two happen together on purpose. Binding is keyed by track name, so a capture
+    /// installed now and bound later is a rename waiting to break the link - and a broken
+    /// link shows nothing at all, with no error anywhere. The rest of the logic lives in
+    /// the free function [`add_track_job`].
+    fn add_track(self: &Arc<Self>, path: &str, name: &str) {
         let Some(app) = self.inner.lock().unwrap().game.clone() else {
             return;
         };
-        let Some(picked) = self
-            .app
-            .dialog()
-            .file()
-            .add_filter("JSON", &["json"])
-            .blocking_pick_file()
-        else {
-            return;
-        };
-        let Ok(path) = picked.into_path() else {
-            return;
-        };
-        match self.add_track_inner(&app, &path) {
-            Ok(()) => self.push(),
-            Err(ex) => {
-                self.log(&format!("failed: {ex}"));
-                self.error_dialog(&ex);
-            }
-        }
-    }
-
-    fn add_track_inner(&self, app: &Path, path: &Path) -> Result<(), String> {
-        if launch::is_running() {
-            return Err("Close VelociDrone first - it keeps its track database open.".into());
-        }
-        let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-        let t: tracks::TrackFile = serde_json::from_str(&text).map_err(|e| e.to_string())?;
-        let db = tracks::db_path();
-        if !db.is_file() {
-            return Err(format!(
-                "VelociDrone's database is not there yet - run the game once. ({})",
-                db.display()
-            ));
-        }
-        let value = t.value_string();
-        let (result, backup) =
-            tracks::import(&db, &t.name, t.scene_id, t.kind, &value).map_err(|e| e.to_string())?;
-        match result {
-            tracks::ImportResult::Added => {
-                let backup_name = backup
-                    .as_ref()
-                    .and_then(|p| p.file_name())
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("?");
-                self.log(&format!(
-                    "added track \"{}\" (backup: {backup_name})",
-                    t.name
-                ));
-                self.bind_if_obvious(app, &t.name);
-            }
-            tracks::ImportResult::AlreadyPresent => {
-                self.log(&format!(
-                    "track \"{}\" is already there, unchanged",
-                    t.name
-                ));
-                self.bind_if_obvious(app, &t.name);
-            }
-            tracks::ImportResult::WouldOverwrite => {
-                self.log(&format!(
-                    "a different track is already called \"{}\" - left alone",
-                    t.name
-                ));
-                self.warn_dialog(&format!(
-                    "You already have a track called \"{}\" and its layout \
-                     differs from this one.\n\nIt has been left as it is. Rename or \
-                     delete yours in the game if you want this version.",
-                    t.name
-                ));
-            }
-        }
-        Ok(())
-    }
-
-    fn bind_if_obvious(&self, app: &Path, track_name: &str) {
-        let root = game::root(app);
-        let scenes = game::scenes(&root);
-        if scenes.len() != 1 {
-            self.log(&format!(
-                "bind \"{track_name}\" to a capture at http://localhost:8777/ once flying"
-            ));
+        let display = name.trim().to_string();
+        if display.is_empty() {
+            self.error_dialog("a track needs a name");
             return;
         }
-        let shown = tracks::display_name(track_name);
-        let scene = &scenes[0].name;
-        if let Err(e) = game::bind(&root, &shown, scene, false) {
-            self.log(&format!("failed: {e}"));
-            return;
-        }
-        self.log(&format!("bound \"{shown}\" to {scene}"));
+        let ply = PathBuf::from(path);
+        let resource_dir = self.resource_dir.clone();
+        let what = format!("adding {display}");
+        self.run_busy(&what, move |_host, log| {
+            if launch::is_running() {
+                return Err(
+                    "VelociDrone is running. Close it first - the track database is in use."
+                        .into(),
+                );
+            }
+            let db = tracks::db_path();
+            let root = game::root(&app);
+            add_track_job(&resource_dir, &db, &root, &ply, &display, log)
+        });
     }
 
     fn launch(&self) {
@@ -696,6 +717,280 @@ impl Host {
             }
         }
     }
+}
+
+/// One job for Add track: the capture lands in `<game>/vdgs/` and the track is created
+/// and bound to it, in that order. Copying first means a failure at the database step
+/// leaves a capture with no track - visible in the "installed, on no track" line and
+/// removable from there - rather than a track whose capture never arrived, which the
+/// game would show as nothing with no error.
+fn add_track_job(
+    resource_dir: &Path,
+    db: &Path,
+    root: &Path,
+    ply: &Path,
+    display: &str,
+    log: &mut dyn FnMut(String),
+) -> Result<(), String> {
+    let capture = game::install_ply(root, ply).map_err(|e| e.to_string())?;
+    log(format!("installed {capture}"));
+    create_track_job(resource_dir, db, root, display, &capture, log)
+}
+
+/// The track half of [`add_track_job`], pulled out so it can be exercised
+/// without a `tauri::AppHandle` - `Host` needs one to build at all, which is not available
+/// in a unit test.
+///
+/// `AlreadyPresent` and `WouldOverwrite` both bind and return `Ok`. There is no other path
+/// in this UI to bind a capture onto a track that already exists, so refusing here would
+/// strand anyone who adds the same track name twice (a
+/// crash, a later Unbind, a hand-edited bindings.json) with a track they can never use. In
+/// both cases `tracks::import` returns without inserting, so the existing row - and
+/// whatever gates it holds - is never touched; only bindings.json, a file this app owns,
+/// changes.
+fn create_track_job(
+    resource_dir: &Path,
+    db: &Path,
+    root: &Path,
+    display: &str,
+    capture: &str,
+    log: &mut dyn FnMut(String),
+) -> Result<(), String> {
+    let seed_path = resource_dir.join("seed.track.json");
+    let seed = std::fs::read_to_string(&seed_path)
+        .map_err(|e| format!("seed template missing at {}: {e}", seed_path.display()))?;
+    let (scene, kind, value) = tracks::seed_value(&seed).map_err(|e| e.to_string())?;
+
+    if !db.is_file() {
+        return Err(format!(
+            "VelociDrone's database is not there yet - run the game once. ({})",
+            db.display()
+        ));
+    }
+    let stored = tracks::stored_name(display);
+    match tracks::import(db, &stored, scene, kind, &value).map_err(|e| e.to_string())? {
+        (tracks::ImportResult::Added, _) => log(format!("added track \"{display}\"")),
+        (tracks::ImportResult::AlreadyPresent, _) => {
+            log(format!("track \"{display}\" is already there, unchanged"))
+        }
+        (tracks::ImportResult::WouldOverwrite, _) => log(format!(
+            "a track called \"{display}\" already exists - using it as-is"
+        )),
+    }
+
+    game::bind(root, display, capture, false).map_err(|e| e.to_string())?;
+    log(format!("bound \"{display}\" to {capture}"));
+    Ok(())
+}
+
+/// Whether a capture's name matches a catalog entry's `install_as` - the same match
+/// `resolveCatalogId` in `web/src/pages/Tracks.tsx` uses to decide whether a track's
+/// missing capture can offer a Get button. Reused here for the mirror question: if a
+/// capture is about to be deleted, can it come back? No catalog loaded (fetch failed, or
+/// never ran) reads the same as "no match" - the honest answer is "can't tell", and the
+/// safe default is the same warning given for a capture that truly cannot be recovered.
+fn capture_is_fetchable(name: &str, catalog: Option<&[catalog::Entry]>) -> bool {
+    catalog
+        .into_iter()
+        .flatten()
+        .any(|e| e.install_as.as_deref() == Some(name))
+}
+
+/// True if some track other than `track` also has `capture` in its bound list.
+///
+/// A capture is not owned by the track that names it - the same `.ply` can sit under
+/// more than one track's key (`game::bind` overwrites a track's own entry with a fresh
+/// single-element list, but nothing stops a second track from being bound to the same
+/// name). This is the check that keeps a shared capture alive when only one of its
+/// tracks is removed.
+fn capture_used_elsewhere(bindings: &game::Bindings, track: &str, capture: &str) -> bool {
+    bindings
+        .iter()
+        .any(|(k, v)| k != track && v.iter().any(|c| c == capture))
+}
+
+/// Joins quoted names as "a", "a and b", or "a, b and c".
+fn join_with_and(quoted: &[String]) -> String {
+    match quoted.split_last() {
+        Some((last, rest)) if !rest.is_empty() => format!("{} and {last}", rest.join(", ")),
+        _ => quoted.join(""),
+    }
+}
+
+/// The clause naming captures that are actually going, and whether each can be fetched
+/// again. Only ever called with a non-empty list - callers decide separately what to say
+/// when nothing is being deleted.
+fn deletion_clause(captures: &[String], catalog: Option<&[catalog::Entry]>) -> String {
+    let quoted: Vec<String> = captures.iter().map(|c| format!("\"{c}\"")).collect();
+    let names = join_with_and(&quoted);
+    let (noun, verb) = if captures.len() == 1 {
+        ("capture", "goes")
+    } else {
+        ("captures", "go")
+    };
+    let fetchable: Vec<bool> = captures
+        .iter()
+        .map(|c| capture_is_fetchable(c, catalog))
+        .collect();
+
+    if fetchable.iter().all(|f| *f) {
+        format!("Its {noun} {names} {verb} too, and can be fetched again from the catalog.")
+    } else if fetchable.iter().all(|f| !*f) {
+        let pronoun = if captures.len() == 1 { "it" } else { "they" };
+        format!(
+            "Its {noun} {names} {verb} too, and without the original .ply {pronoun} \
+             cannot be recovered."
+        )
+    } else {
+        // A mix only happens with two or more bound captures, one fetchable and one not -
+        // rare enough that naming each one's own fate plainly beats a single blended
+        // sentence trying to cover both cases at once.
+        let parts: Vec<String> = captures
+            .iter()
+            .zip(fetchable.iter())
+            .map(|(c, f)| {
+                if *f {
+                    format!("\"{c}\" can be fetched again from the catalog")
+                } else {
+                    format!("\"{c}\" cannot be recovered without the original .ply")
+                }
+            })
+            .collect();
+        format!("Its captures go too: {}.", parts.join(", "))
+    }
+}
+
+/// The sentence [`Host::remove_track`]'s confirmation dialog folds into each of its three
+/// branches. `to_delete` and `kept_shared` are the same track's bound captures, already
+/// split by whether some other track's binding still names them (see
+/// [`capture_used_elsewhere`]) - a capture another track still uses is never going to be
+/// deleted, so the dialog must never say it is. `None` when the track has no bound capture
+/// at all, so a track that was never bound to anything keeps the plain "only the binding
+/// goes" wording it always had.
+fn capture_removal_sentence(
+    to_delete: &[String],
+    kept_shared: &[String],
+    catalog: Option<&[catalog::Entry]>,
+) -> Option<String> {
+    if to_delete.is_empty() && kept_shared.is_empty() {
+        return None;
+    }
+    if to_delete.is_empty() {
+        // Every capture this track had is still named by some other track's binding -
+        // removing this track deletes no capture at all, and the dialog must say that
+        // plainly rather than naming a deletion that will not happen.
+        let quoted: Vec<String> = kept_shared.iter().map(|c| format!("\"{c}\"")).collect();
+        let names = join_with_and(&quoted);
+        return Some(if kept_shared.len() == 1 {
+            format!("None of its captures are going - {names} is still used by another track.")
+        } else {
+            format!("None of its captures are going - {names} are still used by other tracks.")
+        });
+    }
+    let mut sentence = deletion_clause(to_delete, catalog);
+    if !kept_shared.is_empty() {
+        let quoted: Vec<String> = kept_shared.iter().map(|c| format!("\"{c}\"")).collect();
+        let names = join_with_and(&quoted);
+        sentence.push(' ');
+        sentence.push_str(&if kept_shared.len() == 1 {
+            format!("Its capture {names} stays where it is - another track still uses it.")
+        } else {
+            format!("Its captures {names} stay where they are - other tracks still use them.")
+        });
+    }
+    Some(sentence)
+}
+
+/// The logic behind [`Host::remove_track`], pulled out of the method so it can be
+/// exercised without a `tauri::AppHandle`, same as [`create_track_job`] above.
+///
+/// Order matters for safety: unbind first (`bindings.json` is ours, never the game's, so
+/// this step alone needs no `is_running` guard), then the database row (only for a track
+/// this person owns - a server track's row is never touched), then the capture files
+/// last. If capture removal fails partway, the track and its binding are already gone
+/// rather than leaving a track that still looks like it points at a capture that might no
+/// longer be fully there.
+///
+/// `captures` is the full list this track was bound to, unfiltered - not the dialog's
+/// `to_delete`/`kept_shared` split. That split was computed before the confirmation the
+/// person may have sat on for a while, so it can be stale by the time this runs (another
+/// track could have been bound to the same capture in the meantime, or unbound from it).
+/// This re-reads `bindings.json` itself, right after `unbind` and right before any file
+/// would be deleted, and skips whatever some other track's entry still names - the same
+/// [`capture_used_elsewhere`] question, asked again against current state instead of a
+/// snapshot.
+fn remove_track_job(
+    root: &Path,
+    db: &Path,
+    name: &str,
+    mine: bool,
+    captures: &[String],
+    log: &mut dyn FnMut(String),
+) -> Result<(), String> {
+    // Before anything is written: the game holds the database and the capture files, and
+    // a refusal after the unbind would leave the track half-removed.
+    if (mine || !captures.is_empty()) && launch::is_running() {
+        return Err(
+            "VelociDrone is running. Close it first - it keeps its track database and captures open."
+                .into(),
+        );
+    }
+    if game::unbind(root, name).map_err(|e| e.to_string())? {
+        log(format!("unbound \"{name}\""));
+    }
+
+    if mine {
+        let (removed, backup) = tracks::remove(db, name).map_err(|e| e.to_string())?;
+        if removed {
+            let backup_name = backup
+                .as_ref()
+                .and_then(|p| p.file_name())
+                .and_then(|s| s.to_str())
+                .unwrap_or("?");
+            log(format!(
+                "removed track \"{name}\" (backup: {backup_name})"
+            ));
+        } else {
+            log("the track was already gone from the database".into());
+        }
+    }
+
+    if captures.is_empty() {
+        return Ok(());
+    }
+
+    // `name`'s own entry is already gone (the unbind above), so anything still turning up
+    // here belongs to some other track. A read that fails (corrupt file, mid-write by
+    // something else) is not treated as "nothing else uses it" - the safe default when we
+    // cannot tell is to leave every capture in place, not to delete on a guess.
+    let still_bound = match game::try_read_bindings(root) {
+        Ok(b) => Some(b),
+        Err(e) => {
+            log(format!(
+                "could not confirm which captures are still shared ({e}) - leaving them all in place"
+            ));
+            None
+        }
+    };
+    for capture in captures {
+        let shared = match &still_bound {
+            Some(b) => b.values().any(|v| v.iter().any(|c| c == capture)),
+            None => true,
+        };
+        if shared {
+            log(format!(
+                "kept capture \"{capture}\" - another track still uses it"
+            ));
+            continue;
+        }
+        if game::remove_capture(root, capture).map_err(|e| e.to_string())? {
+            log(format!("removed capture \"{capture}\""));
+        } else {
+            log(format!("capture \"{capture}\" was not there"));
+        }
+    }
+
+    Ok(())
 }
 
 struct Snapshot {
@@ -756,14 +1051,27 @@ fn now_hms() -> String {
 /// itself preventing from ever being drawn. The app freezes with a picker on screen that
 /// does not respond to Escape, to its own Cancel button, or to anything else.
 #[tauri::command(async)]
-fn dispatch(host: tauri::State<'_, Arc<Host>>, cmd: String, id: Option<String>) {
+fn dispatch(
+    host: tauri::State<'_, Arc<Host>>,
+    cmd: String,
+    id: Option<String>,
+    arg: Option<serde_json::Value>,
+) {
     let h = Arc::clone(&host);
+    // addTrack reads `path` and `name` together out of `arg` - one id string was
+    // never going to carry two values (bridge.ts's send() widened for exactly this).
+    let field = |k: &str| -> Option<String> {
+        arg.as_ref()
+            .and_then(|v| v.get(k))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+    };
     match cmd.as_str() {
         "refresh" => h.push(),
         "pick" => h.pick_game(),
         "installMod" => h.install_mod(),
         "uninstallMod" => h.uninstall_mod(),
-        "installCapture" => h.install_zip(),
+        "pickPly" => h.pick_ply(),
         "refreshCatalog" => h.refresh_catalog(),
         "get" => {
             if let Some(id) = id {
@@ -775,7 +1083,21 @@ fn dispatch(host: tauri::State<'_, Arc<Host>>, cmd: String, id: Option<String>) 
                 h.remove_track(&id);
             }
         }
-        "addTrack" => h.add_track(),
+        "unbindTrack" => {
+            if let Some(id) = id {
+                h.unbind_track(&id);
+            }
+        }
+        "removeCapture" => {
+            if let Some(id) = id {
+                h.remove_capture(&id);
+            }
+        }
+        "addTrack" => {
+            if let (Some(path), Some(name)) = (field("path"), field("name")) {
+                h.add_track(&path, &name);
+            }
+        }
         "fly" => h.launch(),
         _ => {}
     }
@@ -808,7 +1130,29 @@ pub fn run() {
             let _ = w.show();
             let _ = w.set_focus();
         }))
+        // Position and size only - not maximized, not visibility. This window is something
+        // you alt-tab to from a fullscreen game; restoring it maximized because it happened
+        // to be maximized once is worse than restoring the modest size it usually sits at.
+        // Leaving MAXIMIZED out of the flags means the plugin never calls `maximize()` on
+        // restore. VISIBLE is left out for a narrower reason - with it
+        // unset the plugin never calls `show()`/`set_focus()` after restoring, and the
+        // window is created visible by `tauri.conf.json` regardless, so there is nothing to
+        // gain from tracking it and a hidden-on-quit window has no way back without editing
+        // the state file by hand.
+        .plugin(
+            tauri_plugin_window_state::Builder::new()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::POSITION
+                        | tauri_plugin_window_state::StateFlags::SIZE,
+                )
+                .build(),
+        )
         .plugin(tauri_plugin_dialog::init())
+        // api.ts's hosted transport goes through this rather than a same-origin fetch from
+        // the webview - the plugin's HTTP server has no Access-Control-Allow-Origin (adding
+        // one would open its LAN-facing API to any site), so a fetch from the webview's
+        // origin would just fail. Routing through the host keeps that header absent.
+        .plugin(tauri_plugin_http::init())
         .setup(|app| {
             let resource_dir = resolve_resource_dir(app.handle());
             let settings = Settings::load();
@@ -874,4 +1218,431 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![dispatch])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    const SEED: &str = r#"{"name":"VDGS Template","scene_id":16,"type":0,"value":"{\"gates\":[{\"start\":true}]}"}"#;
+
+    fn tmp() -> PathBuf {
+        static N: AtomicU32 = AtomicU32::new(0);
+        let p = std::env::temp_dir().join(format!(
+            "vdgs-lib-{}-{}",
+            std::process::id(),
+            N.fetch_add(1, Ordering::SeqCst)
+        ));
+        let _ = std::fs::remove_dir_all(&p);
+        std::fs::create_dir_all(&p).unwrap();
+        p
+    }
+
+    fn resource_dir_with_seed() -> PathBuf {
+        let dir = tmp();
+        std::fs::write(dir.join("seed.track.json"), SEED).unwrap();
+        dir
+    }
+
+    /// Same schema as `tracks::tests::fresh_db` - kept as its own copy because that one is
+    /// private to the `tracks` module.
+    fn fresh_db() -> PathBuf {
+        let p = tmp().join("user11.db");
+        let c = rusqlite::Connection::open(&p).unwrap();
+        c.execute_batch("CREATE TABLE [tracks] ([id] INTEGER NOT NULL PRIMARY KEY, [scene_id] INTEGER NOT NULL, [name] VARCHAR, [value] VARCHAR, [protected_track] TINYINT(1) NOT NULL DEFAULT 0, online_id int default 0, rating int default 0, favourite int default 0, date varchar default '2019-07-01 00:00:00', type int default 0);").unwrap();
+        p
+    }
+
+    // Add track is one job: the copy and the track must both exist afterwards, bound by
+    // the capture's on-disk name (the file stem), not by anything the person typed.
+    #[test]
+    fn add_track_job_installs_the_ply_and_binds_a_new_track_to_it() {
+        let resource_dir = resource_dir_with_seed();
+        let db = fresh_db();
+        let root = tmp();
+        let src = tmp().join("himeji-lod2.ply");
+        std::fs::write(&src, b"ply\nelement vertex 3\nend_header\n").unwrap();
+
+        let mut logged = Vec::new();
+        let result = add_track_job(&resource_dir, &db, &root, &src, "VDGS Himeji", &mut |s| {
+            logged.push(s)
+        });
+
+        assert!(result.is_ok(), "{result:?}");
+        assert!(root.join("vdgs/himeji-lod2.ply").is_file(), "the capture must be copied in");
+        assert!(tracks::find(&db, "VDGS Himeji").unwrap().is_some(), "the track row must exist");
+        assert_eq!(
+            game::read_bindings(&root)["VDGS Himeji"],
+            vec!["himeji-lod2".to_string()],
+            "the binding must name the file stem"
+        );
+        assert!(logged.iter().any(|l| l.contains("installed himeji-lod2")));
+        assert!(logged.iter().any(|l| l.contains("added track")));
+    }
+
+    // A source that cannot be read stops before the database is touched: no half-made
+    // track pointing at a capture that never arrived.
+    #[test]
+    fn add_track_job_writes_no_track_when_the_ply_cannot_be_copied() {
+        let resource_dir = resource_dir_with_seed();
+        let db = fresh_db();
+        let root = tmp();
+        let missing = tmp().join("nope.ply");
+
+        let mut logged = Vec::new();
+        let result = add_track_job(&resource_dir, &db, &root, &missing, "VDGS Nope", &mut |s| {
+            logged.push(s)
+        });
+
+        assert!(result.is_err());
+        assert!(tracks::find(&db, "VDGS Nope").unwrap().is_none());
+        assert!(!root.join("vdgs/bindings.json").exists());
+    }
+
+    #[test]
+    fn create_track_job_binds_an_already_present_track_without_touching_its_value() {
+        let resource_dir = resource_dir_with_seed();
+        let db = fresh_db();
+        let root = tmp();
+        let (_, _, seed_value) = tracks::seed_value(SEED).unwrap();
+
+        // The seed already cloned under this name - identical value, so `import` reports
+        // AlreadyPresent rather than inserting a second row.
+        let stored = tracks::stored_name("VDGS my house");
+        tracks::import(&db, &stored, 16, 0, &seed_value).unwrap();
+
+        let mut logged = Vec::new();
+        let result = create_track_job(
+            &resource_dir,
+            &db,
+            &root,
+            "VDGS my house",
+            "my-house",
+            &mut |s| logged.push(s),
+        );
+
+        assert!(result.is_ok(), "{result:?}");
+        let row = tracks::find(&db, "VDGS my house").unwrap().unwrap();
+        assert_eq!(row.value, seed_value, "the existing row's gates must be untouched");
+        assert_eq!(
+            game::read_bindings(&root)["VDGS my house"],
+            vec!["my-house".to_string()],
+            "the capture must still be bound"
+        );
+        assert!(logged.iter().any(|l| l.contains("already there")));
+    }
+
+    #[test]
+    fn create_track_job_binds_a_would_overwrite_track_without_touching_its_value() {
+        let resource_dir = resource_dir_with_seed();
+        let db = fresh_db();
+        let root = tmp();
+
+        // A track the person built themselves - same name, different gates. `import`
+        // reports WouldOverwrite and, per the guard in `tracks::import`, never writes.
+        let own_value = "{\"gates\":[{\"start\":true},{\"finish\":true},{\"finish\":true}]}";
+        let stored = tracks::stored_name("VDGS my house");
+        tracks::import(&db, &stored, 16, 0, own_value).unwrap();
+
+        let mut logged = Vec::new();
+        let result = create_track_job(
+            &resource_dir,
+            &db,
+            &root,
+            "VDGS my house",
+            "my-house",
+            &mut |s| logged.push(s),
+        );
+
+        assert!(result.is_ok(), "{result:?}");
+        let row = tracks::find(&db, "VDGS my house").unwrap().unwrap();
+        assert_eq!(
+            row.value, own_value,
+            "a track the person built themselves must never be rewritten with the seed's gates"
+        );
+        assert_eq!(
+            game::read_bindings(&root)["VDGS my house"],
+            vec!["my-house".to_string()],
+            "the capture must still be bound onto the existing track"
+        );
+        assert!(logged.iter().any(|l| l.contains("already exists")));
+    }
+
+    #[test]
+    fn create_track_job_finds_an_editor_written_row_spelled_with_a_literal_space() {
+        let resource_dir = resource_dir_with_seed();
+        let db = fresh_db();
+        let root = tmp();
+
+        // VelociDrone's own track editor writes a literal space, not the '+'-encoded
+        // spelling `stored_name` produces for a companion-created track. Both spellings
+        // are valid rows in `user11.db` side by side (AGENTS.md's "a course has two
+        // spellings") - this row stands in for one built by hand in the editor, with
+        // gates `create_track_job` must never touch.
+        let editor_value = "{\"gates\":[{\"start\":true},{\"finish\":true},{\"finish\":true}]}";
+        {
+            let c = rusqlite::Connection::open(&db).unwrap();
+            c.execute(
+                "insert into tracks (scene_id, name, value, type) values (16, 'VDGS my house', ?1, 0)",
+                [editor_value],
+            )
+            .unwrap();
+        }
+
+        let mut logged = Vec::new();
+        let result = create_track_job(
+            &resource_dir,
+            &db,
+            &root,
+            "VDGS my house",
+            "my-house",
+            &mut |s| logged.push(s),
+        );
+
+        assert!(result.is_ok(), "{result:?}");
+        let rows = tracks::list(&db).unwrap();
+        assert_eq!(
+            rows.len(),
+            1,
+            "the encoded spelling must resolve to the editor's row, not add a second one"
+        );
+        assert_eq!(
+            rows[0].value, editor_value,
+            "the editor-built track's gates must be byte-for-byte untouched"
+        );
+        assert_eq!(
+            game::read_bindings(&root)["VDGS my house"],
+            vec!["my-house".to_string()],
+            "the capture must bind onto the existing editor-written track"
+        );
+    }
+
+    #[test]
+    fn create_track_job_reports_a_missing_database_instead_of_a_raw_sqlite_error() {
+        let resource_dir = resource_dir_with_seed();
+        let db = tmp().join("does-not-exist.db");
+        let root = tmp();
+
+        let mut logged = Vec::new();
+        let err = create_track_job(
+            &resource_dir,
+            &db,
+            &root,
+            "VDGS my house",
+            "my-house",
+            &mut |s| logged.push(s),
+        )
+        .unwrap_err();
+
+        assert!(
+            err.contains("run the game once"),
+            "expected the friendly not-yet-run message, got: {err}"
+        );
+        assert!(!err.to_ascii_lowercase().contains("sqlite"));
+    }
+
+    #[test]
+    fn remove_track_job_deletes_its_bound_capture_directory() {
+        let db = fresh_db();
+        let root = tmp();
+        let stored = tracks::stored_name("VDGS my house");
+        tracks::import(&db, &stored, 16, 0, "{}").unwrap();
+        game::bind(&root, "VDGS my house", "my-house", false).unwrap();
+        let capture_dir = root.join("vdgs/my-house");
+        std::fs::create_dir_all(&capture_dir).unwrap();
+        std::fs::write(capture_dir.join("meta.json"), b"{}").unwrap();
+
+        let captures = vec!["my-house".to_string()];
+        let mut logged = Vec::new();
+        let result = remove_track_job(&root, &db, "VDGS my house", true, &captures, &mut |s| {
+            logged.push(s)
+        });
+
+        assert!(result.is_ok(), "{result:?}");
+        assert!(
+            !capture_dir.exists(),
+            "the capture must be deleted along with its track"
+        );
+        assert!(
+            tracks::find(&db, "VDGS my house").unwrap().is_none(),
+            "the track row must be gone"
+        );
+        assert!(
+            !game::read_bindings(&root).contains_key("VDGS my house"),
+            "the binding must be gone"
+        );
+        assert!(logged
+            .iter()
+            .any(|l| l.contains("removed capture \"my-house\"")));
+    }
+
+    #[test]
+    fn remove_track_job_bound_to_two_captures_deletes_both() {
+        let db = fresh_db();
+        let root = tmp();
+        let stored = tracks::stored_name("VDGS two scenes");
+        tracks::import(&db, &stored, 16, 0, "{}").unwrap();
+        let mut bindings = game::Bindings::new();
+        bindings.insert(
+            "VDGS two scenes".to_string(),
+            vec!["scene-a".to_string(), "scene-b".to_string()],
+        );
+        game::write_bindings(&root, &bindings).unwrap();
+        for name in ["scene-a", "scene-b"] {
+            let dir = root.join("vdgs").join(name);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("meta.json"), b"{}").unwrap();
+        }
+
+        let captures = vec!["scene-a".to_string(), "scene-b".to_string()];
+        let mut logged = Vec::new();
+        let result = remove_track_job(&root, &db, "VDGS two scenes", true, &captures, &mut |s| {
+            logged.push(s)
+        });
+
+        assert!(result.is_ok(), "{result:?}");
+        assert!(
+            !root.join("vdgs/scene-a").exists(),
+            "the first capture must be gone"
+        );
+        assert!(
+            !root.join("vdgs/scene-b").exists(),
+            "the second capture must be gone"
+        );
+        assert!(!game::read_bindings(&root).contains_key("VDGS two scenes"));
+    }
+
+    #[test]
+    fn remove_track_job_leaves_an_unbound_capture_untouched() {
+        // This only proves a capture the job's own `captures` list never named survives -
+        // the loop could never have reached "unrelated-scene" regardless of sharing. The
+        // sharing guard itself is covered by the two tests below.
+        let db = fresh_db();
+        let root = tmp();
+        let stored = tracks::stored_name("VDGS my house");
+        tracks::import(&db, &stored, 16, 0, "{}").unwrap();
+        game::bind(&root, "VDGS my house", "my-house", false).unwrap();
+        let unrelated = root.join("vdgs/unrelated-scene");
+        std::fs::create_dir_all(&unrelated).unwrap();
+        std::fs::write(unrelated.join("meta.json"), b"{}").unwrap();
+
+        let captures = vec!["my-house".to_string()];
+        let mut logged = Vec::new();
+        let result = remove_track_job(&root, &db, "VDGS my house", true, &captures, &mut |s| {
+            logged.push(s)
+        });
+
+        assert!(result.is_ok(), "{result:?}");
+        assert!(
+            unrelated.exists(),
+            "a capture nothing points at must survive removing an unrelated track"
+        );
+    }
+
+    #[test]
+    fn remove_track_job_leaves_a_capture_two_tracks_share() {
+        // Two tracks bound to the same capture, "shared". Removing track A must not
+        // delete it - and must not disturb track B's own binding entry, a different key
+        // in the same map, which still has to resolve to that surviving capture.
+        let db = fresh_db();
+        let root = tmp();
+        let stored_a = tracks::stored_name("VDGS track A");
+        tracks::import(&db, &stored_a, 16, 0, "{}").unwrap();
+        let mut bindings = game::Bindings::new();
+        bindings.insert("VDGS track A".to_string(), vec!["shared".to_string()]);
+        bindings.insert("VDGS track B".to_string(), vec!["shared".to_string()]);
+        game::write_bindings(&root, &bindings).unwrap();
+        let capture_dir = root.join("vdgs/shared");
+        std::fs::create_dir_all(&capture_dir).unwrap();
+        std::fs::write(capture_dir.join("meta.json"), b"{}").unwrap();
+
+        let captures = vec!["shared".to_string()];
+        let mut logged = Vec::new();
+        let result = remove_track_job(&root, &db, "VDGS track A", true, &captures, &mut |s| {
+            logged.push(s)
+        });
+
+        assert!(result.is_ok(), "{result:?}");
+        assert!(
+            capture_dir.exists(),
+            "a capture another track's binding still names must survive"
+        );
+        let remaining = game::read_bindings(&root);
+        assert!(
+            !remaining.contains_key("VDGS track A"),
+            "the removed track's own binding entry must still be gone"
+        );
+        assert_eq!(
+            remaining.get("VDGS track B"),
+            Some(&vec!["shared".to_string()]),
+            "the other track's binding must still resolve to the surviving capture"
+        );
+        assert!(logged.iter().any(|l| l.contains("kept capture \"shared\"")));
+    }
+
+    #[test]
+    fn remove_track_job_deletes_the_unshared_capture_and_keeps_the_shared_one() {
+        // "VDGS two scenes" is bound to two captures: "only-mine", which nothing else
+        // uses, and "shared", which "VDGS other track" also uses. Removing "VDGS two
+        // scenes" must take only the first.
+        let db = fresh_db();
+        let root = tmp();
+        let stored = tracks::stored_name("VDGS two scenes");
+        tracks::import(&db, &stored, 16, 0, "{}").unwrap();
+        let mut bindings = game::Bindings::new();
+        bindings.insert(
+            "VDGS two scenes".to_string(),
+            vec!["only-mine".to_string(), "shared".to_string()],
+        );
+        bindings.insert("VDGS other track".to_string(), vec!["shared".to_string()]);
+        game::write_bindings(&root, &bindings).unwrap();
+        for name in ["only-mine", "shared"] {
+            let dir = root.join("vdgs").join(name);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("meta.json"), b"{}").unwrap();
+        }
+
+        let captures = vec!["only-mine".to_string(), "shared".to_string()];
+        let mut logged = Vec::new();
+        let result = remove_track_job(&root, &db, "VDGS two scenes", true, &captures, &mut |s| {
+            logged.push(s)
+        });
+
+        assert!(result.is_ok(), "{result:?}");
+        assert!(
+            !root.join("vdgs/only-mine").exists(),
+            "the capture nothing else uses must be deleted"
+        );
+        assert!(
+            root.join("vdgs/shared").exists(),
+            "the capture another track still uses must survive"
+        );
+        let remaining = game::read_bindings(&root);
+        assert_eq!(
+            remaining.get("VDGS other track"),
+            Some(&vec!["shared".to_string()]),
+            "the other track's own binding must still resolve"
+        );
+    }
+
+    #[test]
+    fn remove_track_job_removes_the_row_and_the_binding_as_before() {
+        // A track with no bound capture: unbind and the row removal still both happen,
+        // unchanged from before this capture-deleting behaviour existed.
+        let db = fresh_db();
+        let root = tmp();
+        let stored = tracks::stored_name("VDGS my house");
+        tracks::import(&db, &stored, 16, 0, "{}").unwrap();
+        game::bind(&root, "VDGS my house", "my-house", false).unwrap();
+
+        let mut logged = Vec::new();
+        let result = remove_track_job(&root, &db, "VDGS my house", true, &[], &mut |s| {
+            logged.push(s)
+        });
+
+        assert!(result.is_ok(), "{result:?}");
+        assert!(tracks::find(&db, "VDGS my house").unwrap().is_none());
+        assert!(!game::read_bindings(&root).contains_key("VDGS my house"));
+    }
 }

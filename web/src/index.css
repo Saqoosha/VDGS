@@ -100,6 +100,17 @@
   body {
     @apply bg-background text-foreground antialiased;
   }
+  /* The companion shell turns off text selection (CompanionApp's root div), but a form
+     field's own value is not decoration - selecting inside it is how you edit it, and a
+     blanket rule on an ancestor does not reliably hand that back on every engine. Kept
+     as a plain element rule here, not a class on each usage, so every text input across
+     every page opts back in without hunting down each one; -webkit- is required because
+     the macOS webview is WebKit. */
+  input,
+  textarea {
+    -webkit-user-select: text;
+    user-select: text;
+  }
 }
 
 @layer components {
@@ -145,6 +156,28 @@
     background: #fff;
     box-shadow: 0 0 16px rgb(255 118 64 / 0.9);
     cursor: pointer;
+  }
+
+  /* The companion's scroll box. Its content dissolves over the last 1.5rem at either
+     end instead of being covered by a bar: the masthead above and Fly below are painted
+     on nothing, so the particle field behind them is never interrupted by a slab. The
+     bars were opaque once, then translucent with a blur, and both read as a rectangle
+     over the canvas the moment the window was wider than the column. */
+  .chrome-scroll {
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      black 1.5rem,
+      black calc(100% - 1.5rem),
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      black 1.5rem,
+      black calc(100% - 1.5rem),
+      transparent 100%
+    );
   }
 }
 
