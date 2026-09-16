@@ -23,6 +23,9 @@ type Push =
   // The game starting is one flag, and the host watches for it rather than waiting to be
   // asked - nobody presses refresh to tell the app they quit VelociDrone.
   | { type: 'running'; running: boolean }
+  // The .ply someone just chose, before anything is copied. The page asks for the
+  // track's name on this, and only `addTrack {path, name}` writes anything.
+  | { type: 'picked'; path: string; stem: string }
 
 type TauriGlobal = {
   core: { invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown> }
@@ -40,11 +43,10 @@ export type Command =
   | 'pick'
   | 'installMod'
   | 'uninstallMod'
-  | 'installPly'
+  | 'pickPly'
   | 'removeTrack'
   | 'removeCapture'
   | 'unbindTrack'
-  | 'createTrack'
   | 'refreshCatalog'
   | 'get'
   | 'addTrack'
@@ -186,6 +188,12 @@ function devSend(cmd: Command, id?: string) {
   if (!import.meta.env.DEV) return
   if (cmd === 'refresh') {
     devPush({ type: 'state', ...devState })
+    return
+  }
+  // The stand-in for the file dialog: a fixed path back, so the name row can be laid out
+  // in a browser where no host exists to open a real one.
+  if (cmd === 'pickPly') {
+    devPush({ type: 'picked', path: '/Users/you/Downloads/himeji-lod2.ply', stem: 'himeji-lod2' })
     return
   }
   devPush({

@@ -158,21 +158,26 @@
     cursor: pointer;
   }
 
-  /* The companion's sticky masthead and Fly bar sit on an opaque --background so page
-     content scrolling underneath cannot show through the readable band - but a hard
-     edge there would look like a slab dropped on the particle field. Masking only the
-     bar's own trailing padding lets that edge blend back into the canvas instead, which
-     works because both share the same #05070c base: the fade reveals the canvas at its
-     own resting color, not a visible seam. -b fades going down (used on the masthead,
-     approached from below as the page scrolls up under it); -t fades going up (the Fly
-     bar, approached from above).*/
-  .chrome-fade-b {
-    -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 1.5rem), transparent 100%);
-    mask-image: linear-gradient(to bottom, black calc(100% - 1.5rem), transparent 100%);
-  }
-  .chrome-fade-t {
-    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 1.5rem);
-    mask-image: linear-gradient(to bottom, transparent 0%, black 1.5rem);
+  /* The companion's scroll box. Its content dissolves over the last 1.5rem at either
+     end instead of being covered by a bar: the masthead above and Fly below are painted
+     on nothing, so the particle field behind them is never interrupted by a slab. The
+     bars were opaque once, then translucent with a blur, and both read as a rectangle
+     over the canvas the moment the window was wider than the column. */
+  .chrome-scroll {
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      black 1.5rem,
+      black calc(100% - 1.5rem),
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      black 1.5rem,
+      black calc(100% - 1.5rem),
+      transparent 100%
+    );
   }
 }
 

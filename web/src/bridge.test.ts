@@ -24,6 +24,26 @@ describe('bridge transports', () => {
   })
 })
 
+describe('the dev transport', () => {
+  beforeEach(() => {
+    vi.resetModules()
+    delete (window as any).__TAURI__
+  })
+
+  // Without a host there is no file dialog. The stand-in answers pickPly with a fixed
+  // path so the name row that follows it can be laid out in a plain browser.
+  it('answers pickPly with a picked path and stem', async () => {
+    const { send, subscribe, hosted } = await import('./bridge')
+    expect(hosted).toBe(false)
+    const got: unknown[] = []
+    subscribe((m) => got.push(m))
+    send('pickPly')
+    expect(got).toContainEqual(
+      expect.objectContaining({ type: 'picked', stem: 'himeji-lod2', path: expect.stringMatching(/\.ply$/) }),
+    )
+  })
+})
+
 describe('the first command waits for the listener', () => {
   it('does not invoke before listen has resolved', async () => {
     vi.resetModules()

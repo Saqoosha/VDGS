@@ -61,7 +61,8 @@ export function Section({
   flush = false,
   lang,
 }: {
-  n: string
+  /** The section's number. Left out where a page has too few sections to count. */
+  n?: string
   /** A node, not a string, so a label in a script that wants different spacing can say so. */
   label: ReactNode
   children: ReactNode
@@ -79,8 +80,10 @@ export function Section({
   return (
     <section className={base + ' ' + className} lang={lang}>
       <div className="mb-3 flex items-baseline gap-3 font-mono text-[10px] tracking-[0.22em] text-muted-foreground uppercase">
-        <span className="text-signal">{n}</span>
-        <span>{label}</span>
+        {/* The accent marks the section either way: on the number when there is one,
+            on the word itself when there is not. */}
+        {n ? <span className="text-signal">{n}</span> : null}
+        <span className={n ? undefined : 'text-signal'}>{label}</span>
         <span className="h-px flex-1 bg-rule" />
       </div>
       {children}

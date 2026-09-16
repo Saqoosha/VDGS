@@ -1,5 +1,5 @@
-import { render, screen, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SetupState } from './types'
 
 /**
@@ -13,11 +13,12 @@ type Push =
   | { type: 'progress'; percent: number | null }
   | { type: 'busy'; what: string | null }
   | { type: 'running'; running: boolean }
+  | { type: 'picked'; path: string; stem: string }
 
 let deliver: (m: Push) => void = () => {}
 
 // hosted: true here, not read from window.__TAURI__ - these tests exercise the merge
-// logic against a stubbed transport and expect the full shell (Setup tab, Fly button).
+// logic against a stubbed transport and expect the full shell (setup strip, Fly button).
 // The dedicated describe block below tests the hosted/browser split itself, against the
 // real bridge, since that split is computed from window.__TAURI__ at import time.
 function mockBridge() {
@@ -59,18 +60,23 @@ describe('the companion window', () => {
   it('shows how far along a download is', async () => {
     deliver({ type: 'busy', what: 'downloading FDF' })
     deliver({ type: 'progress', percent: 42 })
-    // Twice on purpose: in the masthead, and beside the buttons that started it.
-    await waitFor(() => expect(screen.getAllByText(/42%/)).toHaveLength(2))
+    // Once: on the bar at the head of the table (no row claims "FDF" here). The
+    // masthead names the job and leaves the number to the bar or the row's ring.
+    await waitFor(() => expect(screen.getAllByText(/42%/)).toHaveLength(1))
+    expect(screen.getByRole('progressbar', { name: /downloading FDF/i })).toHaveAttribute(
+      'aria-valuenow',
+      '42',
+    )
   })
 
-  it('says it is working before it knows how far along', async () => {
+  it('names the job in the masthead while it runs', async () => {
     deliver({ type: 'busy', what: 'installing the mod' })
-    await waitFor(() => expect(screen.getByText(/working/i)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getAllByText(/installing the mod/i).length).toBeGreaterThan(0))
   })
 
   it('goes back to ready when the work is done', async () => {
     deliver({ type: 'busy', what: 'installing the mod' })
-    await waitFor(() => expect(screen.getByText(/working/i)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getAllByText(/installing the mod/i).length).toBeGreaterThan(0))
     deliver({ type: 'state', ...base })
     await waitFor(() => expect(screen.getByText(/ready/i)).toBeInTheDocument())
   })
@@ -94,10 +100,25 @@ describe('the companion window', () => {
     await waitFor(() => expect(fly()).toBeEnabled())
   })
 
-  it('keeps the log', async () => {
+  // The log used to live on one tab while the buttons that write to it lived on the
+  // others, so a failure landed where nobody was looking. The newest line sits in the
+  // masthead on every screen; the whole log opens from it.
+  it('shows the newest log line in the masthead, and the whole log on request', async () => {
     deliver({ type: 'log', line: '12:00:00  installed FDF-2026-08-24' })
+    deliver({ type: 'log', line: '12:00:01  failed: no such file' })
+    await waitFor(() => expect(screen.getByText(/failed: no such file/)).toBeInTheDocument())
+    expect(screen.queryByText(/installed FDF-2026-08-24/)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /show the log/i }))
+    expect(screen.getByText(/installed FDF-2026-08-24/)).toBeInTheDocument()
+    // select-text: the log is what a person copies into a bug report.
+    expect(screen.getByTestId('log')).toHaveClass('select-text')
+  })
+
+  // The host answers pickPly with the path; the name row is the page's part.
+  it('opens the name row when the host reports a picked file', async () => {
+    deliver({ type: 'picked', path: '/d/himeji-lod2.ply', stem: 'himeji-lod2' })
     await waitFor(() =>
-      expect(screen.getByText(/installed FDF-2026-08-24/)).toBeInTheDocument(),
+      expect(screen.getByRole('textbox', { name: /track name/i })).toHaveValue('VDGS himeji-lod2'),
     )
   })
 
@@ -116,7 +137,7 @@ describe('the companion window', () => {
 // Against the real bridge, not the stub above: `hosted` is read from window.__TAURI__ at
 // module-eval time, so exercising the split means letting CompanionApp import the real
 // thing and controlling window.__TAURI__ around it, the same way bridge.test.ts does.
-describe('the three-tab shell', () => {
+describe('the one-page shell', () => {
   beforeEach(() => {
     vi.doUnmock('./bridge')
     vi.resetModules()
@@ -128,25 +149,27 @@ describe('the three-tab shell', () => {
     vi.resetModules()
   })
 
-  it('shows three tabs when hosted', async () => {
+  it('shows the setup strip, the track table and Fly when hosted, with no tabs', async () => {
     ;(window as any).__TAURI__ = {
       core: { invoke: vi.fn() },
       event: { listen: vi.fn().mockResolvedValue(() => {}) },
     }
     const { default: CompanionApp } = await import('./CompanionApp')
     render(<CompanionApp />)
-    expect(screen.getByRole('tab', { name: /setup/i })).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: /tracks/i })).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: /create your own/i })).toBeInTheDocument()
+    expect(screen.queryByRole('tab')).toBeNull()
+    expect(screen.getByRole('button', { name: /change…/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /add track/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^fly$/i })).toBeInTheDocument()
   })
 
-  // Opened in a browser there is no host to pick a folder or download anything, so the
-  // two tabs that do only that would be a wall of dead buttons.
-  it('shows only create-your-own in a plain browser', async () => {
+  // Opened in a browser there is no host to pick a folder, download anything or write
+  // the track database, so the strip, the table and Fly would be a wall of dead
+  // buttons. What is left is the half the plugin serves: tuning.
+  it('shows only the tuning screen in a plain browser', async () => {
     const { default: CompanionApp } = await import('./CompanionApp')
     render(<CompanionApp />)
-    expect(screen.queryByRole('tab', { name: /setup/i })).toBeNull()
-    expect(screen.queryByRole('tab', { name: /tracks/i })).toBeNull()
-    expect(screen.getByRole('tab', { name: /create your own/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /add track/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^fly$/i })).toBeNull()
+    expect(screen.getByText(/waiting for the plugin/i)).toBeInTheDocument()
   })
 })

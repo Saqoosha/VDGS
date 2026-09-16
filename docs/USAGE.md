@@ -37,13 +37,13 @@ you want a smaller file on disk or a faster load.
 
 ## 2. Installing
 
-**The companion app is the short way.** Start `VDGS.exe`, and on tab **01 setup** press
-**Install mod** - the DLL, the baked shader bundle and the control UI all go in, since the
-app carries them; there is no zip to find. Published and installed tracks share one table
-on tab **02 tracks**; press **Get** to install one. Making a new track from your own
-capture is tab **03 create your own** - naming, binding and placement all finish there
-([TRACKS.md](TRACKS.md)). **Fly** starts the game with `-force-d3d12`.
-**BepInEx still has to be installed first** (2-1).
+**The companion app is the short way.** Start `VDGS.exe`, and in the setup strip at the top
+press **Install mod** - the DLL, the baked shader bundle and the control UI all go in, since
+the app carries them; there is no zip to find. Published and installed tracks share one
+table below; press **Get** to install one. Making a new track from your own capture is
+**Add track** (pick a `.ply`, name it, Create) — naming and binding finish there, then
+**Fly** and **Tweak** for placement ([TRACKS.md](TRACKS.md)). **Fly** starts the game with
+`-force-d3d12`. **BepInEx still has to be installed first** (2-1).
 
 By hand from a release: `vdgs-mod-<version>.zip` already contains the DLL,
 a baked shader bundle and the control UI, so nothing has to be built:
@@ -258,8 +258,8 @@ Things to know:
   [alignment.md](alignment.md)
 
 **This section assumes catalog-quality output.** If a slight floor tilt does not matter and
-all you need is the axis and the mirror right, drop the `.ply` in as-is and use tab
-**03 create your own**'s section ③: Up (six directions), Mirror, and Turn (a continuous
+all you need is the axis and the mirror right, drop the `.ply` in as-is and use the
+**Tweak** screen: Up (six directions), Mirror, and Turn (a continuous
 yaw) — see §4-4. SuperSplat's arbitrary-angle tilt correction is not something these three
 controls replace.
 
@@ -281,8 +281,8 @@ controls replace.
 
 `up` is which of the capture's axes points at the sky (`+x -x +y -y +z -z`), `turn` is the
 rotation about that axis in degrees, and `mirrorY` is whether the capture is flipped in Y
-as it is read. **Scale, Height, X, Z, Up, Turn and Mirror are all driven from tab
-03 create your own's section ③ (tune it), and write straight back to this file** as you
+as it is read. **Scale, Height, X, Z, Up, Turn and Mirror are all driven from the
+Tweak screen, and write straight back to this file** as you
 move them. Hand-editing is the last resort for anything the controls do not cover.
 
 **`mirrorY` has no effect on a converted capture** — the flip happens only while a `.ply` is
@@ -314,8 +314,8 @@ the file needs a reload, not a checkbox toggle.
 }
 ```
 
-You can write it by hand, but **creating a new track from tab 03 create your own writes
-this in the same step** (②). Hand edits while the game is running are also picked up: the
+You can write it by hand, but **creating a new track with Add track writes
+this in the same step**. Hand edits while the game is running are also picked up: the
 plugin now watches `bindings.json` for changes once a second (see [AGENTS.md](../AGENTS.md),
 "`TrackBindings.Load()` used to run only from the constructor").
 
@@ -341,23 +341,25 @@ converted scene directory plus, where they exist, `collision.bin` and `placement
 `bindings.sample.json` assumes the track still carries the name it shipped with. If you
 renamed it after downloading it in Track Manager, bind it under **your** name instead —
 edit `bindings.json` by hand; it takes effect within a second even while the game runs.
-Tab 03 create your own's ② creates and binds a brand-new track — **it does not yet offer a
+**Add track** creates and binds a brand-new track — **it does not yet offer a
 way to re-bind an existing one.**
 
 `placement.json` positions the capture **for that track**. Building your own course means
-adjusting it from tab 03 create your own's ③, which saves as you go.
+adjusting it from **Tweak**, which saves as you go.
 
 ## 5. Tuning placement
 
-**Scale, Height, X, Z, Up, Turn and Mirror are all driven from the companion's tab
-03 create your own, section ③ (tune it).** It only works while the game is running, and
-every change writes straight to `placement.json`. Tuning is a fly-and-adjust screen, so the
-companion's own window is where it normally happens.
+**Scale, Height, X, Z, Up, Turn and Mirror are all driven from the companion's
+Tweak screen** (a track row's **Tweak** button). It only works while the game is running
+and the plugin reports that track as the one on screen; otherwise the button is greyed
+with "fly this track first". Every change writes straight to `placement.json`. Tuning is a
+fly-and-adjust screen, so the companion's own window is where it normally happens.
 
 **Reach for the browser build only when a second screen genuinely helps.** Once the game is
 running, the mod serves the same app at **`http://<host>:8777/`** — but a browser has no
-Tauri folder picker or downloader, so tabs 01 and 02 do not appear there; **only ③ works.**
-The companion prints this URL and a QR code right beside tab 03's ③. Alt-tabbing out of a
+Tauri folder picker or downloader, so the setup strip, the track table and Fly do not
+appear there; **only the Tweak screen works.** The companion prints this URL and a QR code
+at the top of the Tweak screen. Alt-tabbing out of a
 fullscreen game is the worst possible move, so with both hands on the transmitter, open that
 address from another device on the LAN (a phone, say) instead — the same setup as watching
 the game on one screen and running Parsec on another. After a UI-only change,
@@ -365,7 +367,7 @@ the game on one screen and running Parsec on another. After a UI-only change,
 plugin.
 
 ```
-┌ 03 create your own · ③ tune it ─────────────────┐
+┌ tweak · myscene ────────────────────────────────┐
 │  myscene   1,916,379 splats                     │
 │  [x] box  [x] solid  [hide mesh]                │
 │  up    [+x][-x][+y][-y][+z][-z]                 │
@@ -380,7 +382,7 @@ plugin.
 refreshes every 1.5 seconds, so the capture list follows along when you change track
 in-game.
 
-**Binding is automatic.** Creating a track from tab 03 create your own's ② binds its
+**Binding is automatic.** Creating a track with **Add track** binds its
 capture to that track name in the same step. To change binding on an existing track, edit
 `bindings.json` (§4-6).
 
@@ -396,7 +398,7 @@ F5, F6, F7 and F8 are **unused**. F7 is the track editor's save-scene and would 
 
 ### HTTP API
 
-The same one tab 03's ③ uses.
+The same one the Tweak screen uses.
 
 | | |
 |---|---|

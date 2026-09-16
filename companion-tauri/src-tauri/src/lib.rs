@@ -304,16 +304,23 @@ impl Host {
         });
     }
 
-    /// Picks a .ply and drops it into `<game>/vdgs/`.
+    /// Picks a .ply and hands its path back to the page - nothing is copied yet.
     ///
-    /// A .ply is parsed on every spawn rather than read from packed buffers, so this is
-    /// the slow-to-show path - but it is the one shape a capture arrives in from anywhere
-    /// that is not this project's own tooling.
-    #[allow(clippy::needless_return)]
-    fn install_ply(self: &Arc<Self>) {
-        let Some(app) = self.inner.lock().unwrap().game.clone() else {
+    /// Adding a track is file -> name -> create, and the copy waits for the name: a
+    /// capture that lands in `<game>/vdgs/` before the person has committed to a track
+    /// is the "installed, on no track" state the three-tab layout kept producing (cancel
+    /// at the name step and the file stayed). The page shows the name row on `picked`
+    /// and sends `addTrack {path, name}` when it is confirmed; cancel sends nothing.
+    fn pick_ply(self: &Arc<Self>) {
+        if self.inner.lock().unwrap().game.is_none() {
             return;
-        };
+        }
+        if launch::is_running() {
+            self.error_dialog(
+                "VelociDrone is running. Close it first - the track database is in use.",
+            );
+            return;
+        }
         let Some(picked) = self
             .app
             .dialog()
@@ -326,24 +333,12 @@ impl Host {
         let Ok(ply) = picked.into_path() else {
             return;
         };
-        let label = ply
-            .file_name()
+        let stem = ply
+            .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("capture")
             .to_string();
-        let what = format!("installing {label}");
-        self.run_busy(&what, move |_host, log| {
-            if launch::is_running() {
-                return Err(
-                    "VelociDrone is running. Close it first - files in use cannot be replaced."
-                        .into(),
-                );
-            }
-            let root = game::root(&app);
-            let name = game::install_ply(&root, &ply).map_err(|e| e.to_string())?;
-            log(format!("installed {name}"));
-            Ok(())
-        });
+        self.post(json!({"type":"picked","path": ply.to_string_lossy(),"stem": stem}));
     }
 
     fn refresh_catalog(self: &Arc<Self>) {
@@ -649,14 +644,14 @@ impl Host {
         });
     }
 
-    /// Creates a track from the bundled seed and binds a capture to it in one step.
+    /// Copies the picked .ply in and creates a track bound to it, as one job.
     ///
-    /// The two happen together on purpose. Binding is keyed by track name, so a track
-    /// created now and bound later is a rename waiting to break the link - and a broken
+    /// The two happen together on purpose. Binding is keyed by track name, so a capture
+    /// installed now and bound later is a rename waiting to break the link - and a broken
     /// link shows nothing at all, with no error anywhere. The rest of the logic lives in
-    /// the free function [`create_track_job`], including why an existing track is bound
+    /// the free function [`add_track_job`], including why an existing track is bound
     /// rather than refused.
-    fn create_track(self: &Arc<Self>, name: &str, capture: &str) {
+    fn add_track(self: &Arc<Self>, path: &str, name: &str) {
         let Some(app) = self.inner.lock().unwrap().game.clone() else {
             return;
         };
@@ -665,9 +660,9 @@ impl Host {
             self.error_dialog("a track needs a name");
             return;
         }
-        let capture = capture.to_string();
+        let ply = PathBuf::from(path);
         let resource_dir = self.resource_dir.clone();
-        let what = format!("creating {display}");
+        let what = format!("adding {display}");
         self.run_busy(&what, move |_host, log| {
             if launch::is_running() {
                 return Err(
@@ -677,103 +672,8 @@ impl Host {
             }
             let db = tracks::db_path();
             let root = game::root(&app);
-            create_track_job(&resource_dir, &db, &root, &display, &capture, log)
+            add_track_job(&resource_dir, &db, &root, &ply, &display, log)
         });
-    }
-
-    fn add_track(&self) {
-        let Some(app) = self.inner.lock().unwrap().game.clone() else {
-            return;
-        };
-        let Some(picked) = self
-            .app
-            .dialog()
-            .file()
-            .add_filter("JSON", &["json"])
-            .blocking_pick_file()
-        else {
-            return;
-        };
-        let Ok(path) = picked.into_path() else {
-            return;
-        };
-        match self.add_track_inner(&app, &path) {
-            Ok(()) => self.push(),
-            Err(ex) => {
-                self.log(&format!("failed: {ex}"));
-                self.error_dialog(&ex);
-            }
-        }
-    }
-
-    fn add_track_inner(&self, app: &Path, path: &Path) -> Result<(), String> {
-        if launch::is_running() {
-            return Err("Close VelociDrone first - it keeps its track database open.".into());
-        }
-        let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-        let t: tracks::TrackFile = serde_json::from_str(&text).map_err(|e| e.to_string())?;
-        let db = tracks::db_path();
-        if !db.is_file() {
-            return Err(format!(
-                "VelociDrone's database is not there yet - run the game once. ({})",
-                db.display()
-            ));
-        }
-        let value = t.value_string();
-        let (result, backup) =
-            tracks::import(&db, &t.name, t.scene_id, t.kind, &value).map_err(|e| e.to_string())?;
-        match result {
-            tracks::ImportResult::Added => {
-                let backup_name = backup
-                    .as_ref()
-                    .and_then(|p| p.file_name())
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("?");
-                self.log(&format!(
-                    "added track \"{}\" (backup: {backup_name})",
-                    t.name
-                ));
-                self.bind_if_obvious(app, &t.name);
-            }
-            tracks::ImportResult::AlreadyPresent => {
-                self.log(&format!(
-                    "track \"{}\" is already there, unchanged",
-                    t.name
-                ));
-                self.bind_if_obvious(app, &t.name);
-            }
-            tracks::ImportResult::WouldOverwrite => {
-                self.log(&format!(
-                    "a different track is already called \"{}\" - left alone",
-                    t.name
-                ));
-                self.warn_dialog(&format!(
-                    "You already have a track called \"{}\" and its layout \
-                     differs from this one.\n\nIt has been left as it is. Rename or \
-                     delete yours in the game if you want this version.",
-                    t.name
-                ));
-            }
-        }
-        Ok(())
-    }
-
-    fn bind_if_obvious(&self, app: &Path, track_name: &str) {
-        let root = game::root(app);
-        let scenes = game::scenes(&root);
-        if scenes.len() != 1 {
-            self.log(&format!(
-                "bind \"{track_name}\" to a capture at http://localhost:8777/ once flying"
-            ));
-            return;
-        }
-        let shown = tracks::display_name(track_name);
-        let scene = &scenes[0].name;
-        if let Err(e) = game::bind(&root, &shown, scene) {
-            self.log(&format!("failed: {e}"));
-            return;
-        }
-        self.log(&format!("bound \"{shown}\" to {scene}"));
     }
 
     fn launch(&self) {
@@ -796,6 +696,24 @@ impl Host {
             }
         }
     }
+}
+
+/// One job for Add track: the capture lands in `<game>/vdgs/` and the track is created
+/// and bound to it, in that order. Copying first means a failure at the database step
+/// leaves a capture with no track - visible in the "installed, on no track" line and
+/// removable from there - rather than a track whose capture never arrived, which the
+/// game would show as nothing with no error.
+fn add_track_job(
+    resource_dir: &Path,
+    db: &Path,
+    root: &Path,
+    ply: &Path,
+    display: &str,
+    log: &mut dyn FnMut(String),
+) -> Result<(), String> {
+    let capture = game::install_ply(root, ply).map_err(|e| e.to_string())?;
+    log(format!("installed {capture}"));
+    create_track_job(resource_dir, db, root, display, &capture, log)
 }
 
 /// The logic behind [`Host::create_track`], pulled out of the method so it can be exercised
@@ -1122,7 +1040,7 @@ fn dispatch(
     arg: Option<serde_json::Value>,
 ) {
     let h = Arc::clone(&host);
-    // createTrack reads `name` and `capture` together out of `arg` - one id string was
+    // addTrack reads `path` and `name` together out of `arg` - one id string was
     // never going to carry two values (bridge.ts's send() widened for exactly this).
     let field = |k: &str| -> Option<String> {
         arg.as_ref()
@@ -1135,7 +1053,7 @@ fn dispatch(
         "pick" => h.pick_game(),
         "installMod" => h.install_mod(),
         "uninstallMod" => h.uninstall_mod(),
-        "installPly" => h.install_ply(),
+        "pickPly" => h.pick_ply(),
         "refreshCatalog" => h.refresh_catalog(),
         "get" => {
             if let Some(id) = id {
@@ -1157,10 +1075,9 @@ fn dispatch(
                 h.remove_capture(&id);
             }
         }
-        "addTrack" => h.add_track(),
-        "createTrack" => {
-            if let (Some(name), Some(capture)) = (field("name"), field("capture")) {
-                h.create_track(&name, &capture);
+        "addTrack" => {
+            if let (Some(path), Some(name)) = (field("path"), field("name")) {
+                h.add_track(&path, &name);
             }
         }
         "fly" => h.launch(),
@@ -1319,6 +1236,52 @@ mod tests {
         let c = rusqlite::Connection::open(&p).unwrap();
         c.execute_batch("CREATE TABLE [tracks] ([id] INTEGER NOT NULL PRIMARY KEY, [scene_id] INTEGER NOT NULL, [name] VARCHAR, [value] VARCHAR, [protected_track] TINYINT(1) NOT NULL DEFAULT 0, online_id int default 0, rating int default 0, favourite int default 0, date varchar default '2019-07-01 00:00:00', type int default 0);").unwrap();
         p
+    }
+
+    // Add track is one job: the copy and the track must both exist afterwards, bound by
+    // the capture's on-disk name (the file stem), not by anything the person typed.
+    #[test]
+    fn add_track_job_installs_the_ply_and_binds_a_new_track_to_it() {
+        let resource_dir = resource_dir_with_seed();
+        let db = fresh_db();
+        let root = tmp();
+        let src = tmp().join("himeji-lod2.ply");
+        std::fs::write(&src, b"ply\nelement vertex 3\nend_header\n").unwrap();
+
+        let mut logged = Vec::new();
+        let result = add_track_job(&resource_dir, &db, &root, &src, "VDGS Himeji", &mut |s| {
+            logged.push(s)
+        });
+
+        assert!(result.is_ok(), "{result:?}");
+        assert!(root.join("vdgs/himeji-lod2.ply").is_file(), "the capture must be copied in");
+        assert!(tracks::find(&db, "VDGS Himeji").unwrap().is_some(), "the track row must exist");
+        assert_eq!(
+            game::read_bindings(&root)["VDGS Himeji"],
+            vec!["himeji-lod2".to_string()],
+            "the binding must name the file stem"
+        );
+        assert!(logged.iter().any(|l| l.contains("installed himeji-lod2")));
+        assert!(logged.iter().any(|l| l.contains("added track")));
+    }
+
+    // A source that cannot be read stops before the database is touched: no half-made
+    // track pointing at a capture that never arrived.
+    #[test]
+    fn add_track_job_writes_no_track_when_the_ply_cannot_be_copied() {
+        let resource_dir = resource_dir_with_seed();
+        let db = fresh_db();
+        let root = tmp();
+        let missing = tmp().join("nope.ply");
+
+        let mut logged = Vec::new();
+        let result = add_track_job(&resource_dir, &db, &root, &missing, "VDGS Nope", &mut |s| {
+            logged.push(s)
+        });
+
+        assert!(result.is_err());
+        assert!(tracks::find(&db, "VDGS Nope").unwrap().is_none());
+        assert!(!root.join("vdgs/bindings.json").exists());
     }
 
     #[test]

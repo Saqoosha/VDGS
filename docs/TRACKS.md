@@ -14,10 +14,11 @@ follows is only the part VDGS touches.
 
 ## What the companion handles: naming, binding, placement
 
-**Starting a new track from your own capture is mostly done in the companion's
-`03 create your own` tab.** Add a `.ply` (①), type a name and create the track (②), then
-fly and tune the placement (③). Step ② binds the capture in the same write that creates
-the track, so **the old ordering trap — build first, rename later, watch the picture
+**Starting a new track from your own capture is mostly done with the companion's
+`Add track`.** Pick a `.ply`, type a name and Create — that copies the file into
+`<game>/vdgs/`, creates the track and binds it in one job — then Fly and tune the
+placement from **Tweak**. Binding lands in the same write that creates the track, so
+**the old ordering trap — build first, rename later, watch the picture
 disappear — cannot happen for a track made this way.** The walkthrough is in
 [USAGE.md](USAGE.md).
 
@@ -39,8 +40,8 @@ to publish, do not rename it partway through.**
 ## 1. Build
 
 Build in the game's editor as usual. **The mod takes no keys at all** — F7 (save scene) and
-the arrow keys (move object) stay the game's. Placement is tuned from tab
-`03 create your own`, section ③.
+the arrow keys (move object) stay the game's. Placement is tuned from the
+**Tweak** screen.
 
 Two things matter from the VDGS side:
 
@@ -63,7 +64,7 @@ is **re-parsed every time**: 13–14 seconds at four million splats.
 covers 0.104 m and **any wall thinner than 10 cm is passed through**. That is why the level
 set band is baked at four times the voxel size.
 
-**Collision view** in tab `03 create your own`, section ③, draws the shell, so you can see
+**Collision view** on the **Tweak** screen draws the shell, so you can see
 whether the walls read from the inside before committing.
 
 ## 3. Export

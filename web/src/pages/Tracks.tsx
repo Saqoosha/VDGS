@@ -2,13 +2,18 @@ import { useEffect, useState } from 'react'
 import { Section } from '../chrome'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Dialog } from 'radix-ui'
+import { Progress } from '../components/Progress'
+import { Ring } from '../components/Ring'
 import { formatBytes } from '../format'
 import { filterByName } from '../search'
 import { send } from '../bridge'
+import { useStatus } from '../useStatus'
+import { busyIsSetup } from '../SetupStrip'
 import type { CatalogEntry, CatalogState, SetupState, TrackEntry } from '../types'
 
 /**
- * Tab 02: one table, one row per track.
+ * The track table: one row per track, and everything that happens to a track.
  *
  * Before this, a capture appeared in three places (the catalog, the track list, the
  * unbound-captures note) and a track appeared in another two - and the only place that
@@ -40,18 +45,56 @@ function resolveCatalogId(capture: string | null, catalog: CatalogState | null):
   return catalog.entries.find((e) => e.installAs === capture)?.id
 }
 
+/**
+ * Whether the host's current job is about this row. The host names each job after the
+ * row - `downloading <name>` then `installing <name>` for a Get, `removing <name>`,
+ * `unbinding <name>` - so an exact match on the phrase is enough; a substring match
+ * would light up "FDF" while "FDF night" downloads.
+ */
+function busyFor(busy: string | null | undefined, name: string): boolean {
+  return (
+    busy === `downloading ${name}` ||
+    busy === `installing ${name}` ||
+    busy === `removing ${name}` ||
+    busy === `unbinding ${name}`
+  )
+}
+
 function rowKey(row: Row): string {
   return row.kind === 'catalog' ? `catalog:${row.id}` : `track:${row.track}`
 }
 
+/** The .ply someone just chose, waiting for a track name before anything is written. */
+export type Picked = { path: string; stem: string }
+
 export default function Tracks({
   state,
   busy,
+  picked,
+  onPickedDone,
+  onTweak,
+  q,
+  onSearch,
 }: {
   state: SetupState | null
   busy: boolean
+  picked: Picked | null
+  /** The name row is gone - created or cancelled - and the shell should forget the pick. */
+  onPickedDone: () => void
+  onTweak: (track: string) => void
+  /** The search text. Owned by the shell, so it survives a trip to the tweak screen. */
+  q: string
+  onSearch: (q: string) => void
 }) {
-  const [q, setQ] = useState('')
+  // Which track the plugin has on screen right now, if it is answering at all. Tweak
+  // goes over the plugin's HTTP API and only reaches the loaded capture, so it is
+  // offered on exactly that row - a live Tweak on a track that is not loaded would open
+  // a screen of controls that move something else.
+  const { state: plugin, live } = useStatus()
+  const loadedTrack = live ? (plugin?.track ?? null) : null
+  // Which half of the table to show. Local, not the shell's: unlike the search text it
+  // is a glance-and-reset kind of thing, and coming back from Tweak should show all.
+  const [only, setOnly] = useState<Only>('all')
   const game = state?.game ?? null
   const tracks = state?.tracks ?? []
   const unbound = state?.unbound ?? []
@@ -84,56 +127,89 @@ export default function Tracks({
   const catalogRows: Row[] = (catalog?.entries ?? [])
     .filter((e) => !e.installed && !claimed.has(e.id))
     .map((e) => ({ kind: 'catalog', ...e }))
-  const rows = [...trackRows, ...catalogRows].sort((a, b) =>
-    rowName(a).toLowerCase().localeCompare(rowName(b).toLowerCase()),
+  // What is on this machine first, then what could be: a Get row between two flyable
+  // ones reads as a gap in the list, and the catalog will outgrow the machine's own
+  // tracks many times over. Name order within each half.
+  const byName = (a: Row, b: Row) =>
+    rowName(a).toLowerCase().localeCompare(rowName(b).toLowerCase())
+  const rows = [...trackRows.sort(byName), ...catalogRows.sort(byName)]
+  const wanted = rows.filter((r) =>
+    only === 'all' ? true : only === 'installed' ? r.kind === 'track' : r.kind === 'catalog',
   )
   const shown = filterByName(
-    rows.map((row) => ({ row, name: rowName(row) })),
+    wanted.map((row) => ({ row, name: rowName(row) })),
     q,
   ).map((r) => r.row)
 
   return (
-    <Section n="01" label="tracks" flush>
-      <label className="mb-3 flex items-end gap-4 border-b border-rule pb-1.5">
-        <span className="font-mono text-[10px] tracking-[0.22em] text-muted-foreground uppercase">
-          find
-        </span>
-        <Input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="name…"
-          aria-label="Search tracks"
-          className="h-8 border-0 bg-transparent px-0 font-serif text-xl shadow-none focus-visible:ring-0"
-        />
-      </label>
+    <Section label="tracks">
+      <div className="mb-3">
+        <FindField q={q} onChange={onSearch} only={only} onOnly={setOnly} />
+      </div>
+
+      {/* A job that is about one row shows in that row (see TrackRow); one about the
+          setup section shows there. The rest - fetching the catalog, adding a track
+          whose row does not exist yet - show here at the head of the list, where the
+          button was pressed, rather than in the corner of the window. */}
+      {state?.busy &&
+      !busyIsSetup(state.busy) &&
+      !rows.some((r) => busyFor(state.busy, rowName(r))) ? (
+        <Progress what={state.busy} percent={state.busyPercent} />
+      ) : null}
+
+      {picked ? <NameDialog picked={picked} onDone={onPickedDone} /> : null}
 
       <div>
-        {!rows.length ? (
+        {!rows.length && !picked ? (
           <p className="font-mono text-[11px] tracking-[0.14em] text-muted-foreground uppercase">
-            {game ? 'nothing to show yet' : 'no game folder'}
+            {game ? 'no tracks yet — add one below' : 'no game folder'}
           </p>
-        ) : !shown.length ? (
+        ) : !shown.length && !picked ? (
           <p className="font-mono text-[11px] tracking-[0.14em] text-muted-foreground uppercase">
             no matches
           </p>
         ) : (
           <ol>
-            {shown.map((row, i) => (
+            {shown.map((row) => (
               <TrackRow
                 key={rowKey(row)}
-                index={String(i + 1).padStart(2, '0')}
                 row={row}
                 busy={busy}
                 fileBusy={fileBusy}
+                loaded={row.kind === 'track' && row.track === loadedTrack}
+                onTweak={onTweak}
+                progress={
+                  state?.busy && busyFor(state.busy, rowName(row))
+                    ? { what: state.busy, percent: state.busyPercent }
+                    : null
+                }
               />
             ))}
           </ol>
         )}
 
+        {/* Add track cannot produce this any more - the copy waits for the name - but a
+            file dropped into vdgs/ by hand still can, and a capture nothing points at is
+            invisible everywhere else. Remove is the only way it ever leaves. */}
         {unbound.length ? (
-          <p className="mt-5 font-mono text-[11px] leading-relaxed text-muted-foreground">
-            installed, on no track: {unbound.map((c) => c.name).join(' · ')}
-          </p>
+          <div className="mt-5 font-mono text-[11px] leading-relaxed text-muted-foreground">
+            <span>installed, on no track:</span>
+            {unbound.map((c) => (
+              <span key={c.name} className="ml-3 inline-flex items-baseline gap-2">
+                {c.name}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={fileBusy}
+                  onClick={() => send('removeCapture', c.name)}
+                  aria-label={`Remove ${c.name}`}
+                  className="h-5 px-1.5 text-[10px]"
+                >
+                  remove
+                </Button>
+              </span>
+            ))}
+          </div>
         ) : null}
 
         {catalog?.error ? (
@@ -142,41 +218,218 @@ export default function Tracks({
           </p>
         ) : null}
       </div>
-
-      <div className="mt-4 flex flex-wrap items-center gap-3">
-        <Button variant="outline" disabled={!game || fileBusy} onClick={() => send('addTrack')}>
-          Add track
-        </Button>
-        <Button variant="outline" disabled={fileBusy} onClick={() => send('refreshCatalog')}>
-          Refresh
-        </Button>
-        {catalog ? (
-          <span className="font-mono text-[11px] break-all text-muted-foreground">
-            {catalog.url}
-          </span>
-        ) : null}
-      </div>
     </Section>
   )
 }
 
+/** Which rows to show: everything, only what is on this machine, or only what is not. */
+type Only = 'all' | 'installed' | 'available'
+
+const ONLY: Only[] = ['all', 'installed', 'available']
+
+/** The field under the section label, with the filter at its end. */
+function FindField({
+  q,
+  onChange,
+  only,
+  onOnly,
+}: {
+  q: string
+  onChange: (q: string) => void
+  only: Only
+  onOnly: (o: Only) => void
+}) {
+  return (
+    <div className="flex items-baseline gap-4 border-b border-rule pb-1.5">
+      <label className="flex min-w-0 flex-1 items-baseline gap-4">
+        <span className="font-mono text-[10px] tracking-[0.22em] text-muted-foreground uppercase">
+          find
+        </span>
+        <Input
+          value={q}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="name…"
+          aria-label="Search tracks"
+          className="h-8 border-0 bg-transparent px-0 font-serif text-xl shadow-none focus-visible:ring-0"
+        />
+      </label>
+      {/* A filter, not tabs: the window had tabs and lost them for splitting one
+          thing across screens. This narrows one list in place. */}
+      <div
+        role="radiogroup"
+        aria-label="Show"
+        className="flex shrink-0 gap-3 font-mono text-[10px] tracking-[0.22em] uppercase"
+      >
+        {ONLY.map((o) => (
+          <button
+            key={o}
+            type="button"
+            role="radio"
+            aria-checked={only === o}
+            onClick={() => onOnly(o)}
+            className={
+              only === o
+                ? 'text-signal underline decoration-signal/60 underline-offset-4'
+                : 'text-muted-foreground hover:text-foreground'
+            }
+          >
+            {o}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Add track and Refresh. Rendered by the shell in its sticky bottom, above Fly, for the
+ * same reason as FindField: they are the way in, and the way in must not scroll away.
+ */
+export function TracksToolbar({
+  state,
+  busy,
+  picked,
+}: {
+  state: SetupState | null
+  busy: boolean
+  picked: Picked | null
+}) {
+  const game = state?.game ?? null
+  const catalog = state?.catalog ?? null
+  const fileBusy = busy || !!state?.running
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      {/* The .ply is the whole input: the host opens a picker for it, hands the path
+          back as `picked`, and the name row at the head of the table takes it from
+          there. Nothing is copied until the name is confirmed. */}
+      <Button
+        variant="outline"
+        disabled={!game || fileBusy || !!picked}
+        onClick={() => send('pickPly')}
+      >
+        Add track
+      </Button>
+      <Button variant="outline" disabled={fileBusy} onClick={() => send('refreshCatalog')}>
+        Refresh
+      </Button>
+      {catalog ? (
+        <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground">
+          {catalog.url}
+        </span>
+      ) : null}
+    </div>
+  )
+}
+
 function TrackRow({
-  index,
   row,
   busy,
   fileBusy,
+  loaded,
+  onTweak,
+  progress,
 }: {
-  index: string
   row: Row
   busy: boolean
   fileBusy: boolean
+  /** The plugin has this track's capture on screen right now. */
+  loaded: boolean
+  onTweak: (track: string) => void
+  /** The host is downloading or installing this row's capture. */
+  progress: { what: string; percent: number | null } | null
 }) {
   return (
-    <li className="group/row grid grid-cols-[2.25rem_minmax(0,1fr)_auto] items-start gap-3 border-b border-rule/80 py-4 last:border-b-0">
-      <span className="pt-1 font-mono text-[11px] text-muted-foreground">{index}</span>
+    <li className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 border-b border-rule/80 py-4 last:border-b-0">
       <RowBody row={row} />
-      <Actions row={row} busy={busy} fileBusy={fileBusy} />
+      <div className="flex items-center gap-2">
+        {progress ? (
+          // In place of the button that started it: the Get the row offered is what is
+          // happening now, and a person watching this row is watching the right place.
+          <Ring what={progress.what} percent={progress.percent} />
+        ) : null}
+        {!progress && row.kind === 'track' && row.captureInstalled ? (
+          // Live only on the row the plugin is showing. Elsewhere it stays visible but
+          // off, with the reason in its title: a button that vanishes teaches nobody
+          // that flying is what turns it on.
+          <Button
+            variant={loaded ? 'default' : 'outline'}
+            size="sm"
+            disabled={!loaded}
+            title={loaded ? undefined : 'fly this track first'}
+            onClick={() => onTweak(row.track)}
+            aria-label={`Tweak ${row.track}`}
+          >
+            Tweak
+          </Button>
+        ) : null}
+        {!progress ? <Actions row={row} busy={busy} fileBusy={fileBusy} /> : null}
+      </div>
     </li>
+  )
+}
+
+/**
+ * File -> name -> create, the middle step. The pick has already happened; this asks
+ * what to call the track and only then sends both together, so cancelling here writes
+ * nothing anywhere. The default name is the file's own, prefixed - most people will
+ * keep it, and a blank field is the one thing that would stall the flow.
+ *
+ * A dialog, not a row: it was a row at the head of the table for a while, and with the
+ * table scrolled it opened out of view - the file was picked, nothing visible changed,
+ * and the person went looking. A modal cannot be missed and cannot be left half-done
+ * behind another click; Escape and the backdrop are Cancel.
+ */
+function NameDialog({ picked, onDone }: { picked: Picked; onDone: () => void }) {
+  const [name, setName] = useState(`VDGS ${picked.stem}`)
+  const create = () => {
+    send('addTrack', undefined, { path: picked.path, name })
+    onDone()
+  }
+  return (
+    <Dialog.Root open onOpenChange={(open) => !open && onDone()}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-40 bg-background/70 backdrop-blur-sm" />
+        <Dialog.Content
+          aria-describedby={undefined}
+          className="fixed top-1/2 left-1/2 z-50 w-[min(32rem,calc(100vw-3rem))] -translate-x-1/2 -translate-y-1/2 border border-rule bg-background p-6 text-foreground shadow-2xl outline-none"
+        >
+          <Dialog.Title className="font-mono text-[10px] tracking-[0.22em] text-signal uppercase">
+            new track
+          </Dialog.Title>
+          <p className="mt-2 font-mono text-[11px] tracking-[0.04em] text-muted-foreground">
+            {picked.stem}.ply
+          </p>
+          <form
+            className="mt-5"
+            onSubmit={(e) => {
+              e.preventDefault()
+              if (name.trim()) create()
+            }}
+          >
+            <label className="flex items-baseline gap-4 border-b border-rule pb-1.5">
+              <span className="font-mono text-[10px] tracking-[0.22em] text-muted-foreground uppercase">
+                track name
+              </span>
+              <Input
+                autoFocus
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                aria-label="Track name"
+                className="h-8 flex-1 border-0 bg-transparent px-0 font-serif text-xl shadow-none focus-visible:ring-0"
+              />
+            </label>
+            <div className="mt-5 flex justify-end gap-3">
+              <Button type="button" variant="ghost" onClick={onDone}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={!name.trim()}>
+                Create
+              </Button>
+            </div>
+          </form>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   )
 }
 
@@ -272,8 +525,9 @@ function Actions({ row, busy, fileBusy }: { row: Row; busy: boolean; fileBusy: b
       </Button>
     ) : null
   }
-  // Kept quiet until the row is pointed at: this is a list to read, and the button is
-  // for the one row in it someone wants gone.
+  // Always shown, beside Tweak: they used to appear on hover only, which hid one of the
+  // row's two actions behind a gesture while the other sat in plain view. Removal asks
+  // before it acts, so being visible costs nothing.
   if (row.fromServer) {
     return (
       <Button
@@ -286,7 +540,6 @@ function Actions({ row, busy, fileBusy }: { row: Row; busy: boolean; fileBusy: b
         // binding for a capture they are actively flying to compare against.
         disabled={busy}
         onClick={() => send('unbindTrack', row.track)}
-        className="opacity-0 transition-opacity group-hover/row:opacity-100 focus-visible:opacity-100"
         aria-label={`Unbind ${row.track}`}
       >
         Unbind
@@ -299,7 +552,6 @@ function Actions({ row, busy, fileBusy }: { row: Row; busy: boolean; fileBusy: b
       size="sm"
       disabled={fileBusy}
       onClick={() => send('removeTrack', row.track)}
-      className="opacity-0 transition-opacity group-hover/row:opacity-100 focus-visible:opacity-100"
       aria-label={`Remove ${row.track}`}
     >
       Remove
