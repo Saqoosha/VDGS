@@ -347,7 +347,9 @@ companion の `Add track` に既存トラックの名前を打つと、そのト
 **Tweak 画面だけが動く**。companion はこの URL と QR を Tweak 画面の先頭に出す。全画面の
 ゲームから alt-tab するのが最悪の操作なので、両手が送信機にある間は LAN 上の別端末
 （スマホなど）からこのアドレスを開けばいい（Parsec でゲーム画面を見ながら、手元の
-ブラウザで合わせる運用も同じ経路）。UI だけ変えたあとは `bash tools/deploy.sh --ui` で
+ブラウザで合わせる運用も同じ経路）。**Windows は初回起動時にファイアウォールが
+`velocidrone.exe` の許可を聞く** — このサーバーのため。companion 自身は 127.0.0.1 経由
+なので Cancel でも動くが、別端末から開くには Allow が要る。UI だけ変えたあとは `bash tools/deploy.sh --ui` で
 `web/dist/` を `<game>/vdgs/ui/` に置く。プラグインの再ビルドは不要。
 
 ```
