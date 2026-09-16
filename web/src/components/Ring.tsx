@@ -3,9 +3,9 @@
  *
  * A known percentage is an arc that closes clockwise; a job that cannot say how far
  * along it is - unpacking, importing - gets a third of a ring that turns, which says the
- * app is alive without claiming to know how much is left. Only the number is announced,
- * in the label: Catalog.Download reports every distinct percent, and a live region that
- * repeated each one would speak a hundred times on the way past.
+ * app is alive without claiming to know how much is left. The job name is the label and
+ * the number is the bar's value; there is no live region, since the host reports every
+ * distinct percent.
  */
 export function Ring({ what, percent }: { what: string; percent: number | null }) {
   const r = 11
@@ -32,7 +32,15 @@ export function Ring({ what, percent }: { what: string; percent: number | null }
         className={known ? '-rotate-90' : 'animate-spin'}
         aria-hidden="true"
       >
-        <circle cx={14} cy={14} r={r} fill="none" stroke="currentColor" strokeOpacity={0.2} strokeWidth={2} />
+        <circle
+          cx={14}
+          cy={14}
+          r={r}
+          fill="none"
+          stroke="currentColor"
+          strokeOpacity={0.2}
+          strokeWidth={2}
+        />
         <circle
           cx={14}
           cy={14}

@@ -308,8 +308,8 @@ impl Host {
     ///
     /// Adding a track is file -> name -> create, and the copy waits for the name: a
     /// capture that lands in `<game>/vdgs/` before the person has committed to a track
-    /// is the "installed, on no track" state the three-tab layout kept producing (cancel
-    /// at the name step and the file stayed). The page shows the name row on `picked`
+    /// is the "installed, on no track" state the earlier layout kept producing (cancel
+    /// at the name step and the file stayed). The page opens the name dialog on `picked`
     /// and sends `addTrack {path, name}` when it is confirmed; cancel sends nothing.
     fn pick_ply(self: &Arc<Self>) {
         if self.inner.lock().unwrap().game.is_none() {
@@ -518,11 +518,9 @@ impl Host {
     /// The old design kept the capture on the theory that it is hundreds of megabytes and
     /// a track is a small click, so you might want to rebind the same capture to a
     /// different track later. That reasoning only holds if the person can tell what is
-    /// left behind and why - and they could not: this dialog was the only place that said
-    /// so, tab 03's picker showed the orphaned capture with no hint it came from a removed
-    /// track, and tab 03 has its own `Remove` that deletes a different thing under the
-    /// same label. The first real user to hit this in testing removed two tracks and found
-    /// both captures still sitting in tab 03's picker - "confusing, so users will confuse."
+    /// left behind and why - and they could not. The first real user to hit this in
+    /// testing removed two tracks and found both captures still listed as installed -
+    /// "confusing, so users will confuse."
     fn remove_track(self: &Arc<Self>, name: &str) {
         let (app, catalog) = {
             let inner = self.inner.lock().unwrap();
@@ -548,7 +546,7 @@ impl Host {
         let captures = all_bindings.get(name).cloned().unwrap_or_default();
 
         // Binding the same capture to a second track is ordinary - `game::bind` never
-        // refuses it, and tab 03 has no reason to. So a capture this track is bound to may
+        // refuses it. So a capture this track is bound to may
         // also be named under some other key in the same map, and deleting it here would
         // silently break that other track's binding without telling anyone. Split the list
         // now, purely to word the dialog correctly; `remove_track_job` re-derives the same
@@ -649,8 +647,7 @@ impl Host {
     /// The two happen together on purpose. Binding is keyed by track name, so a capture
     /// installed now and bound later is a rename waiting to break the link - and a broken
     /// link shows nothing at all, with no error anywhere. The rest of the logic lives in
-    /// the free function [`add_track_job`], including why an existing track is bound
-    /// rather than refused.
+    /// the free function [`add_track_job`].
     fn add_track(self: &Arc<Self>, path: &str, name: &str) {
         let Some(app) = self.inner.lock().unwrap().game.clone() else {
             return;
@@ -716,13 +713,13 @@ fn add_track_job(
     create_track_job(resource_dir, db, root, display, &capture, log)
 }
 
-/// The logic behind [`Host::create_track`], pulled out of the method so it can be exercised
+/// The track half of [`add_track_job`], pulled out so it can be exercised
 /// without a `tauri::AppHandle` - `Host` needs one to build at all, which is not available
 /// in a unit test.
 ///
 /// `AlreadyPresent` and `WouldOverwrite` both bind and return `Ok`. There is no other path
-/// in this UI to bind a capture onto a track that already exists - that was cut from tab
-/// 02's scope - so refusing here would strand anyone who presses Create track twice (a
+/// in this UI to bind a capture onto a track that already exists, so refusing here would
+/// strand anyone who adds the same track name twice (a
 /// crash, a later Unbind, a hand-edited bindings.json) with a track they can never use. In
 /// both cases `tracks::import` returns without inserting, so the existing row - and
 /// whatever gates it holds - is never touched; only bindings.json, a file this app owns,
@@ -906,17 +903,19 @@ fn remove_track_job(
     captures: &[String],
     log: &mut dyn FnMut(String),
 ) -> Result<(), String> {
+    // Before anything is written: the game holds the database and the capture files, and
+    // a refusal after the unbind would leave the track half-removed.
+    if (mine || !captures.is_empty()) && launch::is_running() {
+        return Err(
+            "VelociDrone is running. Close it first - it keeps its track database and captures open."
+                .into(),
+        );
+    }
     if game::unbind(root, name).map_err(|e| e.to_string())? {
         log(format!("unbound \"{name}\""));
     }
 
     if mine {
-        if launch::is_running() {
-            return Err(
-                "VelociDrone is running. Close it first - it keeps its track database open."
-                    .into(),
-            );
-        }
         let (removed, backup) = tracks::remove(db, name).map_err(|e| e.to_string())?;
         if removed {
             let backup_name = backup
@@ -934,11 +933,6 @@ fn remove_track_job(
 
     if captures.is_empty() {
         return Ok(());
-    }
-    if launch::is_running() {
-        return Err(
-            "VelociDrone is running. Close it first - files in use cannot be removed.".into(),
-        );
     }
 
     // `name`'s own entry is already gone (the unbind above), so anything still turning up
@@ -1115,10 +1109,8 @@ pub fn run() {
         // Position and size only - not maximized, not visibility. This window is something
         // you alt-tab to from a fullscreen game; restoring it maximized because it happened
         // to be maximized once is worse than restoring the modest size it usually sits at.
-        // Leaving MAXIMIZED out of the flags does double duty: on restore the plugin skips
-        // its own `maximize()` call, and on save `update_state` treats "currently maximized"
-        // as reason to skip writing size/position too, so the maximized geometry never
-        // clobbers the last real one. VISIBLE is left out for a narrower reason - with it
+        // Leaving MAXIMIZED out of the flags means the plugin never calls `maximize()` on
+        // restore. VISIBLE is left out for a narrower reason - with it
         // unset the plugin never calls `show()`/`set_focus()` after restoring, and the
         // window is created visible by `tauri.conf.json` regardless, so there is nothing to
         // gain from tracking it and a hidden-on-quit window has no way back without editing
@@ -1134,8 +1126,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         // api.ts's hosted transport goes through this rather than a same-origin fetch from
         // the webview - the plugin's HTTP server has no Access-Control-Allow-Origin (adding
-        // one would open its LAN-facing API to any site), so a cross-origin fetch from the
-        // page would just fail. Routing through the host keeps that header absent.
+        // one would open its LAN-facing API to any site), so a fetch from the webview's
+        // origin would just fail. Routing through the host keeps that header absent.
         .plugin(tauri_plugin_http::init())
         .setup(|app| {
             let resource_dir = resolve_resource_dir(app.handle());

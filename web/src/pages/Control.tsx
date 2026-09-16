@@ -27,14 +27,14 @@ const UP_AXES: UpAxis[] = ['+x', '-x', '+y', '-y', '+z', '-z']
 const MIRROR_TIMEOUT_MS = 20_000
 
 /**
- * The tuning section of tab 03 (③): what used to be the whole in-game control UI's §01
+ * The tuning controls of the Tweak screen: what used to be the whole in-game control UI's §01
  * "current track" + §02 "on screen" + §03 "bindings", cut down to only what makes sense
  * once a track binds its capture automatically at creation time. There is nothing left
  * to bind or unbind by hand here, and no reason to hide the one capture a track just
  * pointed at.
  *
  * `state`/`refresh` are passed in rather than read here via `useStatus()` directly:
- * Own.tsx already needs that same poll (`live` decides whether this component is even
+ * Tweak.tsx already needs that same poll (`live` decides whether this component is even
  * mounted), and a second independent `useStatus()` here would mean two polling loops
  * hitting the plugin's HTTP server every 1500ms for the same data.
  */
@@ -235,7 +235,7 @@ function ShownBlock({
     }
   }
 
-  // No onRefresh here, matching pushTransform below: turn is a dragged slider, and
+  // No onRefresh here, matching pushTransform above: turn is a dragged slider, and
   // refetching status after every drag tick would be a poll storm. The two callers that
   // do need a refresh - up (can detach the backdrop server-side) and mirror (its checked
   // state must come from the server, not an optimistic echo) - fetch it themselves.

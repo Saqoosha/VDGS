@@ -114,8 +114,8 @@ describe('the companion window', () => {
     expect(screen.getByTestId('log')).toHaveClass('select-text')
   })
 
-  // The host answers pickPly with the path; the name row is the page's part.
-  it('opens the name row when the host reports a picked file', async () => {
+  // The host answers pickPly with the path; the name dialog is the page's part.
+  it('opens the name dialog when the host reports a picked file', async () => {
     deliver({ type: 'picked', path: '/d/himeji-lod2.ply', stem: 'himeji-lod2' })
     await waitFor(() =>
       expect(screen.getByRole('textbox', { name: /track name/i })).toHaveValue('VDGS himeji-lod2'),
@@ -126,9 +126,7 @@ describe('the companion window', () => {
   // the shell - jsdom does not implement drag-to-select, so it cannot prove a drag stops
   // painting a selection. A data-testid, not a styling class, picks out the shell's own
   // root div: `select-none` alone would also match the Fly button and other shadcn
-  // controls that carry it too, and the sizing class that used to double as that handle
-  // (`.h-svh`) moved off this element once the page started scrolling as a whole instead
-  // of being clipped to one screen.
+  // controls that carry it too.
   it('turns off text selection at the window shell', () => {
     expect(screen.getByTestId('companion-shell')).toHaveClass('select-none')
   })

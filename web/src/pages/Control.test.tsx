@@ -67,9 +67,8 @@ describe('Control XSS', () => {
   })
 })
 
-// The three things earlier reviews parked for this task - each is a control that would
-// otherwise look broken with no explanation.
-describe('the parked items', () => {
+// Each is a control that would otherwise look broken with no explanation.
+describe('controls that explain themselves', () => {
   it('hides Mirror for a converted capture - the flip happens while a .ply is parsed', () => {
     const status = sample(scene({ kind: 'converted' }))
     render(<Control state={status} refresh={async () => status} />)

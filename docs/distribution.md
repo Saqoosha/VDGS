@@ -63,16 +63,17 @@ upstream release, with URL, size and sha256 pinned. **"Install BepInEx first" wa
 of every install and the step most often got wrong.** Unpack it one level too deep and
 **the game starts and nothing happens.**
 
-**Tracks can be removed one row at a time** (a `REMOVE` that appears on hover). What goes
+**Tracks can be removed one row at a time** (each row's `REMOVE`). What goes
 is the row in `user11.db`, the entry in `bindings.json`, **and now the bound capture too.**
 The earlier design kept the capture — it is gigabytes, and a track is a small click — but
-the first real user to test tab 03 removed two tracks and found both captures still
-listed in its picker with no hint why: the reasoning only holds if the person can tell
+the first real user to test it removed two tracks and found both captures still
+listed as installed with no hint why: the reasoning only holds if the person can tell
 what is left behind, and they could not. The confirmation names the capture and says
 whether it can be fetched again from the catalog, or is gone for good without the
 original `.ply`. **Tracks that came from the official server are never deleted** (the
 button reads `UNBIND` instead): they belong to their author, and removing them from
-someone's machine is not ours to do — only the binding, and now the capture, go. The
+someone's machine is not ours to do — only the binding goes, and the capture stays,
+listed under "installed, on no track" with its own remove. The
 database is copied before any deletion — **lap times cannot be re-obtained.**
 
 **UNINSTALL does not delete captures.** It removes `VDGS.dll`, `vdgs-shaders` and

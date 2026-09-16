@@ -165,7 +165,7 @@ describe('the merged track table', () => {
   })
 
   // Add track is file -> name -> create. The button only asks the host for the file;
-  // the name row appears on `picked`, and only Create sends anything that writes.
+  // the name dialog appears on `picked`, and only Create sends anything that writes.
   it('asks the host to pick a .ply, and nothing else, on Add track', () => {
     render(<TracksToolbar state={state({})} busy={false} picked={null} />)
     fireEvent.click(screen.getByRole('button', { name: /add track/i }))
@@ -173,7 +173,7 @@ describe('the merged track table', () => {
     expect(send).toHaveBeenCalledWith('pickPly')
   })
 
-  it('shows the name row for a picked file, defaulting to the file stem', () => {
+  it('shows the name dialog for a picked file, defaulting to the file stem', () => {
     render(
       <Tracks
         state={state({})}
@@ -185,7 +185,7 @@ describe('the merged track table', () => {
     expect(screen.getByRole('textbox', { name: /track name/i })).toHaveValue('VDGS himeji-lod2')
   })
 
-  // One pick at a time: the button waits until the name row is settled.
+  // One pick at a time: the button waits until the name dialog is settled.
   it('holds Add track while a pick is waiting for its name', () => {
     render(
       <TracksToolbar
@@ -316,6 +316,51 @@ describe('the merged track table', () => {
     fireEvent.click(screen.getByRole('radio', { name: /^available$/i }))
     expect(names()).toHaveLength(1)
     expect(names()[0]).toContain('AAA from the catalog')
+  })
+
+  // A track row fetching its missing capture goes through the catalog entry, and the host
+  // names that job after the entry, not the track.
+  it('shows a track row download fetched through the catalog on that row', () => {
+    const entry = {
+      id: 'nelson', name: 'Nelson', description: null, author: null, licence: null,
+      splats: 1, bytes: 1, installed: false, installAs: 'nelson-lod2',
+    }
+    render(
+      <Tracks
+        state={state({
+          busy: 'downloading Nelson', busyPercent: 12,
+          tracks: [track({ track: 'VDGS Nelson', capture: 'nelson-lod2', captureInstalled: false })],
+          catalog: { url: 'x', error: null, entries: [entry] },
+        })}
+        busy={true}
+        {...noop}
+      />,
+    )
+    const ring = screen.getByRole('progressbar', { name: /downloading Nelson/i })
+    expect(ring.closest('li')).toHaveTextContent('VDGS Nelson')
+    expect(screen.getAllByRole('progressbar')).toHaveLength(1)
+  })
+
+  // A filter that hides the busy row must not also hide the progress: the bar at the
+  // head of the table takes over for a row that is not on screen.
+  it('falls back to the head-of-table bar when the busy row is filtered out', () => {
+    const entry = {
+      id: 'jdl', name: 'VDGS JDL', description: null, author: null, licence: null,
+      splats: 1, bytes: 1, installed: false, installAs: 'JDL',
+    }
+    render(
+      <Tracks
+        state={state({
+          busy: 'downloading VDGS JDL', busyPercent: 30,
+          tracks: [track()],
+          catalog: { url: 'x', error: null, entries: [entry] },
+        })}
+        busy={true}
+        {...noop}
+      />,
+    )
+    fireEvent.click(screen.getByRole('radio', { name: /^installed$/i }))
+    expect(screen.getByRole('progressbar', { name: /downloading VDGS JDL/i })).toBeInTheDocument()
   })
 
   it('shows a removal as a turning ring on its own row', () => {

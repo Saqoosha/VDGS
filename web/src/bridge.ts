@@ -60,8 +60,8 @@ export type Command =
  */
 let listening: Promise<unknown> | null = null
 
-// Widened to a third value for createTrack, which needs a name and a capture together -
-// one id string was never going to carry two values.
+// Widened to a third value for addTrack, which needs a path and a name together - one
+// id string was never going to carry two values.
 export function send(cmd: Command, id?: string, arg?: Record<string, unknown>): void {
   if (!tauri) return devSend(cmd, id)
   const invoke = () =>
@@ -106,9 +106,9 @@ const devState: SetupState = {
   // Real state carries this unconditionally too - state.rs asks the OS for a LAN-facing
   // address regardless of whether the game is running, so setting it here regardless of
   // `running` below is not a deviation from production, it is what production does.
-  // Whether anything is actually listening at it is a separate question the tab itself
-  // has to gate on `running` (see Own.tsx) - this stand-in exists so the field has
-  // something to lay out, not so its presence alone means the address is live.
+  // Whether anything is actually listening at it is a separate question the shell gates
+  // on `running` - this stand-in exists so the field has something to lay out, not so
+  // its presence alone means the address is live.
   lanUrl: 'http://192.168.1.42:8777/',
   tracks: [
     {
@@ -190,7 +190,7 @@ function devSend(cmd: Command, id?: string) {
     devPush({ type: 'state', ...devState })
     return
   }
-  // The stand-in for the file dialog: a fixed path back, so the name row can be laid out
+  // The stand-in for the file dialog: a fixed path back, so the name dialog can be laid out
   // in a browser where no host exists to open a real one.
   if (cmd === 'pickPly') {
     devPush({ type: 'picked', path: '/Users/you/Downloads/himeji-lod2.ply', stem: 'himeji-lod2' })

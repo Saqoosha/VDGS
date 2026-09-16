@@ -341,8 +341,8 @@ converted scene directory plus, where they exist, `collision.bin` and `placement
 `bindings.sample.json` assumes the track still carries the name it shipped with. If you
 renamed it after downloading it in Track Manager, bind it under **your** name instead —
 edit `bindings.json` by hand; it takes effect within a second even while the game runs.
-**Add track** creates and binds a brand-new track — **it does not yet offer a
-way to re-bind an existing one.**
+**Add track** with an existing track's name binds the new capture onto that track
+without touching its gates.
 
 `placement.json` positions the capture **for that track**. Building your own course means
 adjusting it from **Tweak**, which saves as you go.
@@ -375,6 +375,8 @@ plugin.
 │  Turn   ────│────  0°                           │
 │  Scale  ────│────  1.00×                        │
 │  Height ────│────  0.00m                        │
+│  X      ────│────  0.00m                        │
+│  Z      ────│────  0.00m                        │
 └─────────────────────────────────────────────────┘
 ```
 

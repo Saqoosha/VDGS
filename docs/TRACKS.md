@@ -17,9 +17,10 @@ follows is only the part VDGS touches.
 **Starting a new track from your own capture is mostly done with the companion's
 `Add track`.** Pick a `.ply`, type a name and Create — that copies the file into
 `<game>/vdgs/`, creates the track and binds it in one job — then Fly and tune the
-placement from **Tweak**. Binding lands in the same write that creates the track, so
+placement from **Tweak**. Binding lands in the same job that creates the track, so
 **the old ordering trap — build first, rename later, watch the picture
-disappear — cannot happen for a track made this way.** The walkthrough is in
+disappear — cannot happen for a track made this way** (a job that fails partway leaves
+the copied capture listed as installed, on no track). The walkthrough is in
 [USAGE.md](USAGE.md).
 
 **There is no scenery to pick.** The seed template the companion clones already carries a
@@ -32,7 +33,7 @@ here on it is the game's own track editor and this repo's tools.**
 ## Renaming a track breaks its binding
 
 **What shows is decided by the track's name alone** (`bindings.json`). For a track the
-companion just created, the name and the binding land in the same write — but **rename the
+companion just created, the name and the binding land in the same job — but **rename the
 track afterward and the binding breaks, and the picture disappears.** Re-binding fixes it,
 but a released `bindings.sample.json` assumes the name it shipped with, so **if you intend
 to publish, do not rename it partway through.**

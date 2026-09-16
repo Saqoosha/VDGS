@@ -40,7 +40,10 @@ function rowName(row: Row): string {
  * catalog loaded, or no entry whose `installAs` matches, there is genuinely nothing to
  * fetch and the row gets no action at all rather than a button that does nothing.
  */
-function resolveCatalogId(capture: string | null, catalog: CatalogState | null): string | undefined {
+function resolveCatalogId(
+  capture: string | null,
+  catalog: CatalogState | null,
+): string | undefined {
   if (!capture || !catalog) return undefined
   return catalog.entries.find((e) => e.installAs === capture)?.id
 }
@@ -58,6 +61,24 @@ function busyFor(busy: string | null | undefined, name: string): boolean {
     busy === `removing ${name}` ||
     busy === `unbinding ${name}`
   )
+}
+
+/**
+ * The names the host might use for a job about this row. A track row whose missing
+ * capture is fetched through `catalogId` is downloaded under the catalog entry's name,
+ * not the track's, so both are tried.
+ */
+function busyNames(row: Row, catalog: CatalogState | null): string[] {
+  const names = [rowName(row)]
+  if (row.kind === 'track' && row.catalogId) {
+    const entry = catalog?.entries.find((e) => e.id === row.catalogId)
+    if (entry) names.push(entry.name)
+  }
+  return names
+}
+
+function rowBusy(busy: string | null | undefined, row: Row, catalog: CatalogState | null): boolean {
+  return busyNames(row, catalog).some((n) => busyFor(busy, n))
 }
 
 function rowKey(row: Row): string {
@@ -79,7 +100,7 @@ export default function Tracks({
   state: SetupState | null
   busy: boolean
   picked: Picked | null
-  /** The name row is gone - created or cancelled - and the shell should forget the pick. */
+  /** The name dialog is gone - created or cancelled - and the shell should forget the pick. */
   onPickedDone: () => void
   onTweak: (track: string) => void
   /** The search text. Owned by the shell, so it survives a trip to the tweak screen. */
@@ -90,7 +111,7 @@ export default function Tracks({
   // goes over the plugin's HTTP API and only reaches the loaded capture, so it is
   // offered on exactly that row - a live Tweak on a track that is not loaded would open
   // a screen of controls that move something else.
-  const { state: plugin, live } = useStatus()
+  const { state: plugin, live } = useStatus(!!state?.running)
   const loadedTrack = live ? (plugin?.track ?? null) : null
   // Which half of the table to show. Local, not the shell's: unlike the search text it
   // is a glance-and-reset kind of thing, and coming back from Tweak should show all.
@@ -100,8 +121,8 @@ export default function Tracks({
   const unbound = state?.unbound ?? []
   const catalog = state?.catalog ?? null
   // Add track, Get and Remove all touch a file the game holds open (user11.db, or a
-  // capture on disk) and need it closed - the same guard `run_busy` enforces on the Rust
-  // side. Unbind only writes bindings.json, which is ours, not the game's, so it is
+  // capture on disk) and need it closed - the same guard each of those jobs enforces on
+  // the Rust side. Unbind only writes bindings.json, which is ours, not the game's, so it is
   // deliberately left off this fold (see Actions below) and gated on `busy` alone.
   const fileBusy = busy || !!state?.running
 
@@ -153,7 +174,7 @@ export default function Tracks({
           button was pressed, rather than in the corner of the window. */}
       {state?.busy &&
       !busyIsSetup(state.busy) &&
-      !rows.some((r) => busyFor(state.busy, rowName(r))) ? (
+      !shown.some((r) => rowBusy(state.busy, r, catalog)) ? (
         <Progress what={state.busy} percent={state.busyPercent} />
       ) : null}
 
@@ -179,7 +200,7 @@ export default function Tracks({
                 loaded={row.kind === 'track' && row.track === loadedTrack}
                 onTweak={onTweak}
                 progress={
-                  state?.busy && busyFor(state.busy, rowName(row))
+                  state?.busy && rowBusy(state.busy, row, catalog)
                     ? { what: state.busy, percent: state.busyPercent }
                     : null
                 }
@@ -188,9 +209,9 @@ export default function Tracks({
           </ol>
         )}
 
-        {/* Add track cannot produce this any more - the copy waits for the name - but a
-            file dropped into vdgs/ by hand still can, and a capture nothing points at is
-            invisible everywhere else. Remove is the only way it ever leaves. */}
+        {/* Left behind when Add track fails after the copy, or dropped into vdgs/ by
+            hand; a capture nothing points at is invisible everywhere else. Remove is the
+            only way it ever leaves. */}
         {unbound.length ? (
           <div className="mt-5 font-mono text-[11px] leading-relaxed text-muted-foreground">
             <span>installed, on no track:</span>
@@ -282,8 +303,8 @@ function FindField({
 }
 
 /**
- * Add track and Refresh. Rendered by the shell in its sticky bottom, above Fly, for the
- * same reason as FindField: they are the way in, and the way in must not scroll away.
+ * Add track and Refresh. Rendered by the shell in its fixed footer, above Fly: they are
+ * the way in, and the way in must not scroll away.
  */
 export function TracksToolbar({
   state,
@@ -300,8 +321,8 @@ export function TracksToolbar({
   return (
     <div className="flex flex-wrap items-center gap-3">
       {/* The .ply is the whole input: the host opens a picker for it, hands the path
-          back as `picked`, and the name row at the head of the table takes it from
-          there. Nothing is copied until the name is confirmed. */}
+          back as `picked`, and the name dialog takes it from there. Nothing is copied
+          until the name is confirmed. */}
       <Button
         variant="outline"
         disabled={!game || fileBusy || !!picked}
@@ -335,7 +356,7 @@ function TrackRow({
   /** The plugin has this track's capture on screen right now. */
   loaded: boolean
   onTweak: (track: string) => void
-  /** The host is downloading or installing this row's capture. */
+  /** The host's current job is about this row (see busyFor). */
   progress: { what: string; percent: number | null } | null
 }) {
   return (
@@ -439,9 +460,7 @@ function RowBody({ row }: { row: Row }) {
       <div className="min-w-0">
         <p className="font-serif text-[1.65rem] leading-tight font-light">{row.name}</p>
         {row.description ? (
-          <p className="mt-1 text-[13px] leading-snug text-muted-foreground">
-            {row.description}
-          </p>
+          <p className="mt-1 text-[13px] leading-snug text-muted-foreground">{row.description}</p>
         ) : null}
         <p className="mt-1.5 font-mono text-[11px] tracking-[0.04em] text-muted-foreground">
           {row.splats ? row.splats.toLocaleString() : '—'} splats

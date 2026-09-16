@@ -2,7 +2,11 @@ import { useCallback, useEffect, useState } from 'react'
 import { getStatus } from './api'
 import type { Status } from './types'
 
-export function useStatus() {
+/**
+ * Polls the plugin's `/api/status`. `enabled` false stops the poll and reports not live -
+ * the table passes the host's `running` flag, so a closed game is not asked every 1.5 s.
+ */
+export function useStatus(enabled = true) {
   const [state, setState] = useState<Status | null>(null)
   const [live, setLive] = useState(false)
 
@@ -23,12 +27,16 @@ export function useStatus() {
   }, [])
 
   useEffect(() => {
+    if (!enabled) {
+      setLive(false)
+      return
+    }
     void refresh()
     const id = window.setInterval(() => {
       void refresh()
     }, 1500)
     return () => window.clearInterval(id)
-  }, [refresh])
+  }, [refresh, enabled])
 
   return { state, live, refresh }
 }

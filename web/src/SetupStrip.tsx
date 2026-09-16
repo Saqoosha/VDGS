@@ -6,16 +6,6 @@ import { how, initialLang } from './i18n'
 import type { SetupState } from './types'
 
 /**
- * The first section under the masthead: point the app at the game, and get the mod onto it.
- *
- * This was a tab of its own. It holds the two things that only make sense before the
- * game exists at all - finding it, and putting the mod on it - which is a screen someone
- * visits once and then only when something is wrong. So it is a strip, not a page, and it
- * is not padded out: when everything is in order it is one line of path and three
- * buttons, and the verdict and the True Lens warning open under it only when there is
- * something to say.
- */
-/**
  * Whether the host's current job belongs to this section - finding the game, putting
  * the mod on, taking it off - as opposed to the track table's. The strings are the
  * host's own (`run_busy` in lib.rs); the table shows everything this does not claim.
@@ -28,6 +18,16 @@ export function busyIsSetup(busy: string | null | undefined): boolean {
   )
 }
 
+/**
+ * The first section under the masthead: point the app at the game, and get the mod onto it.
+ *
+ * This was a tab of its own. It holds the two things that only make sense before the
+ * game exists at all - finding it, and putting the mod on it - which is a screen someone
+ * visits once and then only when something is wrong. So it is a strip, not a page, and it
+ * is not padded out: when everything is in order it is one line of path and three
+ * buttons, and the verdict and the True Lens warning open under it only when there is
+ * something to say.
+ */
 export function SetupStrip({ state }: { state: SetupState | null }) {
   // Nothing may be started while the game holds the files, or while the last job is
   // still copying.

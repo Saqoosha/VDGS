@@ -87,12 +87,6 @@ export default function CompanionApp() {
     )
   }
 
-  // The page scrolls as a whole, not a box inside it: a box's own scrollbar paints over
-  // its content on this WebKit webview (macOS overlay scrollbars ignore
-  // scrollbar-gutter, measured), and it appears and disappears with overflow. The
-  // window's scrollbar sits at the window edge instead, outside every page's padding.
-  // min-h-svh on the column (not a fixed height) lets it grow past one screen and still
-  // keeps Fly hugging the bottom edge when the content fits without scrolling.
   return (
     // Dragging across a native window should pan or click, not paint a text selection
     // the way a browser page does - so the shell defaults to non-selectable and each

@@ -31,7 +31,7 @@ describe('the dev transport', () => {
   })
 
   // Without a host there is no file dialog. The stand-in answers pickPly with a fixed
-  // path so the name row that follows it can be laid out in a plain browser.
+  // path so the name dialog that follows it can be laid out in a plain browser.
   it('answers pickPly with a picked path and stem', async () => {
     const { send, subscribe, hosted } = await import('./bridge')
     expect(hosted).toBe(false)

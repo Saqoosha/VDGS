@@ -46,7 +46,7 @@ namespace VDGS
             /// </summary>
             public string up;
 
-            /// <summary>Rotation about the up axis, in degrees. Matches the baked light.</summary>
+            /// <summary>Rotation about the up axis, in degrees.</summary>
             public float turn = 0f;
 
             /// <summary>
@@ -246,7 +246,7 @@ namespace VDGS
                 SplatBackdrop.Attach(m_Go.transform, data.BoundsMin, data.BoundsMax,
                                      kBackdropMargin, kBackdropGroundY, report);
             else if (placement.backdrop)
-                report.AppendLine(Name + ": backdrop off - up=" + placement.up
+                report.AppendLine(Name + ": backdrop off - up=" + (placement.up ?? "(rotation)")
                                   + " is rotated, so the floor clamp would slice the capture");
 
             // Off means nothing is built. Attaching regardless and disabling afterwards
@@ -297,12 +297,9 @@ namespace VDGS
 
         /// <summary>
         /// Everything /api/status shows for one scene, read from a single LoadPlacement()
-        /// call. This used to be seven separate properties (Scale, YOffset, XOffset,
-        /// ZOffset, Up, Turn, MirrorY, plus BackdropOn/CollisionOn/CollisionView below),
-        /// three of which - Up, Turn, MirrorY - called LoadPlacement() unconditionally
-        /// regardless of spawn state. /api/status runs through RunOnMain on a 1500ms poll,
-        /// so that was a File.ReadAllText plus a JsonConvert.DeserializeObject, three times
-        /// per scene, on the render thread, every poll. One read here serves all of them.
+        /// call. /api/status runs through RunOnMain on a 1500ms poll, so per-property
+        /// reads would be file I/O on the render thread, several times per scene, every
+        /// poll. One read here serves all of them.
         /// </summary>
         internal readonly struct Status
         {
@@ -336,10 +333,7 @@ namespace VDGS
                 zOffset: spawned ? m_Go.transform.position.z : p.position[2],
                 up: p.up,
                 turn: p.turn,
-                // A converted capture's stored mirrorY is never set by SetOrientation (it is
-                // ignored, not written), so this only differs from IsPly for a hand-edited
-                // file - not a state this API can itself produce.
-                mirrorY: p.mirrorY ?? IsPly,
+                mirrorY: MirrorFor(p),
                 backdropOn: spawned ? SplatBackdrop.IsAttached(m_Go.transform) : p.backdrop,
                 collisionOn: spawned ? SplatCollision.IsEnabled(m_Go.transform) : p.collision,
                 collisionView: spawned ? SplatCollisionView.ModeOn(m_Go.transform) : p.collisionView);
@@ -393,7 +387,7 @@ namespace VDGS
             // still +y - see IsUpright.
             if (!IsUpright(p))
             {
-                log?.AppendLine(Name + ": backdrop off - up=" + p.up + " is rotated, so the floor clamp would slice the capture");
+                log?.AppendLine(Name + ": backdrop off - up=" + (p.up ?? "(rotation)") + " is rotated, so the floor clamp would slice the capture");
                 return;
             }
             SplatBackdrop.Attach(m_Go.transform, data.BoundsMin, data.BoundsMax,
@@ -621,7 +615,9 @@ namespace VDGS
                 if (wasSpawned) Spawn(log);
                 return;
             }
-            if (m_Go != null)
+            // Only a placement with an up axis is recomposed live. Without one, Spawn applied
+            // the raw `rotation` array, and Compose(null, ..) would replace it with identity.
+            if (m_Go != null && !string.IsNullOrEmpty(p.up))
             {
                 SplatOrientation.Compose(p.up, p.turn, out var rx, out var ry, out var rz);
                 m_Go.transform.eulerAngles = new Vector3(rx, ry, rz);
@@ -632,7 +628,7 @@ namespace VDGS
                 if (!IsUpright(p) && SplatBackdrop.IsAttached(m_Go.transform))
                 {
                     SplatBackdrop.Detach(m_Go.transform);
-                    log?.AppendLine(Name + ": backdrop off - up=" + p.up + " is rotated, so the floor clamp would slice the capture");
+                    log?.AppendLine(Name + ": backdrop off - up=" + (p.up ?? "(rotation)") + " is rotated, so the floor clamp would slice the capture");
                 }
             }
             log?.AppendLine(Name + ": up=" + p.up + " turn=" + p.turn.ToString("0.#")
@@ -653,8 +649,7 @@ namespace VDGS
             var p = LoadPlacement();
             p.position = new[] { tr.position.x, tr.position.y, tr.position.z };
             // Still written from the live euler, alongside up/turn - a second copy of the
-            // same fact that nothing consults once up is present (Spawn only falls back to
-            // this when up is absent). Left as is; not this task's rotation to untangle.
+            // same fact that Spawn only reads when up is absent. Kept for old files.
             p.rotation = new[] { tr.eulerAngles.x, tr.eulerAngles.y, tr.eulerAngles.z };
             p.scale = tr.localScale.x;
             p.backdrop = SplatBackdrop.IsAttached(tr);
@@ -703,7 +698,7 @@ namespace VDGS
                 if (!SplatCollisionView.IsMode(p.collisionView)) p.collisionView = SplatCollisionView.kOff;
                 return p;
             }
-            catch (Exception ex)
+            catch (Newtonsoft.Json.JsonException ex)
             {
                 // Newtonsoft throws where JsonUtility used to coerce - a bad key now
                 // means a default Placement (scale 1, position 0, no up, no backdrop)
@@ -717,6 +712,13 @@ namespace VDGS
                 // the original values survive on disk for recovery.
                 VdgsPlugin.Log.LogError("placement.json unreadable, using defaults: " + ex.Message);
                 QuarantinePlacement(path);
+                return new Placement();
+            }
+            catch (Exception ex)
+            {
+                // An I/O failure (the file held by another process, a permission) is not a
+                // corrupt file: it is left where it is and defaults are used for this read.
+                VdgsPlugin.Log.LogError("placement.json could not be read, using defaults: " + ex.Message);
                 return new Placement();
             }
         }

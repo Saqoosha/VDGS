@@ -81,7 +81,7 @@ export type SetupState = {
    * outward-facing interface was found. state.rs's `lan_url()` asks the OS for this
    * address unconditionally - it does not consult `running` - so a non-null value here
    * does NOT mean the server is actually there to reach. `running` is what says that
-   * (bridge.ts and Own.tsx both gate on it alongside `lanUrl` for exactly this reason).
+   * (CompanionApp gates on it alongside `lanUrl` for exactly this reason).
    */
   lanUrl: string | null
   tracks: TrackEntry[]

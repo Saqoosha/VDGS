@@ -129,10 +129,7 @@ namespace VDGS
             var loaded = new System.Collections.Generic.List<string>();
             foreach (var s in m_Scenes)
             {
-                // One placement read per scene, not seven - see BuildStatusSnapshot's doc
-                // comment. /api/status polls every 1500ms through RunOnMain, so three of
-                // the old per-property reads (up/turn/mirror) landed as file I/O on the
-                // render thread, three times per scene, every poll.
+                // One placement read per scene - see BuildStatusSnapshot's doc comment.
                 var status = s.BuildStatusSnapshot();
                 available.Add(new System.Collections.Generic.Dictionary<string, object>
                 {
@@ -489,6 +486,10 @@ namespace VDGS
             if (m_TrackPollTimer < 1f) return;
             m_TrackPollTimer = 0f;
 
+            // Whether the current track was bound before the reload: only a binding that
+            // was there and is now gone is a reason to despawn. A capture shown by hand on
+            // a track that never had one must survive an unrelated edit to the file.
+            var currentWasBound = !string.IsNullOrEmpty(m_CurrentTrack) && m_Bindings.Has(m_CurrentTrack);
             var bindingsChanged = m_Bindings.ReloadIfChanged();
 
             var log = new StringBuilder();
@@ -570,7 +571,7 @@ namespace VDGS
                                    + m_CurrentTrack + "'");
                     ApplyTrackBinding(m_CurrentTrack, log);
                 }
-                else
+                else if (currentWasBound)
                 {
                     // ApplyTrackBinding's own early return leaves the screen alone for an
                     // unbound track, because a capture spawned by hand through /api/load

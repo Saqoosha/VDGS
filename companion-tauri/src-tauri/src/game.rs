@@ -522,10 +522,9 @@ fn try_parse_bindings(text: &str) -> io::Result<Bindings> {
 
 /// Writes `bindings.json` through a sibling temp file, then renames it over the target.
 ///
-/// The plugin polls this file once a second while the game runs (Task 8's read side
-/// already tolerates a bad parse by keeping its last-known-good map, but a reader that
-/// catches a half-written file still loses every binding until the next poll changes
-/// it). A rename is atomic only within one filesystem, so the temp file has to live
+/// The plugin polls this file once a second while the game runs (`TrackBindings.Load`
+/// keeps its last-known-good map on a bad parse, but reads an empty file as "no
+/// bindings"). A rename is atomic only within one filesystem, so the temp file has to live
 /// beside the target rather than in a system temp dir - and if the write to the temp
 /// file fails partway through, the rename never runs and the original is untouched.
 pub fn write_bindings(root: &Path, b: &Bindings) -> io::Result<()> {
@@ -777,13 +776,10 @@ pub fn uninstall_mod(root: &Path, log: &mut dyn FnMut(String)) -> io::Result<()>
 ///
 /// `install_ply` and `remove_capture` both turn a name that ultimately comes from
 /// outside this process - a file the user picked, a row shown in the UI whose source is
-/// a track name or a hand-edited `bindings.json` - into a path component. They used to
-/// each carry their own idea of what counted as safe, and `remove_capture`'s idea was
-/// "anything", because it was written after `install_ply` and nobody went back to check
-/// the two agreed. One predicate, used by both, is the actual fix: empty, `.`/`..`,
-/// any separator or embedded NUL, an absolute path, more than one path component, or the
-/// reserved `ui` name (that directory holds this app's own static assets, never a
-/// capture) are all refused.
+/// a track name or a hand-edited `bindings.json` - into a path component. One predicate,
+/// used by both: empty, `.`/`..`, any leading-dot name, any separator or embedded NUL, an
+/// absolute path, more than one path component, or the reserved `ui` name (that directory
+/// holds this app's own static assets, never a capture) are all refused.
 fn valid_capture_name(name: &str) -> bool {
     if name.is_empty() || name == "." || name == ".." || name.starts_with('.') {
         return false;
@@ -861,9 +857,9 @@ fn assert_inside(dir: &Path, path: &Path) -> io::Result<()> {
 
 /// Copies a .ply into `<game>/vdgs/`, keeping its name. Returns the capture's name.
 ///
-/// The name is the file stem, and it becomes both a directory-shaped key in
-/// bindings.json and part of a path, so it goes through the same reservation and
-/// traversal checks any other capture name does.
+/// The name is the file stem, and it becomes both a value in bindings.json and part of
+/// a path, so it goes through the same reservation and traversal checks any other
+/// capture name does.
 pub fn install_ply(root: &Path, ply: &Path) -> io::Result<String> {
     let stem = ply
         .file_stem()
