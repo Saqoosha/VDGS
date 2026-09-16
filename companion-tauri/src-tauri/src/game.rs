@@ -494,9 +494,7 @@ pub fn try_read_bindings(root: &Path) -> io::Result<Bindings> {
     match fs::read_to_string(&path) {
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(Bindings::new()),
         Err(e) => Err(e),
-        // A UTF-8 BOM is what PowerShell and Notepad leave on a file they save, and the
-        // mod (.NET) reads through it; refusing it here shows every track as not
-        // installed with no error anywhere.
+        // The mod reads through a UTF-8 BOM; refusing one hides every binding silently.
         Ok(text) => try_parse_bindings(text.strip_prefix('\u{feff}').unwrap_or(&text)),
     }
 }
@@ -939,9 +937,7 @@ pub fn uninstall_mod(root: &Path, log: &mut dyn FnMut(String)) -> io::Result<()>
 /// `install_ply` and `remove_capture` both turn a name that ultimately comes from
 /// outside this process - a file the user picked, a row shown in the UI whose source is
 /// a track name or a hand-edited `bindings.json` - into a path component. The rule is
-/// [`is_plain_folder_name`], the one a catalog `installAs` passes, so the two names can
-/// never disagree about what is a capture; the path check on top is belt and braces
-/// against a platform prefix the character list does not name.
+/// [`is_plain_folder_name`], the one a catalog `installAs` passes.
 fn valid_capture_name(name: &str) -> bool {
     let p = Path::new(name);
     is_plain_folder_name(name) && !p.is_absolute() && p.components().count() == 1
