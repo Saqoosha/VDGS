@@ -938,22 +938,13 @@ pub fn uninstall_mod(root: &Path, log: &mut dyn FnMut(String)) -> io::Result<()>
 ///
 /// `install_ply` and `remove_capture` both turn a name that ultimately comes from
 /// outside this process - a file the user picked, a row shown in the UI whose source is
-/// a track name or a hand-edited `bindings.json` - into a path component. One predicate,
-/// used by both: empty, `.`/`..`, any leading-dot name, any separator or embedded NUL, an
-/// absolute path, more than one path component, or the reserved `ui` name (that directory
-/// holds this app's own static assets, never a capture) are all refused.
+/// a track name or a hand-edited `bindings.json` - into a path component. The rule is
+/// [`is_plain_folder_name`], the one a catalog `installAs` passes, so the two names can
+/// never disagree about what is a capture; the path check on top is belt and braces
+/// against a platform prefix the character list does not name.
 fn valid_capture_name(name: &str) -> bool {
-    if name.is_empty() || name == "." || name == ".." || name.starts_with('.') {
-        return false;
-    }
-    if name.contains('/') || name.contains('\\') || name.contains('\0') {
-        return false;
-    }
-    if name.eq_ignore_ascii_case("ui") {
-        return false;
-    }
     let p = Path::new(name);
-    !p.is_absolute() && p.components().count() == 1
+    is_plain_folder_name(name) && !p.is_absolute() && p.components().count() == 1
 }
 
 /// Removes a capture, whichever of the two shapes it is on disk.
@@ -1397,6 +1388,20 @@ mod tests {
     fn remove_capture_reports_nothing_removed() {
         let root = tmp();
         assert!(!remove_capture(&root, "absent").unwrap());
+    }
+
+    #[test]
+    fn remove_capture_rejects_a_trailing_dot_or_space() {
+        // Windows strips both when resolving a path, so "ui." would land on the mod's own
+        // vdgs/ui and remove_dir_all it.
+        let root = tmp();
+        let ui = root.join("vdgs/ui");
+        std::fs::create_dir_all(&ui).unwrap();
+        std::fs::write(ui.join("index.html"), b"keep me").unwrap();
+        for bad in ["ui.", "ui ", "x.", "x ", "c:"] {
+            assert!(remove_capture(&root, bad).is_err(), "{bad:?} should be refused");
+        }
+        assert!(ui.join("index.html").exists());
     }
 
     #[test]
