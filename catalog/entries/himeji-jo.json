@@ -1,0 +1,11 @@
+{
+  "id": "himeji-jo",
+  "name": "VDGS Himeji-jo castle",
+  "description": "Himeji Castle, Hyogo, Japan. \"Himeji Castle, Japan\" by @gorank on SuperSplat (https://superspl.at/view?id=7a7bfaea), reconstructed from a video by @berserker313. CC BY 4.0.",
+  "author": "gorank",
+  "licence": "CC-BY-4.0",
+  "source": "https://superspl.at/view?id=7a7bfaea",
+  "captured": "2026-07-04",
+  "installAs": "himeji-lod2",
+  "track": "VDGS-Himeji-jo-castle.track.json"
+}
