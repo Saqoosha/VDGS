@@ -621,9 +621,26 @@ impl Host {
     }
 
     fn remove_capture(self: &Arc<Self>, name: &str) {
-        let Some(app) = self.inner.lock().unwrap().game.clone() else {
-            return;
+        let (app, catalog) = {
+            let inner = self.inner.lock().unwrap();
+            let Some(app) = inner.game.clone() else {
+                return;
+            };
+            (app, inner.catalog.clone())
         };
+        // The same question Remove asks for a track: this is hundreds of megabytes gone
+        // on one click, and whether it can come back depends on the catalog.
+        let fetchable = capture_is_fetchable(name, catalog.as_deref());
+        let question = if fetchable {
+            format!("Remove the capture \"{name}\"? It can be fetched again from the catalog.")
+        } else {
+            format!(
+                "Remove the capture \"{name}\"? Without the original .ply it cannot be recovered."
+            )
+        };
+        if !self.confirm(&question) {
+            return;
+        }
         let name = name.to_string();
         self.run_busy(&format!("removing {name}"), move |_host, log| {
             if launch::is_running() {

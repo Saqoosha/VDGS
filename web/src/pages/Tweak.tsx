@@ -30,6 +30,13 @@ export default function Tweak({
   lanUrl: string | null
 }) {
   const { state, live, refresh } = useStatus()
+  // The game can change track while this is open. The controls follow whatever the
+  // plugin has loaded, so with the heading naming another track they would tune the
+  // wrong capture; the table is where the right row is.
+  const moved = !!track && !!state?.track && state.track !== track
+  // A plugin older than this app answers without the orientation fields, and the dials
+  // below would crash on them. Naming the mismatch beats a blank window.
+  const older = (state?.available ?? []).some((s) => typeof s.turn !== 'number')
 
   return (
     <div>
@@ -46,7 +53,15 @@ export default function Tweak({
         </div>
       ) : null}
       {lanUrl && live ? <LanQr url={lanUrl} /> : null}
-      {live ? (
+      {live && older ? (
+        <p className="font-serif text-xl font-light text-muted-foreground italic">
+          the installed mod is older than this app — quit the game and press Update mod
+        </p>
+      ) : live && moved ? (
+        <p className="font-serif text-xl font-light text-muted-foreground italic">
+          the game moved to “{state?.track}” — go back to tracks and open it from there
+        </p>
+      ) : live ? (
         <Control state={state} refresh={refresh} />
       ) : (
         <p className="font-serif text-xl font-light text-muted-foreground italic">

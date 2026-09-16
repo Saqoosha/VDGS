@@ -873,7 +873,18 @@ pub fn install_ply(root: &Path, ply: &Path) -> io::Result<String> {
     }
     let dir = root.join("vdgs");
     fs::create_dir_all(&dir)?;
-    fs::copy(ply, dir.join(format!("{stem}.ply")))?;
+    // Refused when the name is taken, in either shape. Copying over an installed .ply
+    // silently replaced a capture other tracks showed; a same-named converted directory
+    // wins at load time, so the copy would never be drawn; and a .ply picked from inside
+    // vdgs/ is a copy onto itself, which truncates it to nothing.
+    let dest = dir.join(format!("{stem}.ply"));
+    if dest.exists() || dir.join(stem).is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            format!("\"{stem}\" is already installed - remove it first, or rename the file"),
+        ));
+    }
+    fs::copy(ply, &dest)?;
     Ok(stem.to_string())
 }
 
@@ -982,6 +993,38 @@ mod tests {
         let name = install_ply(&root, &src).unwrap();
         assert_eq!(name, "My House");
         assert!(root.join("vdgs/My House.ply").is_file());
+    }
+
+    // The destination existing in either shape is a refusal, never an overwrite - and a
+    // file picked from inside vdgs/ is the same case (copying it onto itself would empty it).
+    #[test]
+    fn install_ply_refuses_an_installed_ply_and_keeps_its_bytes() {
+        let root = tmp();
+        let src = tmp().join("scene.ply");
+        std::fs::write(&src, b"new").unwrap();
+        std::fs::create_dir_all(root.join("vdgs")).unwrap();
+        std::fs::write(root.join("vdgs/scene.ply"), b"old-bytes").unwrap();
+
+        let err = install_ply(&root, &src).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read(root.join("vdgs/scene.ply")).unwrap(), b"old-bytes");
+
+        let itself = root.join("vdgs/scene.ply");
+        let err = install_ply(&root, &itself).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read(&itself).unwrap(), b"old-bytes");
+    }
+
+    #[test]
+    fn install_ply_refuses_a_name_taken_by_a_converted_directory() {
+        let root = tmp();
+        let src = tmp().join("scene.ply");
+        std::fs::write(&src, b"new").unwrap();
+        std::fs::create_dir_all(root.join("vdgs/scene")).unwrap();
+
+        let err = install_ply(&root, &src).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::AlreadyExists);
+        assert!(!root.join("vdgs/scene.ply").exists());
     }
 
     #[test]
