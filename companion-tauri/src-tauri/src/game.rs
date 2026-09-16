@@ -494,7 +494,10 @@ pub fn try_read_bindings(root: &Path) -> io::Result<Bindings> {
     match fs::read_to_string(&path) {
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(Bindings::new()),
         Err(e) => Err(e),
-        Ok(text) => try_parse_bindings(&text),
+        // A UTF-8 BOM is what PowerShell and Notepad leave on a file they save, and the
+        // mod (.NET) reads through it; refusing it here shows every track as not
+        // installed with no error anywhere.
+        Ok(text) => try_parse_bindings(text.strip_prefix('\u{feff}').unwrap_or(&text)),
     }
 }
 
@@ -1233,6 +1236,19 @@ mod tests {
         // A first install still replaces: the capture just installed is what was asked for.
         assert!(bind(&root, "VDGS X", "x-dir", false).unwrap());
         assert_eq!(read_bindings(&root)["VDGS X"], vec!["x-dir"]);
+    }
+
+    #[test]
+    fn bindings_with_a_utf8_bom_are_read() {
+        let root = tmp();
+        let path = root.join("vdgs/bindings.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "\u{feff}{\r\n  \"VDGS X\": [\"x-dir\"]\r\n}\r\n").unwrap();
+        assert_eq!(try_read_bindings(&root).unwrap()["VDGS X"], vec!["x-dir"]);
+        // Binding again rewrites the file without the mark.
+        bind(&root, "VDGS Y", "y-dir", false).unwrap();
+        assert!(!std::fs::read(&path).unwrap().starts_with(&[0xEF, 0xBB, 0xBF]));
+        assert_eq!(read_bindings(&root).len(), 2);
     }
 
     #[test]
