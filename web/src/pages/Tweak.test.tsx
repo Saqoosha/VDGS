@@ -1,0 +1,81 @@
+import { render, screen } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import Tweak from './Tweak'
+import type { Scene, Status } from '../types'
+
+let pluginState: Status | null = null
+let pluginLive = false
+vi.mock('../useStatus', () => ({
+  useStatus: () => ({ state: pluginState, live: pluginLive, refresh: async () => pluginState }),
+}))
+
+function scene(over: Partial<Scene> = {}): Scene {
+  return {
+    name: 'himeji',
+    source: 'local',
+    kind: 'ply',
+    splats: 1,
+    hasCollision: false,
+    shown: true,
+    scale: 1,
+    y: 0,
+    x: 0,
+    z: 0,
+    up: '+y',
+    turn: 0,
+    mirror: true,
+    backdrop: false,
+    collision: true,
+    collisionView: 'off',
+    ...over,
+  } as Scene
+}
+
+function status(over: Partial<Status> = {}): Status {
+  return { track: 'VDGS Himeji', loaded: ['himeji'], available: [scene()], bindings: {}, ...over }
+}
+
+describe('the tweak screen', () => {
+  beforeEach(() => {
+    pluginState = null
+    pluginLive = false
+  })
+
+  it('shows the controls for the track it was opened on', () => {
+    pluginLive = true
+    pluginState = status()
+    render(<Tweak track="VDGS Himeji" onBack={() => {}} lanUrl={null} />)
+    expect(screen.getByText(/scale/i)).toBeInTheDocument()
+  })
+
+  // The controls follow the plugin's loaded capture. If the game moved to another track
+  // while this was open, tuning here would write the wrong capture's placement.
+  it('sends the person back to the table when the game changed track', () => {
+    pluginLive = true
+    pluginState = status({
+      track: 'VDGS FDF',
+      loaded: ['fdf'],
+      available: [scene({ name: 'fdf' })],
+    })
+    render(<Tweak track="VDGS Himeji" onBack={() => {}} lanUrl={null} />)
+    expect(screen.getByText(/the game moved to/i)).toBeInTheDocument()
+    expect(screen.queryByText(/^scale$/i)).toBeNull()
+  })
+
+  // An older plugin answers without turn/x/z; the dials would crash on them.
+  it('names an older mod instead of crashing on its status', () => {
+    pluginLive = true
+    const old = scene() as unknown as Record<string, unknown>
+    delete old.turn
+    delete old.x
+    delete old.z
+    pluginState = status({ available: [old as unknown as Scene] })
+    render(<Tweak track="VDGS Himeji" onBack={() => {}} lanUrl={null} />)
+    expect(screen.getByText(/older than this app/i)).toBeInTheDocument()
+  })
+
+  it('says the plugin is not answering when it is not', () => {
+    render(<Tweak track="VDGS Himeji" onBack={() => {}} lanUrl={null} />)
+    expect(screen.getByText(/not answering/i)).toBeInTheDocument()
+  })
+})

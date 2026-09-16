@@ -520,13 +520,22 @@ fn try_parse_bindings(text: &str) -> io::Result<Bindings> {
     Ok(map)
 }
 
+/// Writes `bindings.json` through a sibling temp file, then renames it over the target.
+///
+/// The plugin polls this file once a second while the game runs (`TrackBindings.Load`
+/// keeps its last-known-good map on a bad parse, but reads an empty file as "no
+/// bindings"). A rename is atomic only within one filesystem, so the temp file has to live
+/// beside the target rather than in a system temp dir - and if the write to the temp
+/// file fails partway through, the rename never runs and the original is untouched.
 pub fn write_bindings(root: &Path, b: &Bindings) -> io::Result<()> {
     let path = root.join("vdgs/bindings.json");
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
     let text = write_bindings_string(b);
-    fs::write(path, text)
+    let tmp = path.with_extension("json.tmp");
+    fs::write(&tmp, text)?;
+    fs::rename(&tmp, &path)
 }
 
 fn write_bindings_string(b: &Bindings) -> String {
@@ -763,6 +772,122 @@ pub fn uninstall_mod(root: &Path, log: &mut dyn FnMut(String)) -> io::Result<()>
     Ok(())
 }
 
+/// True if `name` is safe to use as a single path segment directly under `vdgs/`.
+///
+/// `install_ply` and `remove_capture` both turn a name that ultimately comes from
+/// outside this process - a file the user picked, a row shown in the UI whose source is
+/// a track name or a hand-edited `bindings.json` - into a path component. One predicate,
+/// used by both: empty, `.`/`..`, any leading-dot name, any separator or embedded NUL, an
+/// absolute path, more than one path component, or the reserved `ui` name (that directory
+/// holds this app's own static assets, never a capture) are all refused.
+fn valid_capture_name(name: &str) -> bool {
+    if name.is_empty() || name == "." || name == ".." || name.starts_with('.') {
+        return false;
+    }
+    if name.contains('/') || name.contains('\\') || name.contains('\0') {
+        return false;
+    }
+    if name.eq_ignore_ascii_case("ui") {
+        return false;
+    }
+    let p = Path::new(name);
+    !p.is_absolute() && p.components().count() == 1
+}
+
+/// Removes a capture, whichever of the two shapes it is on disk.
+///
+/// A converted capture is a directory; a .ply is a file with up to two siblings that
+/// carry its collision shell and its placement. Leaving a stale .placement.json behind
+/// means the next capture that happens to take the name inherits someone else's scale.
+///
+/// `name` reaches here from the UI, and the UI's capture list is not something only the
+/// owner of this machine controls - VelociDrone downloads community tracks, and
+/// `bindings.json` is both hand-editable and shipped inside release zips. So this does
+/// not stop at `valid_capture_name`: after each path is joined, `assert_inside` resolves
+/// it for real and confirms the result is still under `vdgs/`, which is what catches a
+/// symlink the name-shape check has no way to see.
+pub fn remove_capture(root: &Path, name: &str) -> io::Result<bool> {
+    if !valid_capture_name(name) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("\"{name}\" cannot be used as a capture name"),
+        ));
+    }
+    let vdgs = root.join("vdgs");
+    let mut removed = false;
+
+    let dir = vdgs.join(name);
+    if dir.is_dir() {
+        assert_inside(&vdgs, &dir)?;
+        fs::remove_dir_all(&dir)?;
+        removed = true;
+    }
+    for ext in [".ply", ".collision.bin", ".placement.json"] {
+        let p = vdgs.join(format!("{name}{ext}"));
+        if p.is_file() {
+            assert_inside(&vdgs, &p)?;
+            fs::remove_file(&p)?;
+            removed = true;
+        }
+    }
+    Ok(removed)
+}
+
+/// Confirms `path` (which must already exist - `canonicalize` fails otherwise, which is
+/// why every call site here runs it only after its own `is_dir`/`is_file` check) resolves
+/// to somewhere inside `dir` once symlinks are followed. `valid_capture_name` rejects the
+/// name shapes that would obviously escape `vdgs/`; this catches what that check cannot
+/// - a same-shape name that happens to be a symlink pointing outside it.
+fn assert_inside(dir: &Path, path: &Path) -> io::Result<()> {
+    let base = dir.canonicalize()?;
+    let real = path.canonicalize()?;
+    if real.starts_with(&base) {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "{} resolves outside {} - refusing to remove it",
+                path.display(),
+                dir.display()
+            ),
+        ))
+    }
+}
+
+/// Copies a .ply into `<game>/vdgs/`, keeping its name. Returns the capture's name.
+///
+/// The name is the file stem, and it becomes both a value in bindings.json and part of
+/// a path, so it goes through the same reservation and traversal checks any other
+/// capture name does.
+pub fn install_ply(root: &Path, ply: &Path) -> io::Result<String> {
+    let stem = ply
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "the file has no name"))?;
+    if !valid_capture_name(stem) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("\"{stem}\" cannot be used as a capture name"),
+        ));
+    }
+    let dir = root.join("vdgs");
+    fs::create_dir_all(&dir)?;
+    // Refused when the name is taken, in either shape. Copying over an installed .ply
+    // silently replaced a capture other tracks showed; a same-named converted directory
+    // wins at load time, so the copy would never be drawn; and a .ply picked from inside
+    // vdgs/ is a copy onto itself, which truncates it to nothing.
+    let dest = dir.join(format!("{stem}.ply"));
+    if dest.exists() || dir.join(stem).is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            format!("\"{stem}\" is already installed - remove it first, or rename the file"),
+        ));
+    }
+    fs::copy(ply, &dest)?;
+    Ok(stem.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -857,6 +982,142 @@ mod tests {
             !root.join("BepInEx/plugins/VDGS.dll").exists() && !root.join("vdgs/ui").exists()
         );
         assert!(root.join("vdgs/bindings.json").exists());
+    }
+
+    #[test]
+    fn install_ply_copies_into_vdgs_and_returns_the_name() {
+        let root = tmp();
+        let src = tmp().join("My House.ply");
+        std::fs::write(&src, b"ply\nelement vertex 3\nend_header\n").unwrap();
+
+        let name = install_ply(&root, &src).unwrap();
+        assert_eq!(name, "My House");
+        assert!(root.join("vdgs/My House.ply").is_file());
+    }
+
+    // The destination existing in either shape is a refusal, never an overwrite - and a
+    // file picked from inside vdgs/ is the same case (copying it onto itself would empty it).
+    #[test]
+    fn install_ply_refuses_an_installed_ply_and_keeps_its_bytes() {
+        let root = tmp();
+        let src = tmp().join("scene.ply");
+        std::fs::write(&src, b"new").unwrap();
+        std::fs::create_dir_all(root.join("vdgs")).unwrap();
+        std::fs::write(root.join("vdgs/scene.ply"), b"old-bytes").unwrap();
+
+        let err = install_ply(&root, &src).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read(root.join("vdgs/scene.ply")).unwrap(), b"old-bytes");
+
+        let itself = root.join("vdgs/scene.ply");
+        let err = install_ply(&root, &itself).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read(&itself).unwrap(), b"old-bytes");
+    }
+
+    #[test]
+    fn install_ply_refuses_a_name_taken_by_a_converted_directory() {
+        let root = tmp();
+        let src = tmp().join("scene.ply");
+        std::fs::write(&src, b"new").unwrap();
+        std::fs::create_dir_all(root.join("vdgs/scene")).unwrap();
+
+        let err = install_ply(&root, &src).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::AlreadyExists);
+        assert!(!root.join("vdgs/scene.ply").exists());
+    }
+
+    #[test]
+    fn install_ply_refuses_a_name_that_escapes_vdgs() {
+        let root = tmp();
+        let src = tmp().join("..ply");
+        std::fs::write(&src, b"ply\n").unwrap();
+        assert!(install_ply(&root, &src).is_err());
+    }
+
+    #[test]
+    fn install_ply_refuses_a_leading_dot_name() {
+        // A narrower "reject '.' and '..' only" predicate let a name like ".hidden"
+        // through, which would land as an invisible file in the game folder.
+        let root = tmp();
+        let src = tmp().join(".hidden.ply");
+        std::fs::write(&src, b"ply\n").unwrap();
+        assert!(install_ply(&root, &src).is_err());
+    }
+
+    #[test]
+    fn remove_capture_takes_the_ply_and_its_siblings() {
+        let root = tmp();
+        let vdgs = root.join("vdgs");
+        std::fs::create_dir_all(&vdgs).unwrap();
+        for f in ["a.ply", "a.collision.bin", "a.placement.json", "b.ply"] {
+            std::fs::write(vdgs.join(f), b"x").unwrap();
+        }
+        assert!(remove_capture(&root, "a").unwrap());
+        assert!(!vdgs.join("a.ply").exists());
+        assert!(!vdgs.join("a.collision.bin").exists());
+        assert!(!vdgs.join("a.placement.json").exists());
+        assert!(vdgs.join("b.ply").exists());
+    }
+
+    #[test]
+    fn remove_capture_takes_a_converted_directory() {
+        let root = tmp();
+        let dir = root.join("vdgs/scene");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("meta.json"), b"{}").unwrap();
+        assert!(remove_capture(&root, "scene").unwrap());
+        assert!(!dir.exists());
+    }
+
+    #[test]
+    fn remove_capture_reports_nothing_removed() {
+        let root = tmp();
+        assert!(!remove_capture(&root, "absent").unwrap());
+    }
+
+    #[test]
+    fn remove_capture_rejects_dot_dot() {
+        let root = tmp();
+        let vdgs = root.join("vdgs");
+        std::fs::create_dir_all(&vdgs).unwrap();
+        std::fs::write(root.join("sentinel.txt"), b"keep me").unwrap();
+        assert!(remove_capture(&root, "..").is_err());
+        // ".." under vdgs/ is root itself - a validator-free join would have handed
+        // remove_dir_all the whole game folder.
+        assert!(root.join("sentinel.txt").exists());
+        assert!(vdgs.is_dir());
+    }
+
+    #[test]
+    fn remove_capture_rejects_a_path_separator() {
+        let root = tmp();
+        let vdgs = root.join("vdgs");
+        std::fs::create_dir_all(vdgs.join("sub")).unwrap();
+        std::fs::write(vdgs.join("sub/evil.ply"), b"x").unwrap();
+        assert!(remove_capture(&root, "sub/evil").is_err());
+        assert!(vdgs.join("sub/evil.ply").exists());
+    }
+
+    #[test]
+    fn remove_capture_rejects_empty_name() {
+        let root = tmp();
+        let vdgs = root.join("vdgs");
+        std::fs::create_dir_all(&vdgs).unwrap();
+        std::fs::write(vdgs.join("keep.ply"), b"x").unwrap();
+        // An empty name makes `vdgs.join(name)` resolve to vdgs/ itself.
+        assert!(remove_capture(&root, "").is_err());
+        assert!(vdgs.join("keep.ply").exists());
+    }
+
+    #[test]
+    fn remove_capture_rejects_reserved_ui_name() {
+        let root = tmp();
+        let vdgs = root.join("vdgs");
+        std::fs::create_dir_all(vdgs.join("ui")).unwrap();
+        std::fs::write(vdgs.join("ui/index.html"), b"<html>").unwrap();
+        assert!(remove_capture(&root, "ui").is_err());
+        assert!(vdgs.join("ui/index.html").exists());
     }
 
     fn tmp() -> PathBuf {

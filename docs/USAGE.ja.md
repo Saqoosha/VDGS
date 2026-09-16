@@ -35,10 +35,14 @@ mod は `.ply` を直接読むので、**変換は必須ではない**。ディ�
 
 ## 2. インストール
 
-**いちばん簡単なのは companion アプリ。** `VDGS.exe` を起動して `INSTALL MOD` を押すと、
-DLL・焼き済みシェーダーバンドル・操作 UI が入る（**アプリが中に持っている**ので、zip を
-探す必要はない）。キャプチャは `02 GET` から落とせて、トラックの登録と紐付けまで一度に済む。
-`FLY` は `-force-d3d12` を必ず付けて起動する。**BepInEx だけは先に自分で入れる**（2-1）。
+**いちばん簡単なのは companion アプリ。** `VDGS.exe` を起動して窓の上の導入の帯で
+`Install mod` を押すと、DLL・焼き済みシェーダーバンドル・操作 UI が入る（**アプリが中に
+持っている**ので、zip を探す必要はない）。配布中のトラックと導入済みのトラックは下の
+1 本の表に並び、`Get` で導入できる。自分のキャプチャから新しいトラックを作るなら
+`Add track`（`.ply` を選ぶ → 名前 → Create）— 名前と紐付けまでそこで完結し、置き位置は
+`Fly` のあと `Tweak` で合わせる（[TRACKS.ja.md](TRACKS.ja.md)）。`Fly` は `-force-d3d12` を
+必ず付けて起動する。
+**BepInEx だけは先に自分で入れる**（2-1）。
 
 以下は zip から手で入れる場合。リリースの `vdgs-mod-<version>.zip` は
 DLL・焼き済みシェーダーバンドル・操作 UI の 3 つを入れてあるので、自分でビルドする
@@ -243,6 +247,11 @@ python3 tools/align_ply.py in.ply out.ply --rotate -12,0,3 --ceiling 2.6
   大半を占めることがある。位置ではなくサイズで切る：`--max-sigma 5`。出力パス無しで実行すれば
   報告だけ出るので、**先に測る**。詳細は [alignment.ja.md](alignment.ja.md)
 
+**この節はカタログに載せる品質のキャプチャを前提にしている。** 床の微妙な傾きまでは
+直さなくていい、軸の向きと鏡像だけ合わせたいなら、`.ply` を直置きして
+`Tweak` 画面にある Up（6 方向）・Mirror・Turn（連続値のヨー）で合わせるほうが
+早い（§4-4）。SuperSplat が持つ任意角度の傾き補正はこの 3 つでは代替できない。
+
 ### 4-4. 配置
 
 `<VelociDrone>\app\vdgs\<name>\placement.json`（`.ply` の場合は `<name>.placement.json`）：
@@ -251,12 +260,22 @@ python3 tools/align_ply.py in.ply out.ply --rotate -12,0,3 --ceiling 2.6
 {
     "position": [0.0, 0.0, 0.0],
     "rotation": [0.0, 0.0, 0.0],
-    "scale": 1.0
+    "scale": 1.0,
+    "up": "+y",
+    "turn": 0.0,
+    "mirrorY": true
 }
 ```
 
-**スケールと高さは Web UI** にあって、このファイルに書く。回転はファイルが来る前に
-SuperSplat で合わせる。`placement.json` はスライダーが届かないものの最終手段。
+`up` はキャプチャのどの軸が空を向くか（`+x -x +y -y +z -z`）、`turn` はその軸まわりの
+回転（度）、`mirrorY` は読み込み時に Y を鏡映するかどうか。**Scale・Height・X・Z・Up・
+Turn・Mirror は全部 `Tweak` 画面から動かせて、その場で
+このファイルに書き戻る。** 手で編集するのは UI が届かない場合の最終手段。
+
+**`mirrorY` は変換済みキャプチャには効かない** — 鏡映は `.ply` をパースする最中にしか
+起きないので、チェックボックス自体が変換済みキャプチャでは出ない。**鏡映と回転は別物で、
+どちらも他方の代わりにならない**（右手系 Y-down と左手系 Y-up の差は行列式 -1 の変換でしか
+直らない）。詳しい理由は [AGENTS.md](../AGENTS.md) の「`placement.json` の姿勢フィールド」。
 
 ### 4-5. コリジョン
 
@@ -280,9 +299,13 @@ UI では `solid` がドローンを止める。`show wire` / `show solid` が�
 }
 ```
 
-手で書いてもいいが、ゲーム内から作るほうが早い（§5）。
+手で書いてもいいが、**companion の `Add track` で新しいトラックを作ると
+同じ処理でここに書かれる**。ゲーム稼働中に手で編集した場合も、プラグインが
+1 秒ごとに `bindings.json` の変更を見ているので反映は 1 秒以内（[AGENTS.md](../AGENTS.md)
+の「`TrackBindings.Load()` はコンストラクタでしか呼ばれていなかった」）。
 
-**自分でコースを組んで配るなら** [TRACKS.ja.md](TRACKS.ja.md) — 名前・シーナリー・書き出し・公開の通し。
+**自分でコースを組んで配るなら** [TRACKS.ja.md](TRACKS.ja.md) — 組み立て・コリジョン・
+書き出し・公開の通し。
 
 - **紐付けの無いトラックでは何も表示されない。** 間違った GS を出すより無害だから
 - 1 つのトラックに複数の GS を紐付けられる
@@ -302,47 +325,52 @@ UI では `solid` がドローンを止める。`show wire` / `show solid` が�
 
 **つまずくのはここだけ — 紐付けはトラック「名」で決まる。** 同梱の
 `bindings.sample.json` はトラックが配布時の名前のままであることを前提にしている。
-Track Manager で落としたあとに名前を変えたなら、**自分の名前で** 紐付け直す（§5 のブラウザ UI が早い）。
+Track Manager で落としたあとに名前を変えたなら、**自分の名前で**紐付け直す —
+`bindings.json` を手で編集すればよく、ゲーム稼働中でも 1 秒以内に反映される。
+companion の `Add track` に既存トラックの名前を打つと、そのトラックのゲートは
+そのままに、新しいキャプチャが紐付く。
 
 `placement.json` は**そのトラックに合わせた位置**なので、自分でコースを組むなら
-ブラウザ UI で調整する（変更は自動保存される）。
+`Tweak` 画面で調整する（変更は自動保存される）。
 
-## 5. 操作（ブラウザ）
+## 5. 置き位置の調整
 
-ゲームが起動すると、mod が **`http://<ホスト>:8777/`** で操作用の Web UI を出す。
-LAN 上の任意のマシンから開ける。Parsec でゲーム画面を見ながら、手元のブラウザで
-操作するのが想定運用。UI だけ変えたあとは `bash tools/deploy.sh --ui` で
+**Scale・Height・X・Z・Up・Turn・Mirror は全部、companion の `Tweak` 画面
+（トラック行の `Tweak` ボタン）から動かす。** ゲームが動いていて、プラグインがその
+トラックを画面上と報告しているときだけ生きる。それ以外は灰色で
+「fly this track first」。変更はその場で `placement.json` に書かれる。飛びながら
+合わせるのが前提の画面なので、companion 自身の窓がそのまま使える。
+
+**別の画面から操作したいときだけ、プラグインが立てるブラウザ版を使う。** ゲームが
+起動すると mod が **`http://<ホスト>:8777/`** で companion と同じアプリを配る——ただし
+ブラウザには Tauri のフォルダ選択やダウンロードが無いので、導入の帯・表・Fly は出ず
+**Tweak 画面だけが動く**。companion はこの URL と QR を Tweak 画面の先頭に出す。全画面の
+ゲームから alt-tab するのが最悪の操作なので、両手が送信機にある間は LAN 上の別端末
+（スマホなど）からこのアドレスを開けばいい（Parsec でゲーム画面を見ながら、手元の
+ブラウザで合わせる運用も同じ経路）。UI だけ変えたあとは `bash tools/deploy.sh --ui` で
 `web/dist/` を `<game>/vdgs/ui/` に置く。プラグインの再ビルドは不要。
 
 ```
-┌ VDGS · local · 01 control / 02 library ─────────┐
-│  01 current track                               │
-│  Empty Scene Day                                │
-│  bound → myscene                                │
-│  [Bind shown]  [Unbind]  [Hide all]             │
-│  02 on screen                                   │
+┌ tweak · myscene ────────────────────────────────┐
 │  myscene   1,916,379 splats                     │
 │  [x] box  [x] solid  [hide mesh]                │
+│  up    [+x][-x][+y][-y][+z][-z]                 │
+│  [ ] mirror                                     │
+│  Turn   ────│────  0°                           │
 │  Scale  ────│────  1.00×                        │
 │  Height ────│────  0.00m                        │
-│  03 bindings                                    │
-│  <track名>  →  myscene          [remove]        │
+│  X      ────│────  0.00m                        │
+│  Z      ────│────  0.00m                        │
 └─────────────────────────────────────────────────┘
-
-Library はこのマシン上のキャプチャの番号付き目録（検索、splat 数、フォーマット、
-サイズ、コリジョン）。Show で表示する。スライダーは Control 側。
 ```
 
 **ゲームのキーは一切奪わない。** トラックエディタの矢印キーも F7（シーン保存）も
 そのまま使える。UI は 1.5 秒ごとに自動更新され、ゲーム内でトラックを変えると
-「Current track」が追従する。
+表示中のキャプチャ一覧が追従する。
 
-### 紐付けの手順
-
-1. トラックをロードする（プレイでもエディタでもよい）
-2. UI で出したい GS の **show** を押す
-3. **Bind shown splat to this track**
-4. 以降そのトラックをロードすると、自動でその GS が出る
+**紐付けは自動。** `Add track` でトラックを作った瞬間、そのキャプチャが
+そのトラック名へ紐付く。既存のトラックへの紐付けを変えたいときは `bindings.json` を
+編集する（§4-6）。
 
 ### 開発者向けキー（残置）
 
@@ -357,19 +385,19 @@ F5・F6・F7・F8 は**使っていない**。F7 はトラックエディタの�
 
 ### HTTP API
 
-UI が使っているものと同じ。スクリプトから叩ける。
+`Tweak` 画面が使っているものと同じ。スクリプトから叩ける。
 
 | | |
 |---|---|
-| `GET /api/status` | 現在のトラック、表示中の GS、利用可能な GS、全紐付け |
+| `GET /api/status` | 現在のトラック、表示中の GS、利用可能な GS、全紐付け、置き位置・向き |
 | `POST /api/load` | `{"splat":"name"}` — その GS だけを表示 |
 | `POST /api/unload` | `{}` — 全部隠す |
 | `POST /api/bind` | `{"splats":["name"]}` — 現在のトラックに紐付け |
 | `POST /api/unbind` | `{}` で現在のトラック、`{"track":"name"}` で任意のトラック |
-| `POST /api/backdrop` | `{"splat":"name","on":true}` — 黒い箱 |
+| `POST /api/backdrop` | `{"splat":"name","on":true}` — 黒い箱（キャプチャが直立しているときだけ付く） |
 | `POST /api/collision` | `{"splat":"name","on":true}` — MeshCollider |
 | `POST /api/collisionview` | `{"splat":"name","mode":"wire"}` — hide / solid / wire |
-| `POST /api/transform` | `{"splat":"name","scale":1.0,"y":0}` — スケールと Y。`placement.json` に書く |
+| `POST /api/transform` | `{"splat":"name","scale":1,"y":0,"x":0,"z":0,"up":"+y","turn":0,"mirror":true}` — 動かした分だけ送ればよい。`placement.json` に書く |
 
 **POST には必ずボディを付けること。** `HttpListener` は `Content-Length` の無い POST を
 mod のハンドラに渡す前に `411 Length Required` で弾く。`curl -X POST .../api/unload` は

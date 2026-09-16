@@ -190,6 +190,10 @@ pub fn download(
         let total = response.content_length().unwrap_or(file.bytes);
 
         let mut sink = std::fs::File::create(&temp)?;
+        // Hashed as it arrives. Hashing the finished file instead meant reading the
+        // hundreds of megabytes back off disk after the bar had reached 100% - several
+        // seconds in which nothing on screen moved, right where someone was watching.
+        let mut hasher = Sha256::new();
         let mut buf = [0u8; 81920];
         let mut done: u64 = 0;
         let mut last_reported: i32 = -1;
@@ -199,6 +203,7 @@ pub fn download(
                 break;
             }
             sink.write_all(&buf[..n])?;
+            hasher.update(&buf[..n]);
             done += n as u64;
             if total == 0 {
                 continue;
@@ -212,7 +217,7 @@ pub fn download(
         }
         drop(sink);
 
-        let actual = sha256_file(&temp)?;
+        let actual = format!("{:x}", hasher.finalize());
         if !actual.eq_ignore_ascii_case(expected) {
             return Err(Error::Msg(
                 "the download does not match the catalog's digest - it was truncated or is not the file that was published"
@@ -228,19 +233,6 @@ pub fn download(
     result
 }
 
-pub fn sha256_file(path: &Path) -> std::io::Result<String> {
-    let mut file = std::fs::File::open(path)?;
-    let mut hasher = Sha256::new();
-    let mut buf = [0u8; 81920];
-    loop {
-        let n = file.read(&mut buf)?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
-    }
-    Ok(format!("{:x}", hasher.finalize()))
-}
 
 /// Extracts `zip` under `root`. Returns the files written. `keep_existing` names leaf files left alone when present (placement.json, bindings.json).
 pub fn extract(

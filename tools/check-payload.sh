@@ -23,17 +23,30 @@ PAY="${1:?usage: check-payload.sh <payload-dir>}"
 ASSETS="$PAY/vdgs/ui/assets"
 [ -d "$ASSETS" ] || { echo "$PAY carries no interface (no vdgs/ui/assets)" >&2; exit 1; }
 
-# One per entry point in web/. More than one is a build that was never swept; none means
-# an entry stopped being emitted, which is its own kind of broken.
-fail=0
-for stem in companion- index- input- site- src-; do
-  n=$(find "$ASSETS" -maxdepth 1 -name "$stem*.js" | wc -l | tr -d ' ')
-  if [ "$n" != 1 ]; then
-    echo "$stem*.js appears $n times in the payload - expected exactly one" >&2
-    fail=1
-  fi
-done
-[ "$fail" = 0 ] || {
-  echo "the payload does not carry exactly one build. Re-stage it." >&2; exit 1; }
+# Vite names every chunk <stem>-<hash>.js, so two builds in one directory show up as one
+# stem carrying two hashes. Group by stem and require a single hash each.
+#
+# This used to hardcode the five stem names the build emitted at the time. That list went
+# stale the moment the interface was rewritten and its chunks were split differently -
+# `input-` stopped being emitted and `CompanionApp-` appeared - which turned a release gate
+# permanently red for a payload that was perfectly correct. A gate that always fails gets
+# deleted, so this counts hashes per stem instead and never needs editing when the bundler
+# changes its mind.
+dupes=$(find "$ASSETS" -maxdepth 1 -name '*.js' -exec basename {} \; \
+        | sed -E 's/-[A-Za-z0-9_-]+\.js$//' \
+        | sort | uniq -d)
+if [ -n "$dupes" ]; then
+  echo "these chunks appear more than once in the payload:" >&2
+  echo "$dupes" | sed 's/^/  /' >&2
+  echo "the payload carries more than one build. Re-stage it." >&2
+  exit 1
+fi
 
-echo "   payload checked: one each of companion/index/input/site/src"
+# An entry that stopped being emitted is its own kind of broken, and the count is the only
+# thing that sees it - index.html only ever names the chunks that do exist.
+n=$(find "$ASSETS" -maxdepth 1 -name '*.js' | wc -l | tr -d ' ')
+[ "$n" -ge 4 ] || {
+  echo "the payload carries only $n javascript chunks - an entry point stopped being emitted" >&2
+  exit 1; }
+
+echo "   payload checked: $n chunks, no stem carrying two builds"

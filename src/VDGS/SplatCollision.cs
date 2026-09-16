@@ -65,8 +65,17 @@ namespace VDGS
         ///
         /// Returns false when there is no collision.bin, which is the normal case for a
         /// capture nobody has generated one for - not an error.
+        ///
+        /// <paramref name="mirrorY"/> is decided by the caller, not here. SplatScene reads
+        /// it from placement.json (the same value it hands to PlyLoader) and passes it in,
+        /// so the splats and the collision shell are always mirrored together - two
+        /// independently-decided flags that happen to agree today would silently stop
+        /// agreeing the moment either becomes settable. Left null, the mesh mirrors by the
+        /// old per-extension rule; the only caller that relies on that is the Mac-only
+        /// SplatCollisionProbe editor tool, which tests the collider directly and has no
+        /// placement.json to read.
         /// </summary>
-        internal static bool Attach(Transform parent, string dir, StringBuilder log)
+        internal static bool Attach(Transform parent, string dir, StringBuilder log, bool? mirrorY = null)
         {
             var path = PathFor(dir);
             if (!File.Exists(path))
@@ -93,11 +102,12 @@ namespace VDGS
             // sits upside down under a capture that isn't. A converted directory was already
             // mirrored by reprocess.sh before export, so it must NOT be touched here.
             //
-            // Done here rather than in the offline tool on purpose: the reflection is a
-            // property of how the runtime reads a .ply, so it belongs next to the code that
-            // does it. Put it in the pipeline instead and the two drift apart - which is what
-            // happened, and it cost a flight to notice.
-            var mirror = dir.EndsWith(".ply", StringComparison.OrdinalIgnoreCase);
+            // The rule stays here rather than in the offline tool because it is a property
+            // of how the runtime reads a .ply, and belongs next to the code that does it -
+            // put it in the pipeline instead and the two drift apart, which is what happened
+            // once already. "As this shape has always behaved" is only the fallback for a
+            // caller that does not know better - see the mirrorY doc comment above.
+            var mirror = mirrorY ?? dir.EndsWith(".ply", StringComparison.OrdinalIgnoreCase);
             if (self.Load(path, mirror, log)) return true;
 
             // Leave nothing behind. The child alone is what the "already attached" guard

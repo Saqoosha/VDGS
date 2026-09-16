@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as api from './api'
 
 afterEach(() => {
@@ -45,8 +45,50 @@ describe('api posts', () => {
 
   it('setTransform omits the field that was not passed', async () => {
     const fetch = mockFetch()
-    await api.setTransform('a', 2)
+    await api.setTransform('a', { scale: 2 })
     const body = JSON.parse(String(fetch.mock.calls[0][1]?.body)) as Record<string, unknown>
     expect(body).toEqual({ splat: 'a', scale: 2 })
+  })
+
+  it('setTransform carries x and z too', async () => {
+    const fetch = mockFetch()
+    await api.setTransform('a', { x: 1, z: 2 })
+    const body = JSON.parse(String(fetch.mock.calls[0][1]?.body)) as Record<string, unknown>
+    expect(body).toEqual({ splat: 'a', x: 1, z: 2 })
+  })
+
+  it('setOrientation posts to /api/transform with up, turn and mirror', async () => {
+    const fetch = mockFetch()
+    await api.setOrientation('a', { up: 'y', turn: 90, mirror: true })
+    expect(fetch.mock.calls[0][0]).toBe('/api/transform')
+    const body = JSON.parse(String(fetch.mock.calls[0][1]?.body)) as Record<string, unknown>
+    expect(body).toEqual({ splat: 'a', up: 'y', turn: 90, mirror: true })
+  })
+})
+
+describe('api transport', () => {
+  beforeEach(() => {
+    vi.resetModules()
+    delete (window as any).__TAURI__
+  })
+
+  it('uses a relative fetch when the plugin serves the page', async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) })
+    vi.stubGlobal('fetch', fetchSpy)
+    const { load } = await import('./api')
+    await load('my-house')
+    expect(fetchSpy.mock.calls[0][0]).toBe('/api/load')
+  })
+
+  it('goes through the host to an absolute URL when hosted', async () => {
+    const hostFetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) })
+    ;(window as any).__TAURI__ = {
+      core: { invoke: vi.fn() },
+      event: { listen: vi.fn().mockResolvedValue(() => {}) },
+      http: { fetch: hostFetch },
+    }
+    const { load } = await import('./api')
+    await load('my-house')
+    expect(hostFetch.mock.calls[0][0]).toBe('http://127.0.0.1:8777/api/load')
   })
 })

@@ -23,6 +23,9 @@ type Push =
   // The game starting is one flag, and the host watches for it rather than waiting to be
   // asked - nobody presses refresh to tell the app they quit VelociDrone.
   | { type: 'running'; running: boolean }
+  // The .ply someone just chose, before anything is copied. The page asks for the
+  // track's name on this, and only `addTrack {path, name}` writes anything.
+  | { type: 'picked'; path: string; stem: string }
 
 type TauriGlobal = {
   core: { invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown> }
@@ -40,10 +43,12 @@ export type Command =
   | 'pick'
   | 'installMod'
   | 'uninstallMod'
+  | 'pickPly'
   | 'removeTrack'
+  | 'removeCapture'
+  | 'unbindTrack'
   | 'refreshCatalog'
   | 'get'
-  | 'installCapture'
   | 'addTrack'
   | 'fly'
 
@@ -55,9 +60,12 @@ export type Command =
  */
 let listening: Promise<unknown> | null = null
 
-export function send(cmd: Command, id?: string): void {
+// Widened to a third value for addTrack, which needs a path and a name together - one
+// id string was never going to carry two values.
+export function send(cmd: Command, id?: string, arg?: Record<string, unknown>): void {
   if (!tauri) return devSend(cmd, id)
-  const invoke = () => tauri.core.invoke('dispatch', { cmd, id: id ?? null })
+  const invoke = () =>
+    tauri.core.invoke('dispatch', { cmd, id: id ?? null, arg: arg ?? null })
   void (listening ? listening.then(invoke, invoke) : invoke())
 }
 
@@ -95,6 +103,13 @@ const devState: SetupState = {
   busy: null,
   busyPercent: null,
   launchArgs: '-force-d3d12',
+  // Real state carries this unconditionally too - state.rs asks the OS for a LAN-facing
+  // address regardless of whether the game is running, so setting it here regardless of
+  // `running` below is not a deviation from production, it is what production does.
+  // Whether anything is actually listening at it is a separate question the shell gates
+  // on `running` - this stand-in exists so the field has something to lay out, not so
+  // its presence alone means the address is live.
+  lanUrl: 'http://192.168.1.42:8777/',
   tracks: [
     {
       track: 'VDGS FDF',
@@ -146,6 +161,7 @@ const devState: SetupState = {
         splats: 1497617,
         bytes: 123_657_212,
         installed: true,
+        installAs: 'FDF-2026-08-24',
       },
       {
         id: 'jdl-2026-r5',
@@ -156,6 +172,7 @@ const devState: SetupState = {
         splats: 3_900_000,
         bytes: 402_000_000,
         installed: false,
+        installAs: 'JDL-2026-R5',
       },
     ],
   },
@@ -171,6 +188,12 @@ function devSend(cmd: Command, id?: string) {
   if (!import.meta.env.DEV) return
   if (cmd === 'refresh') {
     devPush({ type: 'state', ...devState })
+    return
+  }
+  // The stand-in for the file dialog: a fixed path back, so the name dialog can be laid out
+  // in a browser where no host exists to open a real one.
+  if (cmd === 'pickPly') {
+    devPush({ type: 'picked', path: '/Users/you/Downloads/himeji-lod2.ply', stem: 'himeji-lod2' })
     return
   }
   devPush({

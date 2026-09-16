@@ -1,5 +1,8 @@
 export type CollisionView = 'off' | 'solid' | 'wire'
 
+/** Which of the capture's axes points at the sky. */
+export type UpAxis = '+x' | '-x' | '+y' | '-y' | '+z' | '-z'
+
 export type Scene = {
   name: string
   source: 'local' | 'catalog'
@@ -14,6 +17,12 @@ export type Scene = {
   shown: boolean
   scale: number
   y: number
+  x: number
+  z: number
+  /** null when the placement has none yet - see placement.json's own `up` field. */
+  up: UpAxis | null
+  turn: number
+  mirror: boolean
   backdrop: boolean
   collision: boolean
   collisionView: CollisionView
@@ -67,6 +76,14 @@ export type SetupState = {
   /** How long the host took to gather this. Shown only when it is slow enough to matter. */
   stateMs?: number
   launchArgs: string
+  /**
+   * This machine's LAN address for the plugin's HTTP server, or null when no
+   * outward-facing interface was found. state.rs's `lan_url()` asks the OS for this
+   * address unconditionally - it does not consult `running` - so a non-null value here
+   * does NOT mean the server is actually there to reach. `running` is what says that
+   * (CompanionApp gates on it alongside `lanUrl` for exactly this reason).
+   */
+  lanUrl: string | null
   tracks: TrackEntry[]
   catalog: CatalogState | null
   /** Installed captures no track points at - otherwise they are invisible here. */
@@ -88,6 +105,12 @@ export type CatalogEntry = {
   splats: number
   bytes: number
   installed: boolean
+  /**
+   * The capture directory this entry installs as - a different namespace from `id`. This
+   * is what a track's bound capture name is matched against to find which id to hand
+   * `get`; optional because older/partial fixtures do not carry it.
+   */
+  installAs?: string | null
 }
 
 export type CatalogState = {

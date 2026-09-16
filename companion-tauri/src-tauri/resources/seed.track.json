@@ -1,0 +1,6 @@
+{
+  "name": "VDGS Template",
+  "scene_id": 16,
+  "type": 0,
+  "value": "{\"gates\":[{\"prefab\":279,\"trans\":{\"pos\":[-12000,300,8500],\"rot\":[707,0,707,0],\"scale\":[100,100,100]},\"gate\":0,\"start\":true,\"finish\":false,\"lap1only\":false},{\"prefab\":150,\"trans\":{\"pos\":[-14000,300,8500],\"rot\":[707,0,707,0],\"scale\":[100,100,100]},\"gate\":1,\"start\":false,\"finish\":true,\"lap1only\":false}],\"barriers\":[{\"prefab\":90,\"trans\":{\"pos\":[-10000,300,8500],\"rot\":[0,0,707,707],\"scale\":[100,100,100]}}]}"
+}

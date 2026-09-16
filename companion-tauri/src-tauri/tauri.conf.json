@@ -18,7 +18,9 @@
         "width": 760,
         "height": 860,
         "minWidth": 600,
-        "minHeight": 560
+        "minHeight": 560,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
       }
     ],
     "security": {
@@ -37,7 +39,8 @@
       "icons/icon.ico"
     ],
     "resources": [
-      "resources/mod/**/*"
+      "resources/mod/**/*",
+      "resources/seed.track.json"
     ],
     "macOS": {
       "minimumSystemVersion": "12.0"
