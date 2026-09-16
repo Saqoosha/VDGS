@@ -362,7 +362,9 @@ appear there; **only the Tweak screen works.** The companion prints this URL and
 at the top of the Tweak screen. Alt-tabbing out of a
 fullscreen game is the worst possible move, so with both hands on the transmitter, open that
 address from another device on the LAN (a phone, say) instead — the same setup as watching
-the game on one screen and running Parsec on another. After a UI-only change,
+the game on one screen and running Parsec on another. **On Windows the firewall asks about
+`velocidrone.exe` the first time** — that is this server. The companion itself talks over
+127.0.0.1 and works either way; another device needs Allow. After a UI-only change,
 `bash tools/deploy.sh --ui` copies `web/dist/` to `<game>/vdgs/ui/` without rebuilding the
 plugin.
 

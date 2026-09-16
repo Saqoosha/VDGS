@@ -27,6 +27,10 @@ quiet() { grep -vE "WARNING: |store now, decrypt later|may need to be upgraded|o
 
 : "${VDGS_WIN_BUILD_HOST:?set VDGS_WIN_BUILD_HOST in tools/local.env - the game box has no Rust toolchain}"
 BUILD_HOST="$VDGS_WIN_BUILD_HOST"
+# PowerShell on the build box, whatever its login shell is. The box's OpenSSH default
+# shell has been both pwsh and Git Bash; a script sent as the ssh command line only
+# works under one of them, a script fed to pwsh on stdin works under either.
+remote_pwsh() { ssh -o BatchMode=yes "$BUILD_HOST" 'pwsh -NoProfile -NonInteractive -Command -'; }
 
 OUT="$ROOT/build/release"
 VER="${1:-${VDGS_VERSION:-$(date +%Y.%m.%d)}}"
@@ -154,8 +158,8 @@ PY
 TAR="$WORK/companion-win.tgz"
 COPYFILE_DISABLE=1 tar czf "$TAR" -C "$WORK" companion-tauri web
 
-ssh -o BatchMode=yes "$BUILD_HOST" \
-  "New-Item -ItemType Directory -Force -Path $REMOTE_ROOT_PS | Out-Null" 2>&1 | quiet
+printf '%s\n' "New-Item -ItemType Directory -Force -Path (Join-Path \$env:USERPROFILE 'VDGS') | Out-Null" \
+  | remote_pwsh 2>&1 | quiet
 scp -o BatchMode=yes -q "$TAR" "$BUILD_HOST:$REMOTE_ROOT/companion-win.tgz" 2>&1 | quiet
 
 # ---------------------------------------------------------------- build
@@ -165,24 +169,28 @@ say "building on $BUILD_HOST"
 # children a truncated one - far enough truncated that powershell.exe itself goes missing.
 # The user's environment is not touched; this only shapes what this build sees.
 set +e
-ssh -o BatchMode=yes "$BUILD_HOST" "
-  \$ErrorActionPreference = 'Stop'
-  \$root = $REMOTE_ROOT_PS
-  \$work = Join-Path \$root 'companion-win'
-  Remove-Item -Recurse -Force \$work -ErrorAction SilentlyContinue
-  New-Item -ItemType Directory -Force -Path \$work | Out-Null
-  Set-Location \$work
-  tar xzf (Join-Path \$root 'companion-win.tgz')
-  \$env:PATH = \"\$env:USERPROFILE\\.cargo\\bin;C:\\Windows\\system32;C:\\Windows;C:\\Windows\\System32\\Wbem;C:\\Windows\\System32\\WindowsPowerShell\\v1.0\"
-  Set-Location (Join-Path \$work 'companion-tauri\\src-tauri')
+remote_pwsh <<'PS' > "$WORK/build.log" 2>&1
+  $ErrorActionPreference = 'Stop'
+  $root = Join-Path $env:USERPROFILE 'VDGS'
+  $work = Join-Path $root 'companion-win'
+  Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
+  New-Item -ItemType Directory -Force -Path $work | Out-Null
+  Set-Location $work
+  # Before tar, not after: with Git Bash as the login shell, Git's GNU tar is first on
+  # PATH and reads C:\... as a remote host. The short PATH reaches System32's bsdtar.
+  $env:PATH = "$env:USERPROFILE\.cargo\bin;C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0"
+  tar xzf (Join-Path $root 'companion-win.tgz')
+  if ($LASTEXITCODE -ne 0) { throw 'unpacking the source failed' }
+  Set-Location (Join-Path $work 'companion-tauri\src-tauri')
   # The pin check runs here and not on the Mac that drives this script. release() is
-  # #[cfg]-split, so a `cargo test` on macOS fetches the macOS loader - it would have
+  # cfg-split, so a cargo test on macOS fetches the macOS loader - it would have
   # reported the Windows pin healthy while never having looked at it.
   cargo test -- --ignored the_pinned_release_is_still_there
-  if (\$LASTEXITCODE -ne 0) { throw 'the pinned BepInEx release did not fetch' }
+  if ($LASTEXITCODE -ne 0) { throw 'the pinned BepInEx release did not fetch' }
   cargo-tauri.exe build --no-bundle
-  if (\$LASTEXITCODE -ne 0) { throw 'cargo tauri build failed' }
-" > "$WORK/build.log" 2>&1
+  if ($LASTEXITCODE -ne 0) { throw 'cargo tauri build failed' }
+  exit 0
+PS
 BUILD_STATUS=$?
 set -e
 # ssh's own status, taken before anything else runs. This was a pipeline ending in
@@ -209,23 +217,24 @@ say "packaging"
 # resources/ travels with it. cargo tauri build --no-bundle writes the declared resources
 # beside the exe in target/release, and resolve_resource_dir looks there first - without
 # that folder the app opens and says it carries no mod payload.
-ssh -o BatchMode=yes "$BUILD_HOST" "
-  \$ErrorActionPreference = 'Stop'
-  \$rel = Join-Path $REMOTE_ROOT_PS 'companion-win\\companion-tauri\\src-tauri\\target\\release'
-  \$exe = Join-Path \$rel 'vdgs-companion.exe'
-  if (-not (Test-Path \$exe)) { throw 'no vdgs-companion.exe produced' }
-  \$res = Join-Path \$rel 'resources'
-  if (-not (Test-Path \$res)) { throw 'no resources beside the exe - the app would carry no payload' }
-  \$stage = Join-Path $REMOTE_ROOT_PS 'companion-win-stage'
-  Remove-Item -Recurse -Force \$stage -ErrorAction SilentlyContinue
-  New-Item -ItemType Directory -Force -Path \$stage | Out-Null
-  Copy-Item \$exe (Join-Path \$stage 'VDGS.exe')
-  Copy-Item -Recurse \$res (Join-Path \$stage 'resources')
-  \$zip = Join-Path $REMOTE_ROOT_PS 'vdgs-companion.zip'
-  Remove-Item \$zip -ErrorAction SilentlyContinue
-  Compress-Archive -Path (Join-Path \$stage '*') -DestinationPath \$zip
-  'zip: ' + (Get-Item \$zip).Length
-" 2>&1 | quiet
+remote_pwsh <<'PS' 2>&1 | quiet
+  $ErrorActionPreference = 'Stop'
+  $root = Join-Path $env:USERPROFILE 'VDGS'
+  $rel = Join-Path $root 'companion-win\companion-tauri\src-tauri\target\release'
+  $exe = Join-Path $rel 'vdgs-companion.exe'
+  if (-not (Test-Path $exe)) { throw 'no vdgs-companion.exe produced' }
+  $res = Join-Path $rel 'resources'
+  if (-not (Test-Path $res)) { throw 'no resources beside the exe - the app would carry no payload' }
+  $stage = Join-Path $root 'companion-win-stage'
+  Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
+  New-Item -ItemType Directory -Force -Path $stage | Out-Null
+  Copy-Item $exe (Join-Path $stage 'VDGS.exe')
+  Copy-Item -Recurse $res (Join-Path $stage 'resources')
+  $zip = Join-Path $root 'vdgs-companion.zip'
+  Remove-Item $zip -ErrorAction SilentlyContinue
+  Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip
+  'zip: ' + (Get-Item $zip).Length
+PS
 
 DEST="$OUT/vdgs-companion-$VER.zip"
 rm -f "$DEST"
