@@ -225,3 +225,39 @@ describe('mirror pending state', () => {
     expect(mirrorCheckbox()).not.toBeDisabled()
   })
 })
+
+// The number field beside a dial takes a whole value, not a keystroke at a time: sending
+// on every change applied "4" on the way to "44", and reformatting the controlled value
+// each render overwrote what was being typed.
+describe('typing a number into a dial', () => {
+  function scaleField() {
+    return screen.getAllByRole('spinbutton')[1] as HTMLInputElement
+  }
+
+  it('sends once, on Enter, with the whole number', async () => {
+    mockOkFetch()
+    render(<Control state={sample(scene({ scale: 1 }))} refresh={vi.fn().mockResolvedValue(null)} />)
+    const field = scaleField()
+    fireEvent.focus(field)
+    fireEvent.change(field, { target: { value: '4' } })
+    fireEvent.change(field, { target: { value: '44' } })
+    expect(field.value).toBe('44')
+    expect(fetch).not.toHaveBeenCalled()
+    fireEvent.keyDown(field, { key: 'Enter' })
+    fireEvent.blur(field)
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1))
+    const body = JSON.parse((vi.mocked(fetch).mock.calls[0][1] as RequestInit).body as string)
+    expect(body.scale).toBe(44)
+  })
+
+  it('drops the edit on Escape', () => {
+    mockOkFetch()
+    render(<Control state={sample(scene({ scale: 1 }))} refresh={vi.fn().mockResolvedValue(null)} />)
+    const field = scaleField()
+    fireEvent.focus(field)
+    fireEvent.change(field, { target: { value: '9' } })
+    fireEvent.keyDown(field, { key: 'Escape' })
+    expect(field.value).toBe('1.000')
+    expect(fetch).not.toHaveBeenCalled()
+  })
+})

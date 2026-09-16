@@ -1,6 +1,3 @@
-import { useEffect, useState } from 'react'
-import QRCode from 'qrcode'
-import { Button } from '@/components/ui/button'
 import { useStatus } from '../useStatus'
 import Control from './Control'
 
@@ -11,9 +8,9 @@ import Control from './Control'
  * address below, which is a phone.
  *
  * Everything here goes over the plugin's own HTTP server, so it only works while the
- * game is running with a track loaded. The list is what decides whether to offer the
- * way in (`live` and the loaded track's name); this screen just says so if it finds the
- * plugin gone, since the game can be quit while it is open.
+ * game is running with a track loaded. The list decides whether to offer the way in;
+ * this screen says so if it finds the plugin gone, since the game can be quit while it
+ * is open. The way back is the shell's footer button, where Fly normally sits.
  *
  * Opened in a plain browser - the page the plugin serves at :8777 - this is the whole
  * app, and `onBack` is absent: there is no list to go back to.
@@ -21,13 +18,11 @@ import Control from './Control'
 export default function Tweak({
   track,
   onBack,
-  lanUrl,
 }: {
   /** The track this was opened for, for the heading. Null in the browser. */
   track: string | null
+  /** Present in the companion; its absence is what marks the browser build. */
   onBack?: () => void
-  /** Where a second screen can reach the same controls, or null when unknown. */
-  lanUrl: string | null
 }) {
   const { state, live, refresh } = useStatus()
   // The game can change track while this is open. The controls follow whatever the
@@ -40,19 +35,9 @@ export default function Tweak({
 
   return (
     <div>
-      {onBack || track ? (
-        <div className="mb-5 flex flex-wrap items-baseline justify-between gap-3">
-          {onBack ? (
-            <Button variant="ghost" size="sm" onClick={onBack} className="-ml-2">
-              ← tracks
-            </Button>
-          ) : null}
-          {track ? (
-            <p className="font-serif text-[1.65rem] leading-tight font-light">{track}</p>
-          ) : null}
-        </div>
+      {track ? (
+        <p className="mb-5 font-serif text-[1.65rem] leading-tight font-light">{track}</p>
       ) : null}
-      {lanUrl && live ? <LanQr url={lanUrl} /> : null}
       {live && older ? (
         <p className="font-serif text-xl font-light text-muted-foreground italic">
           the installed mod is older than this app — quit the game and press Update mod
@@ -70,42 +55,6 @@ export default function Tweak({
             : 'waiting for the plugin…'}
         </p>
       )}
-    </div>
-  )
-}
-
-function LanQr({ url }: { url: string }) {
-  const [dataUrl, setDataUrl] = useState<string | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    QRCode.toDataURL(url, { margin: 1, width: 132 })
-      .then((d) => {
-        if (!cancelled) setDataUrl(d)
-      })
-      .catch(() => {
-        if (!cancelled) setDataUrl(null)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [url])
-
-  return (
-    <div className="mb-6 flex flex-wrap items-center gap-4 border-b border-rule pb-6">
-      {dataUrl ? (
-        // Decorative next to the URL text right beside it - a screen reader gains
-        // nothing from "QR code" that the address itself does not already say.
-        <img src={dataUrl} alt="" width={88} height={88} className="shrink-0" />
-      ) : null}
-      <div>
-        <p className="font-mono text-[10px] tracking-[0.22em] text-muted-foreground uppercase">
-          on another screen
-        </p>
-        {/* select-text: the whole point of this line is to be typed or copied onto a
-            second device, the one thing the QR code next to it cannot do for a laptop. */}
-        <p className="mt-1 font-mono text-[13px] text-foreground/90 select-text">{url}</p>
-      </div>
     </div>
   )
 }

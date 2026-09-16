@@ -90,7 +90,10 @@ export default function Control({
       )}
 
       {flash ? (
-        <p className="mb-4 font-mono text-[11px] tracking-[0.14em] text-live uppercase" role="status">
+        <p
+          className="mb-4 font-mono text-[11px] tracking-[0.14em] text-live uppercase"
+          role="status"
+        >
           {flash}
         </p>
       ) : null}
@@ -102,15 +105,7 @@ export default function Control({
   )
 }
 
-function CaptureRow({
-  index,
-  scene,
-  onShow,
-}: {
-  index: string
-  scene: Scene
-  onShow: () => void
-}) {
+function CaptureRow({ index, scene, onShow }: { index: string; scene: Scene; onShow: () => void }) {
   return (
     <li className="grid grid-cols-[2.25rem_minmax(0,1fr)_auto] items-start gap-3 border-b border-rule/80 py-4 last:border-b-0">
       <span className="pt-1 font-mono text-[11px] text-muted-foreground">{index}</span>
@@ -331,7 +326,10 @@ function ShownBlock({
                   })()
                 }}
               >
-                <SelectTrigger className="w-[148px] font-mono text-[11px] tracking-[0.12em] uppercase" size="sm">
+                <SelectTrigger
+                  className="w-[148px] font-mono text-[11px] tracking-[0.12em] uppercase"
+                  size="sm"
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -373,8 +371,8 @@ function ShownBlock({
           // this, and it can be genuinely rotated even though nothing here looks touched.
           // Saying "no orientation set" would be a guess this cannot back up either way.
           <p className="mt-1.5 font-mono text-[10px] tracking-[0.1em] text-muted-foreground">
-            up not recorded — may already be upright, or hold a rotation these buttons
-            can't show; picking one replaces it
+            up not recorded — may already be upright, or hold a rotation these buttons can't show;
+            picking one replaces it
           </p>
         ) : null}
       </div>
@@ -563,7 +561,11 @@ function StampCheck({
 }) {
   return (
     <label className="flex items-center gap-2 font-mono text-[11px] tracking-[0.16em] uppercase">
-      <Checkbox checked={checked} disabled={disabled} onCheckedChange={(v) => onChange(v === true)} />
+      <Checkbox
+        checked={checked}
+        disabled={disabled}
+        onCheckedChange={(v) => onChange(v === true)}
+      />
       {label}
     </label>
   )
@@ -600,6 +602,16 @@ function Dial({
   onSlide: (t: number) => void
   onNumber: (v: number) => void
 }) {
+  // While the field has focus it shows what is being typed, not the formatted value:
+  // sending on every keystroke applied "4" on the way to "44", and reformatting the
+  // controlled value each render overwrote the digits. Enter or leaving the field commits.
+  const [text, setText] = useState<string | null>(null)
+  const commit = () => {
+    if (text === null) return
+    const v = parseFloat(text)
+    setText(null)
+    if (Number.isFinite(v)) onNumber(Math.min(numberMax, Math.max(numberMin, v)))
+  }
   return (
     <div className="flex flex-wrap items-end gap-4">
       <div className="w-16 font-mono text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
@@ -616,20 +628,20 @@ function Dial({
         onPointerUp={onPointerUp}
         onChange={(e) => onSlide(parseFloat(e.target.value))}
       />
-      <span className="w-[4.5rem] text-right font-mono text-lg tabular-nums">
-        {valueLabel}
-      </span>
+      <span className="w-[4.5rem] text-right font-mono text-lg tabular-nums">{valueLabel}</span>
       <Input
         type="number"
         className="h-8 w-[92px] bg-transparent font-mono"
         step={numberStep}
         min={numberMin}
         max={numberMax}
-        value={numberValue}
-        onChange={(e) => {
-          const v = parseFloat(e.target.value)
-          if (!Number.isFinite(v)) return
-          onNumber(v)
+        value={text ?? numberValue}
+        onFocus={() => setText(numberValue)}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') e.currentTarget.blur()
+          if (e.key === 'Escape') setText(null)
         }}
       />
     </div>
