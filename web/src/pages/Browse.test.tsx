@@ -25,6 +25,29 @@ const scene = {
 }
 
 describe('Browse', () => {
+  // A CC BY capture names its source in the description; the licence wants that reachable.
+  // Only the URL becomes a link - the full stop a sentence puts after it stays text - and
+  // it is built as React nodes, so a description is never HTML.
+  it('links the URLs in a description and nothing else', async () => {
+    serve({
+      formatVersion: 1,
+      scenes: [
+        {
+          ...scene,
+          description: `By @gorank (https://superspl.at/view?id=7a7bfaea). ${xss}`,
+        },
+      ],
+      app: {},
+    })
+    render(<Browse lang="en" />)
+    const link = await screen.findByRole('link', { name: 'https://superspl.at/view?id=7a7bfaea' })
+    expect(link).toHaveAttribute('href', 'https://superspl.at/view?id=7a7bfaea')
+    expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'))
+    expect(link.nextSibling?.textContent).toMatch(/^\)\./)
+    expect(screen.getByText(new RegExp(xss.replace(/[<>()=]/g, '\\$&')))).toBeInTheDocument()
+    expect(document.querySelector('img')).toBeNull()
+  })
+
   // The instructions are the only part that carries a translation - the list above them
   // is names, numbers and licences, which read the same either way.
   it('says how to do it in Japanese when asked', async () => {

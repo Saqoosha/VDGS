@@ -88,8 +88,8 @@ export default function Browse({ lang }: { lang: Lang }) {
           </p>
         ) : (
           <ol className="mt-1">
-            {shown.map((s, i) => (
-              <Row key={s.id} index={String(i + 1).padStart(2, '0')} scene={s} />
+            {shown.map((s) => (
+              <Row key={s.id} scene={s} />
             ))}
           </ol>
         )}
@@ -265,15 +265,50 @@ function Step({ n, children }: { n: string; children: ReactNode }) {
   )
 }
 
-function Row({ index, scene }: { index: string; scene: Published }) {
+// Turns the http(s) URLs in a description into links, as React nodes - never innerHTML.
+// A URL in a catalog description is how a CC BY capture names its source, and the
+// licence asks for that to be reachable, not just printed. Trailing punctuation that a
+// sentence puts after a URL stays as text.
+const URL_RE = /https?:\/\/[^\s<>"')]+/g
+
+function Linkify({ text }: { text: string }) {
+  const out: ReactNode[] = []
+  let last = 0
+  for (const m of text.matchAll(URL_RE)) {
+    let url = m[0]
+    let tail = ''
+    while (/[.,;:!?]$/.test(url)) {
+      tail = url.slice(-1) + tail
+      url = url.slice(0, -1)
+    }
+    const start = m.index ?? 0
+    if (start > last) out.push(text.slice(last, start))
+    out.push(
+      <a
+        key={start}
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="underline decoration-rule underline-offset-2 hover:text-foreground"
+      >
+        {url}
+      </a>,
+    )
+    if (tail) out.push(tail)
+    last = start + m[0].length
+  }
+  if (last < text.length) out.push(text.slice(last))
+  return <>{out}</>
+}
+
+function Row({ scene }: { scene: Published }) {
   return (
-    <li className="grid grid-cols-[2.25rem_minmax(0,1fr)] items-start gap-3 border-b border-rule/80 py-4">
-      <span className="pt-1 font-mono text-[11px] text-muted-foreground">{index}</span>
+    <li className="border-b border-rule/80 py-4">
       <div className="min-w-0">
         <p className="font-serif text-[1.65rem] leading-tight font-light">{scene.name}</p>
         {scene.description ? (
           <p className="mt-1 text-[13px] leading-snug text-muted-foreground">
-            {scene.description}
+            <Linkify text={scene.description} />
           </p>
         ) : null}
         <p className="mt-1.5 font-mono text-[11px] tracking-[0.04em] text-muted-foreground">
