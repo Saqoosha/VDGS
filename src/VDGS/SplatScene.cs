@@ -698,7 +698,7 @@ namespace VDGS
                 if (!SplatCollisionView.IsMode(p.collisionView)) p.collisionView = SplatCollisionView.kOff;
                 return p;
             }
-            catch (Newtonsoft.Json.JsonException ex)
+            catch (Exception ex)
             {
                 // Newtonsoft throws where JsonUtility used to coerce - a bad key now
                 // means a default Placement (scale 1, position 0, no up, no backdrop)
@@ -712,13 +712,6 @@ namespace VDGS
                 // the original values survive on disk for recovery.
                 VdgsPlugin.Log.LogError("placement.json unreadable, using defaults: " + ex.Message);
                 QuarantinePlacement(path);
-                return new Placement();
-            }
-            catch (Exception ex)
-            {
-                // An I/O failure (the file held by another process, a permission) is not a
-                // corrupt file: it is left where it is and defaults are used for this read.
-                VdgsPlugin.Log.LogError("placement.json could not be read, using defaults: " + ex.Message);
                 return new Placement();
             }
         }
