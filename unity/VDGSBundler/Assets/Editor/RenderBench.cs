@@ -57,6 +57,7 @@ public static class RenderBench
                               bool inside, int cull, float fov)
     {
         GameObject go = null;
+        SplatRenderer renderer = null;
         var label = "empty";
         var splats = 0;
         var centre = Vector3.zero;
@@ -67,9 +68,17 @@ public static class RenderBench
             // A .ply goes through the runtime loader, a directory through the on-disk one.
             // -vdgsPlyNoMirror keeps the loader's transform identical to the offline
             // converter's, which is how the two are compared.
+            // A streamed SOG (lod-meta.json), a SOG directory or a bundled .sog go through
+            // SogLoader and may carry levels of detail.
+            bool isSog = sceneDir.EndsWith(".sog", System.StringComparison.OrdinalIgnoreCase)
+                || File.Exists(Path.Combine(sceneDir, "lod-meta.json"))
+                || (File.Exists(Path.Combine(sceneDir, "meta.json"))
+                    && File.ReadAllText(Path.Combine(sceneDir, "meta.json")).Contains("\"means\""));
+            string error;
             var data = sceneDir.EndsWith(".ply", System.StringComparison.OrdinalIgnoreCase)
-                ? PlyLoader.Load(sceneDir, out var error, Arg("-vdgsPlyNoMirror") == null)
-                : SplatData.Load(sceneDir, out error);
+                ? PlyLoader.Load(sceneDir, out error, Arg("-vdgsPlyNoMirror") == null)
+                : isSog ? SogLoader.Load(sceneDir, out error)
+                        : SplatData.Load(sceneDir, out error);
             if (data == null) throw new System.Exception("load failed: " + error);
 
             label = Path.GetFileName(sceneDir);
@@ -92,7 +101,10 @@ public static class RenderBench
             r.m_SortNthFrame = ParseInt("-vdgsSortNth", 1);
             r.m_FrustumCulling = cull != 0;
             r.m_CullMargin = ParseFloat("-vdgsCullMargin", r.m_CullMargin);
+            r.LodDetail = ParseFloat("-vdgsLodDetail", r.LodDetail);
+            r.LodBudget = ParseInt("-vdgsLodBudget", (int)r.LodBudget);
             r.SetData(data);
+            renderer = r;
         }
 
         var camGo = new GameObject("VDGS_BenchCam");
@@ -108,6 +120,16 @@ public static class RenderBench
         var dist = inside ? 0f : radius / Mathf.Tan(fov * 0.5f * Mathf.Deg2Rad) * 1.1f;
         camGo.transform.position = centre - Vector3.forward * dist;
         camGo.transform.rotation = Quaternion.LookRotation(Vector3.forward, Vector3.up);
+        // -vdgsCam x,y,z,yaw places the camera explicitly. The centre of a 300 m outdoor
+        // capture is usually empty air, which measures nothing a pilot would see.
+        var camArg = Arg("-vdgsCam");
+        if (camArg != null)
+        {
+            var c = camArg.Split(',');
+            float F(int i) => float.Parse(c[i], CultureInfo.InvariantCulture);
+            camGo.transform.position = new Vector3(F(0), F(1), F(2));
+            camGo.transform.rotation = Quaternion.Euler(0, c.Length > 3 ? F(3) : 0, 0);
+        }
 
         var rt = new RenderTexture(size, size, 24, RenderTextureFormat.ARGB32) { antiAliasing = 1 };
         cam.targetTexture = rt;
@@ -132,11 +154,13 @@ public static class RenderBench
         var median = times[frames / 2];
         var p10 = times[frames / 10];
 
+        var lod = renderer != null ? renderer.LodActivePerLevel : null;
         Debug.Log(string.Format(CultureInfo.InvariantCulture,
             "[VDGS] BENCH {0}  splats={1}  {2}x{2}  frames={3}  sortNth={7}  cull={8}  view={9}   " +
-            "mean {4:0.00} ms   median {5:0.00} ms   best10% {6:0.00} ms",
+            "mean {4:0.00} ms   median {5:0.00} ms   best10% {6:0.00} ms{10}",
             label, splats, size, frames, mean, median, p10, ParseInt("-vdgsSortNth", 1),
-            cull, inside ? "inside" : "whole"));
+            cull, camArg != null ? "cam" : inside ? "inside" : "whole",
+            lod == null ? "" : "   lod=" + string.Join("/", lod) + " leaves=" + renderer.LodLeaves));
 
         Object.DestroyImmediate(tex);
         cam.targetTexture = null;

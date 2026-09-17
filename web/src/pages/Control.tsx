@@ -153,6 +153,8 @@ function ShownBlock({
   const [x, setX] = useStateSafe(scene.x, dragging)
   const [z, setZ] = useStateSafe(scene.z, dragging)
   const [turn, setTurn] = useStateSafe(scene.turn, dragging)
+  const [lodDetail, setLodDetail] = useStateSafe(scene.lodDetail ?? 1, dragging)
+  const [lodBudgetM, setLodBudgetM] = useStateSafe((scene.lodBudget ?? 3_000_000) / 1_000_000, dragging)
 
   // Mirror is the one control here that despawns and respawns the capture, so it is the
   // one control that needs a pending state: everything else (Up, Turn, Scale, Height, X,
@@ -237,6 +239,14 @@ function ShownBlock({
   const pushOrientation = async (v: { up?: string; turn?: number; mirror?: boolean }) => {
     try {
       await api.setOrientation(scene.name, v)
+    } catch (e) {
+      onFlash(e instanceof Error ? e.message : 'failed')
+    }
+  }
+
+  const pushLod = async (v: { lodDetail?: number; lodBudget?: number }) => {
+    try {
+      await api.setLod(scene.name, v)
     } catch (e) {
       onFlash(e instanceof Error ? e.message : 'failed')
     }
@@ -378,11 +388,9 @@ function ShownBlock({
       </div>
 
       <div className="mt-5 flex flex-wrap items-center gap-5">
-        {/* Only a .ply is mirrored at load time - SplatData.Load (a converted directory)
-            reads packed buffers and cannot flip them without decoding every format. The
-            plugin answers 200 and logs the request as ignored, so offering this on a
-            converted capture would be a button that always looks like it did nothing. */}
-        {scene.kind === 'ply' ? (
+        {/* Decoded-at-load captures (.ply / .sog / streamed SOG) honour mirrorY.
+            Converted directories ignore it - the plugin answers 200 and logs the ignore. */}
+        {scene.kind === 'ply' || scene.kind === 'sog' || scene.kind === 'ssog' ? (
           <div>
             <StampCheck
               label="mirror"
@@ -435,6 +443,65 @@ function ShownBlock({
             void pushOrientation({ turn: v })
           }}
         />
+        {scene.lod != null ? (
+          <>
+            <Dial
+              label="LOD detail"
+              valueLabel={lodDetail.toFixed(2)}
+              min={0.02}
+              max={20}
+              step={0.02}
+              slider={lodDetail}
+              numberValue={lodDetail.toFixed(2)}
+              numberStep={0.05}
+              numberMin={0.02}
+              numberMax={20}
+              onPointer={() => {
+                dragging.current = true
+              }}
+              onPointerUp={() => {
+                dragging.current = false
+              }}
+              onSlide={(t) => {
+                setLodDetail(t)
+                void pushLod({ lodDetail: t })
+              }}
+              onNumber={(v) => {
+                setLodDetail(v)
+                void pushLod({ lodDetail: v })
+              }}
+            />
+            <Dial
+              label="LOD budget"
+              valueLabel={lodBudgetM.toFixed(1) + 'M'}
+              min={0.1}
+              max={50}
+              step={0.1}
+              slider={lodBudgetM}
+              numberValue={lodBudgetM.toFixed(1)}
+              numberStep={0.1}
+              numberMin={0.1}
+              numberMax={50}
+              onPointer={() => {
+                dragging.current = true
+              }}
+              onPointerUp={() => {
+                dragging.current = false
+              }}
+              onSlide={(t) => {
+                setLodBudgetM(t)
+                void pushLod({ lodBudget: Math.round(t * 1_000_000) })
+              }}
+              onNumber={(v) => {
+                setLodBudgetM(v)
+                void pushLod({ lodBudget: Math.round(v * 1_000_000) })
+              }}
+            />
+            <p className="font-mono text-[11px] tracking-[0.04em] text-muted-foreground">
+              {formatLodActive(scene.lod.activePerLevel)}
+            </p>
+          </>
+        ) : null}
         <Dial
           label="Scale"
           valueLabel={scale.toFixed(2) + '×'}
@@ -654,4 +721,23 @@ function useStateSafe(value: number, dragging: { current: boolean }) {
     if (!dragging.current) setLocal(value)
   }, [value, dragging])
   return [local, setLocal] as const
+}
+
+/** `L0 1.2M · L1 800k · …` for the live active-per-level row under the LOD dials. */
+function formatLodActive(levels: number[]): string {
+  return levels
+    .map((n, i) => `L${i} ${formatLodCount(n)}`)
+    .join(' · ')
+}
+
+function formatLodCount(n: number): string {
+  if (n >= 1_000_000) {
+    const m = n / 1_000_000
+    return (Math.abs(m - Math.round(m)) < 0.05 ? Math.round(m).toString() : m.toFixed(1)) + 'M'
+  }
+  if (n >= 1000) {
+    const k = n / 1000
+    return (Math.abs(k - Math.round(k)) < 0.5 ? Math.round(k).toString() : k.toFixed(0)) + 'k'
+  }
+  return String(n)
 }

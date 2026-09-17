@@ -27,6 +27,9 @@ function scene(over: Partial<Scene> = {}): Scene {
     backdrop: false,
     collision: true,
     collisionView: 'off',
+    lodDetail: 10,
+    lodBudget: 3_000_000,
+    lod: null,
     ...over,
   } as Scene
 }
@@ -77,5 +80,31 @@ describe('the tweak screen', () => {
   it('says the plugin is not answering when it is not', () => {
     render(<Tweak track="VDGS Himeji" onBack={() => {}} />)
     expect(screen.getByText(/not answering/i)).toBeInTheDocument()
+  })
+
+  it('shows LOD dials only when the shown scene reports lod stats', () => {
+    pluginLive = true
+    pluginState = status({
+      available: [
+        scene({
+          name: 'ssog',
+          kind: 'ssog',
+          lod: { leaves: 10, activePerLevel: [1_200_000, 800_000] },
+        }),
+      ],
+      loaded: ['ssog'],
+    })
+    render(<Tweak track="VDGS Himeji" onBack={() => {}} />)
+    expect(screen.getByText(/LOD detail/i)).toBeInTheDocument()
+    expect(screen.getByText(/LOD budget/i)).toBeInTheDocument()
+    expect(screen.getByText(/L0 1.2M/)).toBeInTheDocument()
+  })
+
+  it('hides LOD dials when the scene has no lod stats', () => {
+    pluginLive = true
+    pluginState = status()
+    render(<Tweak track="VDGS Himeji" onBack={() => {}} />)
+    expect(screen.queryByText(/LOD detail/i)).toBeNull()
+    expect(screen.queryByText(/LOD budget/i)).toBeNull()
   })
 })

@@ -20,6 +20,10 @@ SORTNTH="${VDGS_BENCH_SORTNTH:-1}"
 INSIDE="${VDGS_BENCH_INSIDE:-0}"
 CULL="${VDGS_BENCH_CULL:-1}"
 CULLMARGIN="${VDGS_BENCH_CULLMARGIN:-4}"
+LODDETAIL="${VDGS_BENCH_LODDETAIL:-1}"
+LODBUDGET="${VDGS_BENCH_LODBUDGET:-3000000}"
+# "x,y,z,yaw" in object space, for a large capture whose centre is empty air.
+CAM="${VDGS_BENCH_CAM:-}"
 
 quiet() { grep -vE "WARNING: |store now, decrypt later|may need to be upgraded|openssh.com/pq" || true; }
 
@@ -44,5 +48,5 @@ rm -f "$TAR"
 
 echo "== benchmarking on $HOST =="
 ssh -o BatchMode=yes "$HOST" \
-  "${REMOTE_GAME}powershell -ExecutionPolicy Bypass -File (Join-Path $REMOTE_ROOT_PS 'bench-win.ps1') -Scenes $SCENES -Size $SIZE -Frames $FRAMES -SortNth $SORTNTH -Inside $INSIDE -Cull $CULL -CullMargin $CULLMARGIN" \
+  "${REMOTE_GAME}powershell -ExecutionPolicy Bypass -File (Join-Path $REMOTE_ROOT_PS 'bench-win.ps1') -Scenes $SCENES -Size $SIZE -Frames $FRAMES -SortNth $SORTNTH -Inside $INSIDE -Cull $CULL -CullMargin $CULLMARGIN -LodDetail $LODDETAIL -LodBudget $LODBUDGET${CAM:+ -Cam '$CAM'}" \
   2>&1 | quiet

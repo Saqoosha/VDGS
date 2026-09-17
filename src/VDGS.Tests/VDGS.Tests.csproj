@@ -18,5 +18,11 @@
     <Compile Include="..\VDGS\VdgsPaths.cs" Link="VdgsPaths.cs" />
     <Compile Include="..\VDGS\SplatMetaFile.cs" Link="SplatMetaFile.cs" />
     <Compile Include="..\VDGS\SplatOrientation.cs" Link="SplatOrientation.cs" />
+    <Compile Include="..\VDGS\Lod\LodSelector.cs" Link="Lod\LodSelector.cs" />
+    <Compile Include="..\VDGS\Vp8l\Vp8lDecoder.cs" Link="Vp8l\Vp8lDecoder.cs" />
+    <Compile Include="..\VDGS\Sog\*.cs" LinkBase="Sog" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="fixtures\**\*" CopyToOutputDirectory="PreserveNewest" LinkBase="fixtures" />
   </ItemGroup>
 </Project>

@@ -101,6 +101,7 @@ namespace VDGS
                     SetCollision = ApplyCollision,
                     SetCollisionView = ApplyCollisionView,
                     SetOrientation = ApplyOrientation,
+                    SetLod = ApplyLod,
                 };
                 if (!m_Web.Start(WebControl.kDefaultPort, report))
                 {
@@ -157,6 +158,15 @@ namespace VDGS
                     { "hasCollision", s.HasCollision },
                     { "collision", status.CollisionOn },
                     { "collisionView", status.CollisionView },
+                    { "lodDetail", status.LodDetail },
+                    { "lodBudget", status.LodBudget },
+                    { "lod", status.LodLeavesCount.HasValue
+                        ? new System.Collections.Generic.Dictionary<string, object>
+                          {
+                              { "leaves", status.LodLeavesCount.Value },
+                              { "activePerLevel", status.LodActive ?? new long[0] },
+                          }
+                        : null },
                 });
                 if (s.Spawned) loaded.Add(s.Name);
             }
@@ -292,6 +302,25 @@ namespace VDGS
             {
                 if (!string.IsNullOrEmpty(name) && s.Name != name) continue;
                 s.SetOrientation(up, turn, mirror, log);
+                hit = true;
+            }
+            if (!hit) log.AppendLine("no splat named '" + (name ?? "-") + "'");
+
+            try { File.AppendAllText(Probe.LogPath, log.ToString()); } catch { }
+        }
+
+        /// <summary>Sets LOD dials. Applies live on the renderer; never despawns.</summary>
+        private void ApplyLod(string name, float? distance, long? budget)
+        {
+            EnsureDiscovered();
+            var log = new StringBuilder();
+            log.AppendLine("======== lod @ " + DateTime.Now.ToString("HH:mm:ss") + " ========");
+
+            var hit = false;
+            foreach (var s in m_Scenes)
+            {
+                if (!string.IsNullOrEmpty(name) && s.Name != name) continue;
+                s.SetLod(distance, budget, log);
                 hit = true;
             }
             if (!hit) log.AppendLine("no splat named '" + (name ?? "-") + "'");
@@ -462,14 +491,24 @@ namespace VDGS
             {
                 int splats = 0, spawned = 0;
                 string shown = null;
+                string lod = null;
                 foreach (var s in m_Scenes)
                 {
                     if (!s.Spawned) continue;
                     spawned++;
                     splats += s.SplatCount;
                     shown = shown == null ? s.Name : shown + "," + s.Name;
+                    var active = s.LodActivePerLevel;
+                    if (active != null && active.Length > 0)
+                    {
+                        var parts = new string[active.Length];
+                        for (int i = 0; i < active.Length; i++)
+                            parts[i] = active[i].ToString();
+                        var one = string.Join("/", parts);
+                        lod = lod == null ? one : lod + "," + one;
+                    }
                 }
-                m_Perf.Tick(splats, spawned, shown);
+                m_Perf.Tick(splats, spawned, shown, lod);
             }
         }
 

@@ -3,10 +3,16 @@ export type CollisionView = 'off' | 'solid' | 'wire'
 /** Which of the capture's axes points at the sky. */
 export type UpAxis = '+x' | '-x' | '+y' | '-y' | '+z' | '-z'
 
+/** Live LOD stats from a streamed SOG; null when the capture has no LodInfo. */
+export type LodStats = {
+  leaves: number
+  activePerLevel: number[]
+}
+
 export type Scene = {
   name: string
   source: 'local' | 'catalog'
-  kind: 'converted' | 'ply'
+  kind: 'converted' | 'ply' | 'sog' | 'ssog'
   splats: number
   posFormat?: string
   scaleFormat?: string
@@ -26,6 +32,10 @@ export type Scene = {
   backdrop: boolean
   collision: boolean
   collisionView: CollisionView
+  lodDetail: number
+  lodBudget: number
+  /** Present only while a LOD-capable capture is spawned. */
+  lod: LodStats | null
 }
 
 export type Status = {

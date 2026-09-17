@@ -76,4 +76,14 @@ export const setOrientation = (
   return post('/api/transform', body)
 }
 
+export const setLod = (
+  splat: string,
+  v: { lodDetail?: number; lodBudget?: number },
+) => {
+  const body: Record<string, unknown> = { splat }
+  if (v.lodDetail != null) body.lodDetail = v.lodDetail
+  if (v.lodBudget != null) body.lodBudget = v.lodBudget
+  return post('/api/transform', body)
+}
+
 export type { Scene, Status }
