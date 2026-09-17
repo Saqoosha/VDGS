@@ -12,9 +12,17 @@ function scene(name: string): Scene {
     shown: false,
     scale: 1,
     y: 0,
+    x: 0,
+    z: 0,
+    up: '+y',
+    turn: 0,
+    mirror: false,
     backdrop: false,
     collision: false,
     collisionView: 'off',
+    lodDetail: 10,
+    lodBudget: 3_000_000,
+    lod: null,
   }
 }
 

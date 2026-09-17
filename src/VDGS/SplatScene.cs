@@ -73,28 +73,52 @@ namespace VDGS
             // What the collider LOOKS like: off / solid / wire. See SplatCollisionView.
             // Off by default - it is a diagnostic, not part of flying.
             public string collisionView = "off";
+
+            /// <summary>
+            /// Apparent size (leaf extent / distance) at which a leaf draws its finest level.
+            /// Lower means more detail further out. Only used when the capture has LodInfo.
+            /// </summary>
+            public float lodDetail = 1f;
+
+            /// <summary>Max active splats across all leaves. Only used when the capture has LodInfo.</summary>
+            public long lodBudget = 3000000;
         }
 
         private readonly SplatMetaInfo m_Meta;
 
-        /// <summary>True when this scene is a .ply read at load time, not a converted directory.</summary>
-        /// <summary>Placement sits inside a converted directory, or beside a .ply.</summary>
-        private string PlacementPath => IsPly
+        /// <summary>
+        /// Placement sits inside a directory, or beside a .ply / .sog file.
+        /// </summary>
+        private string PlacementPath => IsFileCapture
             ? Path.ChangeExtension(m_Dir, ".placement.json")
             : Path.Combine(m_Dir, "placement.json");
 
-        private bool IsPly => m_Dir.EndsWith(".ply", StringComparison.OrdinalIgnoreCase);
+        /// <summary>True for a single-file capture (.ply or .sog), not a directory.</summary>
+        private bool IsFileCapture =>
+            m_Dir.EndsWith(".ply", StringComparison.OrdinalIgnoreCase)
+            || m_Dir.EndsWith(".sog", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// True when this scene is decoded at load time (.ply, .sog, or a SOG/ssog
+        /// directory) rather than a pre-packed converted directory. Renamed from IsPly:
+        /// the old name meant "decoded at load", and SOG takes the same path.
+        /// </summary>
+        private bool DecodesAtLoad =>
+            IsFileCapture
+            || string.Equals(m_Meta.Kind, "sog", StringComparison.Ordinal)
+            || string.Equals(m_Meta.Kind, "ssog", StringComparison.Ordinal);
 
         /// <summary>
         /// The mirror flag that actually applies to this capture's data.
         ///
-        /// Only PlyLoader honours mirroring - SplatData.Load (a converted directory) reads
-        /// packed buffers and ignores it entirely. Gating on IsPly here, once, is what
-        /// stops a placement.json that says "mirrorY": true for a converted capture from
-        /// reaching the collision shell: without this, the shell would mirror while the
-        /// splats it belongs to - which never asked for mirroring - do not.
+        /// Only loaders that decode at spawn honour mirroring - SplatData.Load (a
+        /// converted directory) reads packed buffers and ignores it entirely. Gating on
+        /// DecodesAtLoad here, once, is what stops a placement.json that says
+        /// "mirrorY": true for a converted capture from reaching the collision shell:
+        /// without this, the shell would mirror while the splats it belongs to - which
+        /// never asked for mirroring - do not.
         /// </summary>
-        private bool MirrorFor(Placement p) => IsPly && (p.mirrorY ?? true);
+        private bool MirrorFor(Placement p) => DecodesAtLoad && (p.mirrorY ?? true);
 
         /// <summary>
         /// Whether the backdrop's local-space floor clamp still means what it says for the
@@ -136,7 +160,7 @@ namespace VDGS
         internal SplatScene(string path)
         {
             m_Dir = path;
-            Name = IsPly
+            Name = IsFileCapture
                 ? Path.GetFileNameWithoutExtension(path)
                 : new DirectoryInfo(path).Name;
             m_Meta = SplatMetaFile.Read(path);
@@ -163,10 +187,32 @@ namespace VDGS
                 // .<name>.new / .<name>.old are the companion's staging and backup folders.
                 if (name.StartsWith("."))
                     continue;
-                if (!File.Exists(Path.Combine(dir, "meta.json")))
+
+                // lod-meta.json first: a streamed SOG may also carry a root meta.json for
+                // other tools, and the streamed form is the one we want.
+                var kind = SplatMetaFile.ClassifyDirectory(dir, out var detail);
+                if (kind == null)
+                {
+                    if (detail != null)
+                        report.AppendLine("skipping " + name + ": " + detail);
                     continue;
+                }
                 found.Add(new SplatScene(dir));
-                report.AppendLine("found splat scene: " + name);
+                report.AppendLine("found splat scene: " + name + " (" + kind + ")");
+            }
+
+            // A .sog zip dropped straight in is decoded at spawn by SogLoader. Same name
+            // as a directory wins for the directory - identical rule to .ply below.
+            foreach (var sog in Directory.GetFiles(vdgsDir, "*.sog"))
+            {
+                var name = Path.GetFileNameWithoutExtension(sog);
+                if (found.Exists(s2 => string.Equals(s2.Name, name, StringComparison.OrdinalIgnoreCase)))
+                {
+                    report.AppendLine("skipping " + Path.GetFileName(sog) + ": a scene of that name exists");
+                    continue;
+                }
+                found.Add(new SplatScene(sog));
+                report.AppendLine("found splat sog: " + Path.GetFileName(sog));
             }
 
             // A .ply dropped straight in is converted at spawn time by PlyLoader. This is
@@ -188,7 +234,8 @@ namespace VDGS
             }
 
             if (found.Count == 0)
-                report.AppendLine("no splat scenes under " + vdgsDir + " (need <name>/meta.json or <name>.ply)");
+                report.AppendLine("no splat scenes under " + vdgsDir
+                                  + " (need <name>/lod-meta.json, <name>/meta.json, <name>.sog or <name>.ply)");
             return found;
         }
 
@@ -208,8 +255,14 @@ namespace VDGS
             // Converted captures ignore the flag - SplatData.Load reads packed buffers,
             // and mirroring them would mean decoding every format rather than flipping a
             // sign while parsing text.
-            var data = IsPly ? PlyLoader.Load(m_Dir, out var error, mirror)
-                             : SplatData.Load(m_Dir, out error);
+            SplatData data;
+            string error;
+            if (m_Dir.EndsWith(".ply", StringComparison.OrdinalIgnoreCase))
+                data = PlyLoader.Load(m_Dir, out error, mirror);
+            else if (DecodesAtLoad)
+                data = SogLoader.Load(m_Dir, out error, mirror);
+            else
+                data = SplatData.Load(m_Dir, out error);
             if (data == null)
             {
                 report.AppendLine(Name + ": load failed - " + error);
@@ -239,6 +292,8 @@ namespace VDGS
             m_Go.transform.localScale = Vector3.one * placement.scale;
 
             m_Renderer = m_Go.AddComponent<SplatRenderer>();
+            m_Renderer.LodDetail = placement.lodDetail;
+            m_Renderer.LodBudget = placement.lodBudget;
             m_Renderer.SetData(data);
 
             // A rotated capture cannot wear the backdrop - see IsUpright. Leaving the
@@ -297,6 +352,8 @@ namespace VDGS
         internal string ColorFormat => m_Meta.ColorFormat;
         internal string ShFormat => m_Meta.ShFormat;
         internal long Bytes => m_Meta.Bytes;
+        internal long[] LodActivePerLevel => m_Renderer != null ? m_Renderer.LodActivePerLevel : null;
+        internal int LodLeaves => m_Renderer != null ? m_Renderer.LodLeaves : 0;
 
         /// <summary>
         /// Everything /api/status shows for one scene, read from a single LoadPlacement()
@@ -313,14 +370,23 @@ namespace VDGS
             internal readonly bool BackdropOn;
             internal readonly bool CollisionOn;
             internal readonly string CollisionView;
+            internal readonly float LodDetail;
+            internal readonly long LodBudget;
+            /// <summary>Null when the capture has no LodInfo (or is not yet spawned).</summary>
+            internal readonly int? LodLeavesCount;
+            internal readonly long[] LodActive;
 
             internal Status(float scale, float yOffset, float xOffset, float zOffset,
                              string up, float turn, bool mirrorY,
-                             bool backdropOn, bool collisionOn, string collisionView)
+                             bool backdropOn, bool collisionOn, string collisionView,
+                             float lodDetail, long lodBudget,
+                             int? lodLeaves, long[] lodActive)
             {
                 Scale = scale; YOffset = yOffset; XOffset = xOffset; ZOffset = zOffset;
                 Up = up; Turn = turn; MirrorY = mirrorY;
                 BackdropOn = backdropOn; CollisionOn = collisionOn; CollisionView = collisionView;
+                LodDetail = lodDetail; LodBudget = lodBudget;
+                LodLeavesCount = lodLeaves; LodActive = lodActive;
             }
         }
 
@@ -329,6 +395,13 @@ namespace VDGS
         {
             var p = LoadPlacement();
             var spawned = m_Go != null;
+            int? lodLeaves = null;
+            long[] lodActive = null;
+            if (m_Renderer != null && m_Renderer.LodLeaves > 0)
+            {
+                lodLeaves = m_Renderer.LodLeaves;
+                lodActive = m_Renderer.LodActivePerLevel;
+            }
             return new Status(
                 scale: spawned ? m_Go.transform.localScale.x : p.scale,
                 yOffset: spawned ? m_Go.transform.position.y : p.position[1],
@@ -339,7 +412,11 @@ namespace VDGS
                 mirrorY: MirrorFor(p),
                 backdropOn: spawned ? SplatBackdrop.IsAttached(m_Go.transform) : p.backdrop,
                 collisionOn: spawned ? SplatCollision.IsEnabled(m_Go.transform) : p.collision,
-                collisionView: spawned ? SplatCollisionView.ModeOn(m_Go.transform) : p.collisionView);
+                collisionView: spawned ? SplatCollisionView.ModeOn(m_Go.transform) : p.collisionView,
+                lodDetail: spawned && m_Renderer != null ? m_Renderer.LodDetail : p.lodDetail,
+                lodBudget: spawned && m_Renderer != null ? m_Renderer.LodBudget : p.lodBudget,
+                lodLeaves: lodLeaves,
+                lodActive: lodActive);
         }
 
         /// <summary>
@@ -601,7 +678,7 @@ namespace VDGS
                 // A converted capture has no mirror to change - SplatData.Load ignores it -
                 // so persisting the request and paying a despawn/respawn stall would change
                 // nothing visible while leaving mirrorY set for a shape that never reads it.
-                if (!IsPly)
+                if (!DecodesAtLoad)
                     log?.AppendLine(Name + ": mirror has no effect on a converted capture - ignored");
                 else if (mirror.Value != MirrorFor(p))
                 {
@@ -636,6 +713,33 @@ namespace VDGS
             }
             log?.AppendLine(Name + ": up=" + p.up + " turn=" + p.turn.ToString("0.#")
                             + " mirror=" + MirrorFor(p));
+        }
+
+        /// <summary>
+        /// Sets LOD dials on the live renderer and persists them. Never despawns —
+        /// LodDetail / LodBudget are read every selection tick.
+        /// </summary>
+        internal void SetLod(float? detail, long? budget, StringBuilder log)
+        {
+            var p = LoadPlacement();
+            if (detail.HasValue)
+                p.lodDetail = Mathf.Clamp(detail.Value, 0.02f, 20f);
+            if (budget.HasValue)
+            {
+                var b = budget.Value;
+                if (b < 100000L) b = 100000L;
+                if (b > 50000000L) b = 50000000L;
+                p.lodBudget = b;
+            }
+            SavePlacementData(p, log);
+
+            if (m_Renderer != null)
+            {
+                m_Renderer.LodDetail = p.lodDetail;
+                m_Renderer.LodBudget = p.lodBudget;
+            }
+            log?.AppendLine(Name + ": lodDetail=" + p.lodDetail.ToString("0.##")
+                            + " lodBudget=" + p.lodBudget);
         }
 
         internal void SavePlacement()
@@ -699,6 +803,8 @@ namespace VDGS
                 // than Compose's default arm quietly turning the typo into identity.
                 if (p.up != null && !SplatOrientation.IsUp(p.up)) p.up = null;
                 if (!SplatCollisionView.IsMode(p.collisionView)) p.collisionView = SplatCollisionView.kOff;
+                if (p.lodDetail < 0.02f || p.lodDetail > 20f) p.lodDetail = 1f;
+                if (p.lodBudget < 100000L || p.lodBudget > 50000000L) p.lodBudget = 3000000L;
                 return p;
             }
             catch (Exception ex)

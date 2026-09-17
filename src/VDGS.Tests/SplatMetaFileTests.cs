@@ -54,5 +54,25 @@ namespace VDGS.Tests
             Assert.Null(info.PosFormat);
             Assert.Equal(new FileInfo(ply).Length, info.Bytes);
         }
+
+        [Fact]
+        public void ReadsStreamedSogCountAndKind()
+        {
+            var dir = Path.Combine(Path.GetTempPath(), "vdgs-ssog-" + Guid.NewGuid());
+            Directory.CreateDirectory(Path.Combine(dir, "0_0"));
+            File.WriteAllText(Path.Combine(dir, "lod-meta.json"),
+                "{\"version\":1,\"count\":1234,\"counts\":[1000,234],\"lodLevels\":2,"
+                + "\"filenames\":[\"0_0/meta.json\"],"
+                + "\"tree\":{\"bound\":{\"min\":[0,0,0],\"max\":[1,1,1]},\"lods\":{}}}");
+            File.WriteAllBytes(Path.Combine(dir, "0_0", "means_l.webp"), new byte[100]);
+            try
+            {
+                var info = SplatMetaFile.Read(dir);
+                Assert.Equal("ssog", info.Kind);
+                Assert.Equal(1234, info.Splats);
+                Assert.True(info.Bytes >= 100);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
     }
 }

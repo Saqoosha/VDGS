@@ -52,10 +52,19 @@ SOG the viewer reads is served plainly from CloudFront, though, so no login is r
 curl -s "https://superspl.at/s?id=<hash>" | grep -o 'https://[a-z0-9]*\.cloudfront\.net/[^"]*meta\.json'
 ```
 
-`splat-transform` reads a `lod-meta.json` straight from an http URL. **Large scenes are
-Streamed SOG (`format: "ssog"`): a spatial tree over LOD levels, each level half the splat
-count of the one below.** Pulling a single level with `-L` gives a scene small enough to
-fly without implementing chunk residency:
+**Large scenes are Streamed SOG (`format: "ssog"`): a spatial tree over LOD levels, each
+level half the splat count of the one below.** The plugin loads them as they are, with LOD:
+
+```bash
+python3 tools/fetch_ssog.py <hash> <game>/vdgs/<name>     # lod-meta.json + every chunk
+```
+
+A bundled `<name>.sog`, or a directory holding a SOG `meta.json`, loads the same way without
+levels. All three are mirrored in Y on load like a `.ply` (`mirrorY` in `placement.json`).
+**The first spawn is slow** — see docs/performance.md §4.
+
+`splat-transform` also reads a `lod-meta.json` straight from an http URL, and pulling a single
+level with `-L` gives an ordinary `.ply`:
 
 ```bash
 npx @playcanvas/splat-transform -L 4 \

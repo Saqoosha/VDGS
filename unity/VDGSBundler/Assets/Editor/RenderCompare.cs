@@ -66,10 +66,19 @@ public static class RenderCompare
     {
         // A .ply goes through the runtime loader, a directory through the on-disk one.
         // -vdgsPlyNoMirror keeps the loader's transform identical to the offline
-        // converter's, which is how the two are compared.
+        // converter's, which is how the two are compared. Both arms honour it: comparing a
+        // mirrored SOG against an unmirrored .ply measures the mirror, not the format.
+        // A streamed SOG (lod-meta.json), a SOG directory or a bundled .sog go through
+        // SogLoader and may carry levels of detail.
+        bool isSog = sceneDir.EndsWith(".sog", System.StringComparison.OrdinalIgnoreCase)
+            || File.Exists(Path.Combine(sceneDir, "lod-meta.json"))
+            || (File.Exists(Path.Combine(sceneDir, "meta.json"))
+                && File.ReadAllText(Path.Combine(sceneDir, "meta.json")).Contains("\"means\""));
+        string error;
         var data = sceneDir.EndsWith(".ply", System.StringComparison.OrdinalIgnoreCase)
-            ? PlyLoader.Load(sceneDir, out var error, Arg("-vdgsPlyNoMirror") == null)
-            : SplatData.Load(sceneDir, out error);
+            ? PlyLoader.Load(sceneDir, out error, Arg("-vdgsPlyNoMirror") == null)
+            : isSog ? SogLoader.Load(sceneDir, out error, Arg("-vdgsPlyNoMirror") == null)
+                    : SplatData.Load(sceneDir, out error);
         if (data == null) throw new System.Exception("load failed: " + error);
 
         Debug.Log($"[VDGS] {Path.GetFileName(sceneDir)}: {data.SplatCount:N0} splats, " +
@@ -93,6 +102,7 @@ public static class RenderCompare
         r.m_CullCenterSlack = ParseFloat("-vdgsCullCenterSlack", r.m_CullCenterSlack);
         r.m_DropDegenerate = ParseInt("-vdgsDropDegenerate", r.m_DropDegenerate ? 1 : 0) != 0;
         Debug.Log($"[VDGS] shOrder {r.m_SHOrder} gaussCut {r.m_GaussCut} cullCenterSlack {r.m_CullCenterSlack} dropDegenerate {r.m_DropDegenerate}");
+        r.LodDetail = ParseFloat("-vdgsLodDetail", r.LodDetail);
         r.SetData(data);
 
         var camGo = new GameObject("VDGS_CompareCam");

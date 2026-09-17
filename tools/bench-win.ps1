@@ -22,6 +22,11 @@ param(
     [int]$Inside = 0,
     [int]$Cull = 1,
     [double]$CullMargin = 4,
+    # Level of detail, for streamed SOG scenes; ignored by captures without levels.
+    [double]$LodDetail = 1,
+    [long]$LodBudget = 3000000,
+    # "x,y,z,yaw" in object space; empty keeps -vdgsInside's placement.
+    [string]$Cam = '',
     [string]$Tgz = $(Join-Path (Join-Path $env:USERPROFILE 'VDGS') 'vdgs-bench.tgz'),
     [string]$Project = $(Join-Path (Join-Path $env:USERPROFILE 'VDGS') 'VDGSBench')
 )
@@ -49,7 +54,10 @@ function Invoke-Bench([string]$sceneDir, [string]$label) {
     $argv = "-batchmode -quit -force-d3d12 -projectPath `"$Project`" " +
             "-executeMethod RenderBench.Run -vdgsScene `"$sceneDir`" " +
             "-vdgsSize $Size -vdgsFrames $Frames -vdgsSortNth $SortNth " +
-            "-vdgsInside $Inside -vdgsCull $Cull -vdgsCullMargin $CullMargin -logFile `"$log`""
+            "-vdgsInside $Inside -vdgsCull $Cull -vdgsCullMargin $CullMargin " +
+            "-vdgsLodDetail $LodDetail -vdgsLodBudget $LodBudget " +
+            $(if ($Cam) { "-vdgsCam $Cam " } else { '' }) +
+            "-logFile `"$log`""
 
     $action = New-ScheduledTaskAction -Execute $editor -Argument $argv -WorkingDirectory $Project
     $principal = New-ScheduledTaskPrincipal -UserId (whoami).Trim() -LogonType Interactive -RunLevel Limited
@@ -93,8 +101,11 @@ foreach ($s in $Scenes.Split(',')) {
     # a bare .ply in the vdgs folder is a scene too - the runtime loader reads it
     $ply = Join-Path $game "vdgs\$s.ply"
     if (Test-Path $ply) { Invoke-Bench $ply $s; continue }
+    $sog = Join-Path $game "vdgs\$s.sog"
+    if (Test-Path $sog) { Invoke-Bench $sog $s; continue }
     $dir = Join-Path $game "vdgs\$s"
-    if (-not (Test-Path (Join-Path $dir 'meta.json'))) {
+    # A streamed SOG has lod-meta.json and no meta.json at its root.
+    if (-not (Test-Path (Join-Path $dir 'meta.json')) -and -not (Test-Path (Join-Path $dir 'lod-meta.json'))) {
         Write-Output "  $s : not deployed"
         continue
     }
