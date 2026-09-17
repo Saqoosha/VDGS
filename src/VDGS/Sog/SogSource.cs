@@ -51,8 +51,8 @@ namespace VDGS.Sog
         /// Every name reaching here was written by whoever made the capture:
         /// lod-meta.json names its chunks, and each chunk's meta.json names its images.
         /// A capture is something a player downloads from a public site, so a name like
-        /// "../../../../.ssh/id_ed25519" is a file the author chose to have read, and the
-        /// same guard the web UI applies to request paths applies here (VdgsPaths.ResolveUi).
+        /// "../../../../.ssh/id_ed25519" is a file the author chose to have read. The check is
+        /// textual, like the web UI's (VdgsPaths.ResolveUi): it does not follow symbolic links.
         /// </summary>
         internal static string Resolve(string root, string relativePath)
         {
@@ -61,6 +61,7 @@ namespace VDGS.Sog
             if (relativePath.IndexOf('\\') >= 0 || relativePath.IndexOf('\0') >= 0
                 || Path.IsPathRooted(relativePath))
                 throw new SogException("file name leaves the capture: " + relativePath);
+            relativePath = StripDotSlash(relativePath);
             foreach (var seg in relativePath.Split('/'))
             {
                 if (seg.Length == 0 || seg == ".." || seg == "." || seg.IndexOf(':') >= 0)
@@ -79,6 +80,12 @@ namespace VDGS.Sog
             return candidate;
         }
 
+        /// <summary>Drops a leading "./", which some writers emit and neither reader means as a segment.</summary>
+        private static string StripDotSlash(string name)
+        {
+            return name.StartsWith("./", StringComparison.Ordinal) ? name.Substring(2) : name;
+        }
+
         private sealed class ZipFiles : ISogFiles
         {
             private readonly ZipArchive m_Zip;
@@ -92,7 +99,7 @@ namespace VDGS.Sog
 
             public byte[] Read(string relativePath)
             {
-                string key = relativePath.Replace('\\', '/');
+                string key = StripDotSlash(relativePath.Replace('\\', '/'));
                 ZipArchiveEntry entry = m_Zip.GetEntry(key);
                 if (entry == null)
                 {

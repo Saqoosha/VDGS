@@ -10,7 +10,6 @@ public class SogSourceTests
     [Theory]
     [InlineData("../secret.txt")]
     [InlineData("0_0/../../secret.txt")]
-    [InlineData("./0_0/meta.json")]
     [InlineData("")]
     [InlineData("0_0//meta.json")]
     public void RefusesNamesThatLeaveTheCapture(string name)
@@ -35,14 +34,18 @@ public class SogSourceTests
         finally { Directory.Delete(dir, true); }
     }
 
-    [Fact]
-    public void ResolvesANameInsideTheCapture()
+    // "./" is what some writers emit, and the zip reader drops it too — the two must agree,
+    // or the same capture loads bundled and fails unpacked.
+    [Theory]
+    [InlineData("0_0/meta.json")]
+    [InlineData("./0_0/meta.json")]
+    public void ResolvesANameInsideTheCapture(string name)
     {
         var dir = NewCapture(out var _);
         try
         {
-            var path = SogSource.Resolve(dir, "0_0/meta.json");
-            Assert.Equal(File.ReadAllText(path), "{}");
+            var path = SogSource.Resolve(dir, name);
+            Assert.Equal("{}", File.ReadAllText(path));
         }
         finally { Directory.Delete(dir, true); }
     }

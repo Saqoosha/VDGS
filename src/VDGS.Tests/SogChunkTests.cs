@@ -64,11 +64,15 @@ public class SogChunkTests
         }
     }
 
+    // The meta must carry the version, and the message must name it: without both, this
+    // passes on the next check down (means.files) even if the version guard is deleted.
     [Fact]
     public void RejectsVersionOne()
     {
-        using var files = new MemoryFiles("meta.json", "{\"means\":{\"shape\":[1,3]}}");
-        Assert.Throws<SogException>(() => SogChunk.Decode(files, "meta.json"));
+        using var files = new MemoryFiles("meta.json",
+            "{\"version\":1,\"means\":{\"shape\":[1,3]}}");
+        var e = Assert.Throws<SogException>(() => SogChunk.Decode(files, "meta.json"));
+        Assert.Contains("unsupported SOG version: 1", e.Message);
     }
 
     private sealed class MemoryFiles : ISogFiles

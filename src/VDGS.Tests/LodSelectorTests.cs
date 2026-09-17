@@ -22,6 +22,20 @@ public class LodSelectorTests
         return new LodSelector(boxes, levels, leaf.ToArray(), level.ToArray(), count.ToArray());
     }
 
+    // Leaves stacked on the same 1 m box, so distance is identical and only the per-leaf
+    // jitter can separate them.
+    private static LodSelector Stack(int leaves, int levels = 3)
+    {
+        var boxes = Enumerable.Range(0, leaves)
+            .Select(_ => new LodBox { MinX = 10f, MaxX = 11f, MaxY = 1f, MaxZ = 1f }).ToArray();
+        var leaf = new System.Collections.Generic.List<int>();
+        var level = new System.Collections.Generic.List<int>();
+        var count = new System.Collections.Generic.List<int>();
+        for (int i = 0; i < leaves; i++)
+            for (int l = 0; l < levels; l++) { leaf.Add(i); level.Add(l); count.Add(100 >> l); }
+        return new LodSelector(boxes, levels, leaf.ToArray(), level.ToArray(), count.ToArray());
+    }
+
     // detail 0.2 means "finest while the leaf looks at least a fifth of its distance across".
     // A 1 m leaf then earns level 0 within 5 m, level 1 to 10 m, level 2 beyond.
     [Fact]
@@ -146,5 +160,28 @@ public class LodSelectorTests
         var first = Enumerable.Range(0, 6).Select(s.LevelOfLeaf).ToArray();
         Assert.False(s.Update(0.5f, 0.5f, 0.5f, 1f, a));
         Assert.Equal(first, Enumerable.Range(0, 6).Select(s.LevelOfLeaf).ToArray());
+    }
+
+    // What the jitter is for: without it, leaves that look the same size cross a band edge
+    // on the same tick and a whole sheet of ground switches at once. With it, they do not.
+    // Stability alone cannot show this — it holds at jitter 0 too.
+    [Fact]
+    public void JitterSplitsLeavesThatWouldSwitchTogether()
+    {
+        Assert.False(SplitsSomewhere(0f));
+        Assert.True(SplitsSomewhere(0.4f));
+    }
+
+    // True when some camera distance makes the stacked leaves disagree about their level.
+    private static bool SplitsSomewhere(float jitter)
+    {
+        for (int step = 0; step <= 200; step++)
+        {
+            var s = Stack(8); s.LodDetail = 0.2f; s.BandJitter = jitter;
+            s.Update(0.5f - step * 0.25f, 0.5f, 0.5f, 1f, new byte[24]);
+            var levels = Enumerable.Range(0, 8).Select(s.LevelOfLeaf).ToArray();
+            if (levels.Distinct().Count() > 1) return true;
+        }
+        return false;
     }
 }

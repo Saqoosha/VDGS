@@ -66,7 +66,8 @@ public static class RenderCompare
     {
         // A .ply goes through the runtime loader, a directory through the on-disk one.
         // -vdgsPlyNoMirror keeps the loader's transform identical to the offline
-        // converter's, which is how the two are compared.
+        // converter's, which is how the two are compared. Both arms honour it: comparing a
+        // mirrored SOG against an unmirrored .ply measures the mirror, not the format.
         // A streamed SOG (lod-meta.json), a SOG directory or a bundled .sog go through
         // SogLoader and may carry levels of detail.
         bool isSog = sceneDir.EndsWith(".sog", System.StringComparison.OrdinalIgnoreCase)
@@ -76,7 +77,7 @@ public static class RenderCompare
         string error;
         var data = sceneDir.EndsWith(".ply", System.StringComparison.OrdinalIgnoreCase)
             ? PlyLoader.Load(sceneDir, out error, Arg("-vdgsPlyNoMirror") == null)
-            : isSog ? SogLoader.Load(sceneDir, out error)
+            : isSog ? SogLoader.Load(sceneDir, out error, Arg("-vdgsPlyNoMirror") == null)
                     : SplatData.Load(sceneDir, out error);
         if (data == null) throw new System.Exception("load failed: " + error);
 
