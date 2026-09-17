@@ -310,7 +310,7 @@ namespace VDGS
         }
 
         /// <summary>Sets LOD dials. Applies live on the renderer; never despawns.</summary>
-        private void ApplyLod(string name, float? distance, long? budget)
+        private void ApplyLod(string name, float? detail, long? budget)
         {
             EnsureDiscovered();
             var log = new StringBuilder();
@@ -320,7 +320,7 @@ namespace VDGS
             foreach (var s in m_Scenes)
             {
                 if (!string.IsNullOrEmpty(name) && s.Name != name) continue;
-                s.SetLod(distance, budget, log);
+                s.SetLod(detail, budget, log);
                 hit = true;
             }
             if (!hit) log.AppendLine("no splat named '" + (name ?? "-") + "'");

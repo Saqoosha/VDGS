@@ -292,9 +292,10 @@ every level resident and draws one level per leaf. How to drop one in and the tr
 CLAUDE.md ("Streamed SOG と LOD"); the design is
 docs/superpowers/specs/2026-09-17-ssog-lod-design.md.
 
-Selection is distance bands + a splat budget + hysteresis (`LodSelector`). An unselected run is
-parked at the maximum sort key in `CSCalcDistances` and skipped at the top of `CSCalcViewData`,
-so **an unselected splat does not pay the per-splat fixed cost that is 87% of the frame.**
+Selection is apparent-size bands + a splat budget + hysteresis (`LodSelector`). Unselected splats
+are compacted out of the sort-key buffer entirely (`CSCompactActive`), so the distance pass, the
+sort and the view pass all run over `_SortCount`, and **an unselected splat does not pay the
+per-splat fixed cost that is 87% of the frame.**
 
 ### Measured (RTX 3060, editor under D3D12, 1024², camera inside the scene, 2026-09-17)
 
@@ -367,7 +368,7 @@ is 1.92M at 8.24 ms; drjohnson is 3.18M at 8.80 ms on High; in-game, 3M is rough
 | 2 | the High format tier | most faithful | 37% against Float32 | **default** |
 | 3 | opacity-aware quad shrinking | lossless | small; pixel work is 6% | no |
 | 4 | sorting less often | more popping | 6% ceiling | no |
-| 5 | LOD (Streamed SOG) | far field only | 23.1 → 15.4 ms on the RTX 3060 (2.97M drawn of 17.3M resident) | **done** (sorting the resident rest and load time unsolved) |
+| 5 | LOD (Streamed SOG) | far field only | 23.1 → 10.9 ms on the RTX 3060 (2.98M drawn of 17.3M resident) | **done** (sorting the resident rest and load time unsolved) |
 | 6 | pruning | lossy | linear in what is cut | out of scope |
 
 ## How to measure

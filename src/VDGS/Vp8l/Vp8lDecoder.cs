@@ -154,7 +154,6 @@ namespace VDGS.Vp8l
             readonly byte[] m_Data;
             BitReader m_Br;
             int m_Width, m_Height;
-            int m_WorkingWidth;
             readonly Transform[] m_Transforms = new Transform[4];
             int m_TransformCount;
             uint m_TransformsSeen;
@@ -181,7 +180,6 @@ namespace VDGS.Vp8l
                 m_Br.ReadBits(1); // alpha_is_used hint
                 if (m_Br.ReadBits(3) != 0) throw new Vp8lException("unsupported VP8L version");
 
-                m_WorkingWidth = m_Width;
                 DecodeImageStream(m_Width, m_Height, isLevel0: true, out argb);
                 width = m_Width;
                 height = m_Height;
@@ -244,7 +242,6 @@ namespace VDGS.Vp8l
 
                 m_ColorCacheBits = colorCacheBits;
                 m_ColorCache = colorCacheBits > 0 ? new uint[1 << colorCacheBits] : null;
-                m_WorkingWidth = transformXSize;
 
                 pixels = new uint[transformXSize * transformYSize];
                 DecodeImageData(pixels, transformXSize, transformYSize);

@@ -351,7 +351,7 @@ namespace VDGS
         private uint[] m_RunInfoWords;
         private int m_LodFrame = -1;
 
-        /// <summary>Metres from the camera within which a leaf draws its finest level.</summary>
+        /// <summary>Apparent size (leaf extent / distance) at which a leaf draws its finest level.</summary>
         public float LodDetail = 1f;
         /// <summary>Splats the selection tries to stay under, coarsening the farthest leaves first.</summary>
         public long LodBudget = 3000000;
@@ -509,13 +509,12 @@ namespace VDGS
                 { name = "VDGS ActiveCount" };
             if (lod == null)
             {
+                // Nothing to bind and nothing to select: without VDGS_LOD the shader never
+                // names these buffers, so a capture with one level allocates neither.
                 m_LodSelector = null;
-                m_GpuSplatRun = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1, 4) { name = "VDGS SplatRun (dummy)" };
-                m_GpuRunInfo = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 2, 4) { name = "VDGS RunInfo (dummy)" };
                 return;
             }
 
-            m_SortCount = m_SplatCount;
             int runs = lod.RunOffset.Length;
             m_GpuSplatRun = new GraphicsBuffer(GraphicsBuffer.Target.Structured, m_SplatCount, 4) { name = "VDGS SplatRun" };
             m_GpuSplatRun.SetData(lod.RunOfSplat);
@@ -562,12 +561,6 @@ namespace VDGS
         }
 
         /// <summary>
-        /// Re-picks levels every tenth frame from this camera and uploads the run table only
-        /// when the choice changed. The table is 93 KB for the 11,612-run benchmark scene,
-        /// so the upload is not what this throttles - the selection's per-leaf distance and
-        /// budget passes are, and a leaf's level cannot usefully change faster than that.
-        /// </summary>
-        /// <summary>
         /// Re-pick levels right now, for the offline sweep harness. Time.frameCount does not
         /// advance between manual Camera.Render() calls in batch mode, so the interval guard
         /// below would freeze the selection at whatever the first frame chose.
@@ -580,7 +573,9 @@ namespace VDGS
 
         private void UpdateLod(Camera cam)
         {
-            if (m_LodSelector == null || Time.frameCount == m_LodFrame)
+            if (m_LodSelector == null)
+                return;
+            if (Time.frameCount == m_LodFrame)
                 return;
             if (m_LodFrame >= 0 && Time.frameCount - m_LodFrame < 10)
                 return;
@@ -590,7 +585,6 @@ namespace VDGS
             m_LodSelector.Budget = LodBudget;
             m_LodSelector.BandJitter = LodBandJitter;
             var local = transform.InverseTransformPoint(cam.transform.position);
-            m_SortCount = (int)m_LodSelector.ActiveSplats;
             if (!m_LodSelector.Update(local.x, local.y, local.z, Mathf.Abs(transform.lossyScale.x), m_RunActive))
                 return;
             for (int r = 0; r < m_RunActive.Length; r++)
@@ -735,8 +729,6 @@ namespace VDGS
             mat.SetInt(Props.SplatFormat, (int)format);
             mat.SetInt(Props.SplatCount, m_SplatCount);
             mat.SetInt(Props.SplatChunkCount, m_GpuChunksValid ? m_GpuChunks.count : 0);
-            mat.SetBuffer(Props.SplatRun, m_GpuSplatRun);
-            mat.SetBuffer(Props.RunInfo, m_GpuRunInfo);
         }
 
         internal void CalcViewData(CommandBuffer cmb, Camera cam)

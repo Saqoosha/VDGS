@@ -25,7 +25,7 @@ STEPS="${VDGS_ORBIT_STEPS:-12}"
 FOV="${VDGS_ORBIT_FOV:-70}"
 
 mkdir -p "$OUT"
-POSES="$(mktemp -t vdgs-poses).json"
+POSES="$(mktemp -t vdgs-poses)"
 python3 - "$POSES" "$CENTRE" "$RADIUS" "$HEIGHT" "$STEPS" "$FOV" <<'PY'
 import json, math, sys
 out, centre, radius, height, steps, fov = sys.argv[1:]

@@ -238,7 +238,7 @@ namespace VDGS
 
                     var sName = splat; var sScale = scale; var sY = y; var sX = x; var sZ = z;
                     var sUp = up; var sTurn = turn; var sMirror = mirror;
-                    var sLodDist = lodDetail; var sLodBudget = lodBudget;
+                    var sLodDetail = lodDetail; var sLodBudget = lodBudget;
                     QueueOnMain(() =>
                     {
                         // An orientation-only request (e.g. just `up`) must not also run
@@ -250,8 +250,8 @@ namespace VDGS
                             SetTransform?.Invoke(sName, sScale, sY, sX, sZ);
                         if (sUp != null || sTurn.HasValue || sMirror.HasValue)
                             SetOrientation?.Invoke(sName, sUp, sTurn, sMirror);
-                        if (sLodDist.HasValue || sLodBudget.HasValue)
-                            SetLod?.Invoke(sName, sLodDist, sLodBudget);
+                        if (sLodDetail.HasValue || sLodBudget.HasValue)
+                            SetLod?.Invoke(sName, sLodDetail, sLodBudget);
                     });
                     Respond(ctx, 200, "{\"ok\":true}");
                     return;

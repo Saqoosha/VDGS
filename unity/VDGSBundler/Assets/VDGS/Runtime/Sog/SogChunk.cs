@@ -15,7 +15,7 @@ namespace VDGS.Sog
         public float[] Opacity;    // n, 0..1
         public int ShBands;        // 0..3
         public ushort[] ShLabel;   // n; empty when ShBands == 0
-        public float[] ShPalette;  // PaletteCount * 45, coefficient-major rgb triples
+        public float[] ShPalette;  // (PaletteCount + 1) * 45; the last row is zero, coefficient-major rgb triples
                                    // [k*3]=R_k [k*3+1]=G_k [k*3+2]=B_k, k < 15; zero past the bands
         public int PaletteCount;   // shN.count, or 0
     }
@@ -77,9 +77,9 @@ namespace VDGS.Sog
             float xMin = (float)meta.Means.Mins[0], xMax = (float)meta.Means.Maxs[0];
             float yMin = (float)meta.Means.Mins[1], yMax = (float)meta.Means.Maxs[1];
             float zMin = (float)meta.Means.Mins[2], zMax = (float)meta.Means.Maxs[2];
-            float xScale = (xMax - xMin) != 0f ? (xMax - xMin) : 1f;
-            float yScale = (yMax - yMin) != 0f ? (yMax - yMin) : 1f;
-            float zScale = (zMax - zMin) != 0f ? (zMax - zMin) : 1f;
+            // No guard on a collapsed axis: this is a multiplier, so zero width decodes to
+            // the axis minimum, which is what the reference decoder produces.
+            float xScale = xMax - xMin, yScale = yMax - yMin, zScale = zMax - zMin;
 
             var s = new SogSplats
             {

@@ -181,7 +181,7 @@ namespace VDGS.Lod
                 m_Order[i] = i;
             }
 
-            // 2–3. Distance band (+ hysteresis) → want → snap onto available set S.
+            // 2–3. Apparent-size band (+ hysteresis) → want → snap onto available set S.
             // Remembered for next frame is the step-3 result (not budget-coarsened).
             float loMul = 1f - Hysteresis;
             float hiMul = 1f + Hysteresis;
@@ -196,7 +196,7 @@ namespace VDGS.Lod
                 int prev = m_Remembered[i];
                 if (m_HasHistory && prev >= 0)
                 {
-                    // Band prev covers apparent sizes (hi, lo]; sizes shrink as levels rise.
+                    // Band prev covers apparent sizes (lo, hi]; sizes shrink as levels rise.
                     float hi = prev == 0 ? float.PositiveInfinity : detailI / (float)(1 << (prev - 1));
                     float lo = prev == L - 1 ? 0f : detailI / (float)(1 << prev);
                     if (size <= hi * hiMul && size > lo * loMul)

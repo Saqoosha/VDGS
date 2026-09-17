@@ -10,8 +10,8 @@ is a difference you will misjudge.
     python3 tools/make_compare_html.py <out.html> <label>=<dir> [<label>=<dir> ...]
 
 Each directory is a tools/evalorbit.sh run: shotNNN.png is the first capture, altNNN.png
-the second. Images are referenced, not copied, so the page must sit beside them or the
-paths must stay valid.
+the second. Images are inlined as data URIs, so the page moves and sends as one file --
+and is as large as the frames it carries.
 """
 
 import base64

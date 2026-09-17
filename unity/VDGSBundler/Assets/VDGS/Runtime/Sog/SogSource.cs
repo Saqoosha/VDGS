@@ -39,12 +39,44 @@ namespace VDGS.Sog
 
             public byte[] Read(string relativePath)
             {
-                string full = Path.Combine(m_Root, relativePath.Replace('/', Path.DirectorySeparatorChar));
-                if (!File.Exists(full)) throw new FileNotFoundException(relativePath, full);
-                return File.ReadAllBytes(full);
+                return File.ReadAllBytes(Resolve(m_Root, relativePath));
             }
 
             public void Dispose() { }
+        }
+
+        /// <summary>
+        /// Path of a file inside a capture directory, or <see cref="SogException"/>.
+        ///
+        /// Every name reaching here was written by whoever made the capture:
+        /// lod-meta.json names its chunks, and each chunk's meta.json names its images.
+        /// A capture is something a player downloads from a public site, so a name like
+        /// "../../../../.ssh/id_ed25519" is a file the author chose to have read, and the
+        /// same guard the web UI applies to request paths applies here (VdgsPaths.ResolveUi).
+        /// </summary>
+        internal static string Resolve(string root, string relativePath)
+        {
+            if (string.IsNullOrEmpty(relativePath))
+                throw new SogException("empty file name in the capture");
+            if (relativePath.IndexOf('\\') >= 0 || relativePath.IndexOf('\0') >= 0
+                || Path.IsPathRooted(relativePath))
+                throw new SogException("file name leaves the capture: " + relativePath);
+            foreach (var seg in relativePath.Split('/'))
+            {
+                if (seg.Length == 0 || seg == ".." || seg == "." || seg.IndexOf(':') >= 0)
+                    throw new SogException("file name leaves the capture: " + relativePath);
+            }
+
+            var rootFull = Path.GetFullPath(root);
+            var candidate = Path.GetFullPath(
+                Path.Combine(rootFull, relativePath.Replace('/', Path.DirectorySeparatorChar)));
+            var prefix = rootFull.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                         + Path.DirectorySeparatorChar;
+            if (!candidate.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                throw new SogException("file name leaves the capture: " + relativePath);
+            if (!File.Exists(candidate))
+                throw new SogException("missing file in the capture: " + relativePath);
+            return candidate;
         }
 
         private sealed class ZipFiles : ISogFiles
@@ -67,14 +99,17 @@ namespace VDGS.Sog
                     // Some writers prefix "./" or use backslashes; try a linear scan.
                     foreach (ZipArchiveEntry e in m_Zip.Entries)
                     {
-                        if (string.Equals(e.FullName.Replace('\\', '/'), key, StringComparison.Ordinal))
+                        var name = e.FullName.Replace('\\', '/');
+                        if (name.StartsWith("./", StringComparison.Ordinal)) name = name.Substring(2);
+                        if (string.Equals(name, key, StringComparison.Ordinal))
                         {
                             entry = e;
                             break;
                         }
                     }
                 }
-                if (entry == null) throw new FileNotFoundException(relativePath);
+                if (entry == null) throw new SogException("missing file in the capture: " + relativePath);
+                if (entry.Length > int.MaxValue) throw new SogException("zip entry too large: " + relativePath);
                 using (Stream s = entry.Open())
                 using (var ms = new MemoryStream((int)entry.Length))
                 {

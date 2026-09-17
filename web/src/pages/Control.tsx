@@ -737,7 +737,7 @@ function formatLodCount(n: number): string {
   }
   if (n >= 1000) {
     const k = n / 1000
-    return (Math.abs(k - Math.round(k)) < 0.5 ? Math.round(k).toString() : k.toFixed(0)) + 'k'
+    return (Math.abs(k - Math.round(k)) < 0.05 ? Math.round(k).toString() : k.toFixed(1)) + 'k'
   }
   return String(n)
 }

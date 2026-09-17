@@ -445,19 +445,20 @@ Unity は左手系 Y-up なので、届いたキャプチャはそのままだ�
 変換済み、`version: 2` と `means` なら SOG）→ `.sog` → `.ply`。鏡映の規則は `.ply` と同じ。
 設計は docs/superpowers/specs/2026-09-17-ssog-lod-design.md、数字は docs/performance.ja.md §3。
 
-**全段を常駐させ、葉ごとに 1 段だけ描く。** 飛行中の `SetData` を避けるため。非選択の run は
-`CSCalcDistances` で最大ソートキーに駐車し、`CSCalcViewData` の先頭で抜ける。RTX 3060 で
-LOD 無し 23.1 ms → LOD 既定 15.4 ms（17.3M 常駐、2.97M 描画）。**ただし level 2 だけの ply
-（2.24M）は 8.1 ms** — 距離パスとソートは常駐全部に走るので、常駐の費用は残る。段は `placement.json` の
-`lodDistance`（m、既定 10）と `lodBudget`（既定 3M）で決まり、Tweak のダイアルで動かせる。
+**全段を常駐させ、葉ごとに 1 段だけ描く。** 飛行中の `SetData` を避けるため。非選択の splat は
+`CSCompactActive` でソート鍵バッファから外し、距離パスもソートも view パスも `_SortCount` 本
+だけ走る。RTX 3060 で LOD 無し 23.1 ms → LOD 既定 10.9 ms（17.3M 常駐、2.98M 描画）。
+**ただし level 2 だけの ply（2.24M）は 8.1 ms** — 常駐の費用がゼロになるわけではない。
+段は `placement.json` の `lodDetail`（無単位の見かけの大きさ、既定 1）と `lodBudget`
+（既定 3M）で決まり、Tweak のダイアルで動かせる。
 
 - **WebP は純 C# で解く**（`src/VDGS/Vp8l/`）。dwebp とバイト一致を xunit で見ている
 - **SH は常に `Cluster64k`。** チャンクごとにパレットが 65,536 本あり splat の索引は 16 bit
   なので、run ごとの `shBase` をシェーダーで足す（`_RunInfo[run*2+1]`）
 - **パレットがちょうど 65,536 本なのが普通。** 「範囲外ラベル用のゼロ行」を上限に数えると
   実データが全部弾かれる（fixture は小さくて踏めなかった）
-- **HLSL の `&&` は短絡しない。** LOD 無しのとき 1 要素のダミーを splat 番号で引くことに
-  なるので、`if` を入れ子にしてある（Metal は範囲外読みを検査しない）
+- **LOD の有無はシェーダーキーワードで分ける**（`VDGS_LOD`）。無いときは `_SplatRun` /
+  `_RunInfo` を宣言すらしないので、ダミーバッファを splat 番号で引く事故が起きない
 - **スポーンでゲームが 16 秒止まる（未解決）。** RTX 3060 機のゲーム内で 17.3M が decode 7.6 秒・
   pack 8.3 秒。M1 Max のエディタは 39〜67 秒。**飛ぶ前に出しておく**
 - **LOD の判断に Mac エディタの数字を使わない。** 全葉 level 0 が M1 Max で 241 ms、RTX 3060 で
@@ -477,7 +478,7 @@ src/VDGS/
   SogLoader.cs     .sog / SOG ディレクトリ / Streamed SOG -> SplatData + LodInfo
   Sog/             SOG v2 のチャンク復号と lod-meta.json（UnityEngine 非依存）
   Vp8l/            ロスレス WebP デコーダ（UnityEngine 非依存）
-  Lod/             LodSelector: 距離帯 + 予算 + ヒステリシスで葉ごとの段を選ぶ
+  Lod/             LodSelector: 見かけの大きさの帯 + 予算 + ヒステリシスで葉ごとの段を選ぶ
   SplatRenderer.cs 描画本体（CommandBuffer + compute sort）
   GpuSorting.cs    8bit radix sort（upstream からほぼ無改変）
   SplatScene.cs    1つの splat シーンの生成・破棄と placement.json の読み込み

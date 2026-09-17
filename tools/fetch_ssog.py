@@ -34,6 +34,21 @@ def resolve(arg):
         sys.exit(f'{sid}: no lod-meta.json on the viewer page (not a streamed SOG?)')
     return m.group(0)
 
+def safe_join(out, rel):
+    """Path inside `out` for a name the scene chose, or an error.
+
+    Every name here comes from JSON the scene's author wrote, and this script points at
+    whatever public scene id it is given, so `../../.bashrc` is a write the author picked.
+    """
+    if not rel or rel.startswith('/') or '\\' in rel:
+        sys.exit(f'refusing name from the scene: {rel!r}')
+    path = os.path.normpath(os.path.join(out, rel))
+    root = os.path.abspath(out)
+    if os.path.commonpath([os.path.abspath(path), root]) != root:
+        sys.exit(f'refusing name from the scene: {rel!r}')
+    return path
+
+
 def main():
     if len(sys.argv) != 3:
         sys.exit(__doc__)
@@ -48,7 +63,7 @@ def main():
     jobs = []
     for rel in metas:
         body = get(f'{base}/{rel}')
-        path = os.path.join(out, rel)
+        path = safe_join(out, rel)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         open(path, 'wb').write(body)
         m = json.loads(body)
@@ -57,7 +72,7 @@ def main():
             for f in m.get(key, {}).get('files', []):
                 jobs.append(f'{folder}/{f}')
     def fetch(rel):
-        path = os.path.join(out, rel)
+        path = safe_join(out, rel)
         size = int(get(f'{base}/{rel}', method='HEAD').headers['Content-Length'])
         if os.path.exists(path) and os.path.getsize(path) == size:
             return 0
