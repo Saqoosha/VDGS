@@ -1,0 +1,10 @@
+{
+  "id": "jdl-2026-r6",
+  "name": "VDGS JDL 2026 R6",
+  "description": "The Japan Drone League 2026 Round 6 race site at Kawada Park, Toyota, Japan. Draft: no collision yet, so gates and ground are flown through, and the haze near the ground has not been cleaned up. An update will replace it.",
+  "author": "Saqoosha",
+  "licence": "CC0-1.0",
+  "captured": "2026-09-19",
+  "installAs": "JDL-2026-R6",
+  "track": "VDGS-JDL-2026-R6.track.json"
+}
