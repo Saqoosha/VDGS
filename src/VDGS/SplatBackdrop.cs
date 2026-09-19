@@ -107,13 +107,29 @@ namespace VDGS
                                         " vertices face outward - the box will hide the capture");
         }
 
+        /// <summary>
+        /// Remove every backdrop under <paramref name="parent"/>, not just the first.
+        ///
+        /// Object.Destroy only takes effect at the end of the frame, and Transform.Find
+        /// keeps returning the dying child until then. Attach calls Detach first, so two
+        /// Attach calls in one frame (a drag in the Tweak UI fires one per move) both
+        /// "removed" the same old box and each added a new one - the boxes stacked up,
+        /// 700 deep after one tweaking session, and a single-child Detach then peeled
+        /// off one per click while IsAttached stayed true. Rename and deactivate before
+        /// destroying so a box on its way out is invisible to Find and to the renderer.
+        /// </summary>
         internal static void Detach(Transform parent)
         {
             if (parent == null) return;
-            var existing = parent.Find(ChildName);
-            if (existing == null) return;
-            if (Application.isPlaying) Object.Destroy(existing.gameObject);
-            else Object.DestroyImmediate(existing.gameObject);
+            for (int i = parent.childCount - 1; i >= 0; i--)
+            {
+                var child = parent.GetChild(i);
+                if (child.name != ChildName) continue;
+                child.name = ChildName + " (removed)";
+                child.gameObject.SetActive(false);
+                if (Application.isPlaying) Object.Destroy(child.gameObject);
+                else Object.DestroyImmediate(child.gameObject);
+            }
         }
 
         internal static bool IsAttached(Transform parent)
