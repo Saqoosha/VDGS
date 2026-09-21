@@ -213,18 +213,21 @@ Camera.onPreCull
 
 ### ブラックアウト
 
-`WorldBlackout` は背景ボックスの裏返し。キャプチャを箱で囲うのではなく、ゲームの
-世界そのものを消す——地面の `Renderer` を切り、`Skybox` でクリアしている全カメラを
-黒の単色クリアにする。コライダーは触らないので、collision mesh の無いキャプチャでも
-ゲームの床に着地できる。箱と違ってキャプチャの直立に依存せず、範囲の外まで効く。
+`WorldBlackout` はキャプチャを箱で囲うのではなく、ゲームの世界そのものを消す——
+地面の `Renderer`（と Unity の `Terrain`）を切り、`Skybox` でクリアしている有効な
+全カメラを黒の単色クリアにする。コライダーは触らないので、collision mesh の無い
+キャプチャでもゲームの床に着地できる。箱と違ってキャプチャの直立に依存せず、範囲の
+外まで効く。
 
-- **地面はルートオブジェクト名 `Terrain` で探す**（BlankCanvas は `Terrain/Plane`、
-  MeshRenderer ＋ BoxCollider。`level6` を UnityPy で読んで確認）。そのルートが無い
-  シーナリーは「no ground renderer found」をログに残し、空だけ消える
+- **地面はルートオブジェクト名 `Terrain` で、ロード済み全シーンから探す**（BlankCanvas
+  は `Terrain/Plane`、MeshRenderer ＋ BoxCollider。`level6` を UnityPy で読んで確認）。
+  そのルートが無いシーナリーは「no ground renderer found」をログに残し、空だけ消える
 - **世界の状態で、キャプチャ名で数える**。spawn 中の最初の 1 つが要求したとき 1 回だけ
-  適用し、最後の 1 つが despawn したとき 1 回だけ戻す。シーンの読み直し（リスタート）で
-  Plane が見える状態で復活するので、誰かが要求している間は `sceneLoaded` から `Reapply`
-- fog は触らない。BlankCanvas ではもともと off
+  適用し、最後の 1 つが despawn するか off にしたとき 1 回だけ戻す。シーンの読み直し
+  （リスタート）で Plane が見える状態で復活するので、誰かが要求している間は
+  `sceneLoaded` から `Reapply`。記録には足すだけなので、additive ロード（飛行シーンの
+  上に乗るトラックエディタ）でも隠した分は戻せる
+- fog は触らない。BlankCanvas（唯一使ったシーナリー）ではもともと off
 
 ---
 
@@ -309,6 +312,7 @@ HttpListener (:8777)
   ├ POST /api/unbind  紐付けを解除
   ├ POST /api/backdrop     キャプチャ周りの黒い箱
   ├ POST /api/blackout     ゲームの地面と空を消す
+  ├ POST /api/dump         ロード済み全シーンのヒエラルキー（キー無しの F10）
   ├ POST /api/collision    MeshCollider の on/off
   ├ POST /api/collisionview  hide / solid / wire
   └ POST /api/transform    スケールと Y。placement.json に書く

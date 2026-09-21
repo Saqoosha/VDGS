@@ -389,6 +389,8 @@ namespace VDGS
 
             // A reloaded scene (restart, scenery change) comes back with its ground plane
             // and skybox intact, so the blackout has to be applied to the new objects.
+            // Not on the menu: the captures despawn on the next poll anyway.
+            if (AnyFlyableSceneLoaded())
             {
                 var blackoutLog = new StringBuilder();
                 WorldBlackout.Reapply(blackoutLog);
@@ -678,10 +680,15 @@ namespace VDGS
                 var path = Path.Combine(Paths.GameRootPath, "vdgs-hierarchy.txt");
                 using (var w = new StreamWriter(path, false))
                 {
-                    var scene = SceneManager.GetActiveScene();
-                    w.WriteLine("scene: " + scene.name + "  " + DateTime.Now);
-                    foreach (var root in scene.GetRootGameObjects())
-                        WriteNode(w, root.transform, 0);
+                    // Every loaded scene, not just the active one - see PollTrack.
+                    for (int i = 0; i < SceneManager.sceneCount; i++)
+                    {
+                        var scene = SceneManager.GetSceneAt(i);
+                        if (!scene.isLoaded) continue;
+                        w.WriteLine("scene: " + scene.name + (scene == SceneManager.GetActiveScene() ? " (active)" : "") + "  " + DateTime.Now);
+                        foreach (var root in scene.GetRootGameObjects())
+                            WriteNode(w, root.transform, 0);
+                    }
                 }
                 Log.LogInfo("VDGS hierarchy dumped: " + path);
             }

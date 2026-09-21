@@ -295,8 +295,7 @@ function ShownBlock({
               </p>
             ) : null}
           </div>
-          {/* blackout hides the game's own ground plane and skybox while keeping the game's
-              colliders (see src/VDGS/WorldBlackout.cs); unlike the box it does not depend on the capture being upright. */}
+          {/* Not gated on `rotated`: unlike the box, the blackout does not need an upright capture (WorldBlackout.cs). */}
           <div>
             <StampCheck
               label="blackout"

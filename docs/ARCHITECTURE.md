@@ -215,19 +215,21 @@ not show through the gaps. Two details worth knowing:
 
 ### The blackout
 
-`WorldBlackout` is the backdrop turned inside out: instead of boxing the capture in, it
-hides the game's world itself - the ground plane's `Renderer` goes off and every camera
-clearing to `Skybox` clears to solid black instead. Colliders are untouched, so a capture
-with no collision mesh still lands on the game's floor. Unlike the box it does not depend
-on the capture being upright and it holds past the capture's bounds.
+`WorldBlackout` hides the game's world itself instead of boxing the capture in: the ground
+plane's `Renderer` (and any Unity `Terrain`) goes off and every enabled camera clearing to
+`Skybox` clears to solid black instead. Colliders are untouched, so a capture with no
+collision mesh still lands on the game's floor. Unlike the box it does not depend on the
+capture being upright and it holds past the capture's bounds.
 
-- **Ground is found by root object name**, `Terrain` (BlankCanvas is `Terrain/Plane`, a
-  MeshRenderer + BoxCollider, read out of `level6` with UnityPy). A scenery with no such
-  root logs "no ground renderer found" and only the sky goes
+- **Ground is found by root object name**, `Terrain`, in every loaded scene (BlankCanvas
+  is `Terrain/Plane`, a MeshRenderer + BoxCollider, read out of `level6` with UnityPy). A
+  scenery with no such root logs "no ground renderer found" and only the sky goes
 - **it is world state, counted by capture name**: applied once when the first spawned
-  capture asks, undone once when the last is despawned. A scene reload (restart) brings
-  a fresh visible Plane, so `Reapply` runs from `sceneLoaded` while anyone still wants it
-- fog is left alone; it is already off in BlankCanvas
+  capture asks, undone once when the last is despawned or switches it off. A scene reload
+  (restart) brings a fresh visible Plane, so `Reapply` runs from `sceneLoaded` while anyone
+  still wants it; it only adds to the records, so an additive load (the track editor on
+  top of the flight scene) keeps what is already hidden restorable
+- fog is not touched; it is off in BlankCanvas, the only scenery this has been used on
 
 ---
 
@@ -311,6 +313,7 @@ HttpListener (:8777)
   ├ POST /api/unbind  remove a binding
   ├ POST /api/backdrop     black box around the capture
   ├ POST /api/blackout     hide the game's ground plane and sky
+  ├ POST /api/dump         hierarchy dump of every loaded scene (F10 without the key)
   ├ POST /api/collision    MeshCollider on/off
   ├ POST /api/collisionview  hide / solid / wire
   └ POST /api/transform    scale and Y; writes placement.json

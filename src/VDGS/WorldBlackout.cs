@@ -12,21 +12,32 @@ namespace VDGS
     /// A capture that has no collision mesh still needs a floor to land on, and the game
     /// already has one: BlankCanvas (Empty Scene Day) is a root object `Terrain` holding
     /// `Plane` (MeshRenderer + BoxCollider) and an inactive `Terrain`. Disabling the
-    /// Renderer and not the GameObject keeps the BoxCollider solid. The sky is the flight
-    /// camera's clear mode (Skybox, drawing RenderSettings.skybox); `Sky Dome` is inactive
-    /// in the scene, so switching the camera to a solid black clear is the whole sky.
-    /// Fog is already off in that scene and is deliberately not touched here.
+    /// Renderer and not the GameObject keeps the BoxCollider solid; a Unity Terrain is
+    /// not a Renderer, so Terrain components are switched off the same way, leaving their
+    /// TerrainCollider. The sky is the flight camera's clear mode (Skybox, drawing
+    /// RenderSettings.skybox); `Sky Dome` is inactive in the scene, so switching every
+    /// enabled camera to a solid black clear is the whole sky. Fog is not touched: it is
+    /// off in BlankCanvas, the only scenery this has been used on.
     ///
-    /// This is <see cref="SplatBackdrop"/> turned inside out: the backdrop hides the world
-    /// by boxing the capture in, which only works while the capture is upright and only
-    /// within the box; this hides the world itself, so it holds for a rotated capture and
-    /// out past the capture's bounds too.
+    /// <see cref="SplatBackdrop"/> hides the world by boxing the capture in, which only
+    /// works while the capture is upright and only within the box; this hides the world
+    /// itself, so it holds for a rotated capture and out past the capture's bounds too.
     ///
     /// World state, not capture state: several captures can be up at once and the world
     /// has to stay dark while any of them asks for it, so wanters are counted by name and
     /// the change is applied once, on the first, and undone once, on the last. Scene
     /// objects are per scene - a restart reloads the scene and brings a fresh, visible
     /// Plane - so <see cref="Reapply"/> runs from sceneLoaded while anyone still wants it.
+    ///
+    /// Apply is idempotent and only ever adds to the records: an object already recorded is
+    /// left alone, and a renderer that is off but not recorded is not ours to restore.
+    /// That matters because sceneLoaded also fires for additive loads (the track editor
+    /// lands on top of the flight scene) and a spawn can beat the deferred Reapply to the
+    /// new objects - if Reapply cleared the records, the Plane would already be off, get
+    /// skipped, and never be restored.
+    ///
+    /// Every loaded scene is searched, not the active one: the flight scene is loaded
+    /// alongside the menu and does not necessarily become active (see Plugin.PollTrack).
     /// </summary>
     internal static class WorldBlackout
     {
@@ -35,6 +46,7 @@ namespace VDGS
 
         private static readonly HashSet<string> s_Wanters = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
         private static readonly List<Renderer> s_Hidden = new List<Renderer>();
+        private static readonly List<Terrain> s_HiddenTerrain = new List<Terrain>();
 
         private struct CameraState
         {
@@ -45,7 +57,6 @@ namespace VDGS
         private static readonly List<CameraState> s_Cameras = new List<CameraState>();
         private static bool s_Applied;
 
-        internal static bool IsOn => s_Applied;
         internal static bool Wants(string name) => s_Wanters.Contains(name);
 
         /// <summary>Ask for a black world on behalf of <paramref name="name"/>.</summary>
@@ -62,37 +73,50 @@ namespace VDGS
             if (s_Wanters.Count == 0 && s_Applied) Restore(log);
         }
 
-        /// <summary>
-        /// After a scene load, hide the new scene's world if anyone still wants it. The
-        /// old scene's objects are gone (their references read as null), so this is a
-        /// fresh Apply, not a re-enable.
-        /// </summary>
+        /// <summary>After a scene load, hide whatever new world objects arrived, if anyone still wants it.</summary>
         internal static void Reapply(StringBuilder log)
         {
             if (s_Wanters.Count == 0) return;
-            s_Applied = false;
-            s_Hidden.Clear();
-            s_Cameras.Clear();
+            // Objects of an unloaded scene read as null; drop those and keep the rest, so
+            // whatever is still hidden stays restorable.
+            s_Hidden.RemoveAll(r => r == null);
+            s_HiddenTerrain.RemoveAll(t => t == null);
+            s_Cameras.RemoveAll(c => c.Cam == null);
             Apply(log);
         }
 
         private static void Apply(StringBuilder log)
         {
-            s_Applied = true;
-            var scene = SceneManager.GetActiveScene();
             var hidden = 0;
-            foreach (var root in scene.GetRootGameObjects())
+            var scenes = new List<string>();
+            for (int i = 0; i < SceneManager.sceneCount; i++)
             {
-                if (System.Array.IndexOf(kGroundRoots, root.name) < 0) continue;
-                // Inactive children included: an inactive Terrain that the game turns on
-                // later (TerrainQuality is a root object here) would otherwise reappear.
-                foreach (var r in root.GetComponentsInChildren<Renderer>(true))
+                var scene = SceneManager.GetSceneAt(i);
+                if (!scene.isLoaded) continue;
+                scenes.Add(scene.name);
+                foreach (var root in scene.GetRootGameObjects())
                 {
-                    if (!r.enabled) continue;
-                    r.enabled = false;
-                    s_Hidden.Add(r);
-                    hidden++;
-                    log?.AppendLine("blackout: hid " + PathOf(r.transform) + " (" + r.GetType().Name + ")");
+                    if (System.Array.IndexOf(kGroundRoots, root.name) < 0) continue;
+                    // Inactive children included, so a child the game activates later is
+                    // already off.
+                    foreach (var r in root.GetComponentsInChildren<Renderer>(true))
+                    {
+                        if (s_Hidden.Contains(r)) continue;
+                        if (!r.enabled) continue;
+                        r.enabled = false;
+                        s_Hidden.Add(r);
+                        hidden++;
+                        log?.AppendLine("blackout: hid " + Probe.FullPath(r.transform) + " (" + r.GetType().Name + ")");
+                    }
+                    foreach (var t in root.GetComponentsInChildren<Terrain>(true))
+                    {
+                        if (s_HiddenTerrain.Contains(t)) continue;
+                        if (!t.enabled) continue;
+                        t.enabled = false;
+                        s_HiddenTerrain.Add(t);
+                        hidden++;
+                        log?.AppendLine("blackout: hid " + Probe.FullPath(t.transform) + " (Terrain)");
+                    }
                 }
             }
 
@@ -100,17 +124,29 @@ namespace VDGS
             foreach (var cam in Camera.allCameras)
             {
                 if (cam.clearFlags != CameraClearFlags.Skybox) continue;
+                if (IsTracked(cam)) continue;
                 s_Cameras.Add(new CameraState { Cam = cam, Clear = cam.clearFlags, Background = cam.backgroundColor });
                 cam.clearFlags = CameraClearFlags.SolidColor;
                 cam.backgroundColor = Color.black;
                 cams++;
-                log?.AppendLine("blackout: camera " + PathOf(cam.transform) + " skybox -> black");
+                log?.AppendLine("blackout: camera " + Probe.FullPath(cam.transform) + " skybox -> black");
             }
 
-            log?.AppendLine("blackout: on in " + scene.name + " - " + hidden + " renderer(s), " + cams + " camera(s)");
-            if (hidden == 0)
+            var where = string.Join("+", scenes.ToArray());
+            log?.AppendLine("blackout: on in " + where + " - " + hidden + " renderer(s), " + cams
+                            + " camera(s) newly hidden, " + (s_Hidden.Count + s_HiddenTerrain.Count) + "/" + s_Cameras.Count + " held");
+            if (s_Hidden.Count + s_HiddenTerrain.Count == 0)
                 log?.AppendLine("blackout: no ground renderer found under " + string.Join("/", kGroundRoots)
-                                + " in " + scene.name + " - this scenery is not known here");
+                                + " in " + where + " - this scenery is not known here");
+            // Last, so a throw above leaves the next Want free to try again.
+            s_Applied = true;
+        }
+
+        private static bool IsTracked(Camera cam)
+        {
+            foreach (var c in s_Cameras)
+                if (c.Cam == cam) return true;
+            return false;
         }
 
         private static void Restore(StringBuilder log)
@@ -124,6 +160,13 @@ namespace VDGS
                 restored++;
             }
             s_Hidden.Clear();
+            foreach (var t in s_HiddenTerrain)
+            {
+                if (t == null) continue;
+                t.enabled = true;
+                restored++;
+            }
+            s_HiddenTerrain.Clear();
 
             var cams = 0;
             foreach (var c in s_Cameras)
@@ -135,13 +178,6 @@ namespace VDGS
             }
             s_Cameras.Clear();
             log?.AppendLine("blackout: off - " + restored + " renderer(s), " + cams + " camera(s) restored");
-        }
-
-        private static string PathOf(Transform t)
-        {
-            var path = t.name;
-            while (t.parent != null) { t = t.parent; path = t.name + "/" + path; }
-            return path;
         }
     }
 }

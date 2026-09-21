@@ -398,6 +398,7 @@ F5・F6・F7・F8 は**使っていない**。F7 はトラックエディタの�
 | `POST /api/unbind` | `{}` で現在のトラック、`{"track":"name"}` で任意のトラック |
 | `POST /api/backdrop` | `{"splat":"name","on":true}` — 黒い箱（キャプチャが直立しているときだけ付く） |
 | `POST /api/blackout` | `{"splat":"name","on":true}` — ゲームの地面と空を消す。コライダーは残る |
+| `POST /api/dump` | `{}` — ロード済み全シーンのヒエラルキーを `<game>/vdgs-hierarchy.txt` に書く（F10 と同じ。macOS では F10 をゲーム自身が使う） |
 | `POST /api/collision` | `{"splat":"name","on":true}` — MeshCollider |
 | `POST /api/collisionview` | `{"splat":"name","mode":"wire"}` — hide / solid / wire |
 | `POST /api/transform` | `{"splat":"name","scale":1,"y":0,"x":0,"z":0,"up":"+y","turn":0,"mirror":true}` — 動かした分だけ送ればよい。`placement.json` に書く |
