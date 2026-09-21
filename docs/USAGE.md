@@ -412,6 +412,7 @@ The same one the Tweak screen uses.
 | `POST /api/bind` | `{"splats":["name"]}` — bind to the current track |
 | `POST /api/unbind` | `{}` for the current track, `{"track":"name"}` for any |
 | `POST /api/backdrop` | `{"splat":"name","on":true}` — black box around the capture (attaches only while it is upright) |
+| `POST /api/blackout` | `{"splat":"name","on":true}` — hide the game's ground plane and sky; its colliders stay |
 | `POST /api/collision` | `{"splat":"name","on":true}` — MeshCollider |
 | `POST /api/collisionview` | `{"splat":"name","mode":"wire"}` — hide / solid / wire |
 | `POST /api/transform` | `{"splat":"name","scale":1,"y":0,"x":0,"z":0,"up":"+y","turn":0,"mirror":true}` — send only what changed; writes `placement.json` |

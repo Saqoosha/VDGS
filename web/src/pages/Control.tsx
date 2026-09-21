@@ -295,6 +295,25 @@ function ShownBlock({
               </p>
             ) : null}
           </div>
+          {/* blackout hides the game's own ground plane and skybox while keeping the game's
+              colliders (see src/VDGS/WorldBlackout.cs); unlike the box it does not depend on the capture being upright. */}
+          <div>
+            <StampCheck
+              label="blackout"
+              checked={scene.blackout}
+              onChange={(on) => {
+                void (async () => {
+                  try {
+                    await api.setBlackout(scene.name, on)
+                    await onRefresh()
+                  } catch (e) {
+                    onFlash(e instanceof Error ? e.message : 'failed')
+                    await onRefresh()
+                  }
+                })()
+              }}
+            />
+          </div>
           {scene.hasCollision ? (
             <>
               <StampCheck

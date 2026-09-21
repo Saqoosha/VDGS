@@ -213,6 +213,22 @@ not show through the gaps. Two details worth knowing:
   game's ground plane is at 0 and would otherwise hide it. It is pinned through
   `parent.InverseTransformPoint` so it stays there under any placement
 
+### The blackout
+
+`WorldBlackout` is the backdrop turned inside out: instead of boxing the capture in, it
+hides the game's world itself - the ground plane's `Renderer` goes off and every camera
+clearing to `Skybox` clears to solid black instead. Colliders are untouched, so a capture
+with no collision mesh still lands on the game's floor. Unlike the box it does not depend
+on the capture being upright and it holds past the capture's bounds.
+
+- **Ground is found by root object name**, `Terrain` (BlankCanvas is `Terrain/Plane`, a
+  MeshRenderer + BoxCollider, read out of `level6` with UnityPy). A scenery with no such
+  root logs "no ground renderer found" and only the sky goes
+- **it is world state, counted by capture name**: applied once when the first spawned
+  capture asks, undone once when the last is despawned. A scene reload (restart) brings
+  a fresh visible Plane, so `Reapply` runs from `sceneLoaded` while anyone still wants it
+- fog is left alone; it is already off in BlankCanvas
+
 ---
 
 ## Tracks and captures
@@ -294,6 +310,7 @@ HttpListener (:8777)
   ├ POST /api/bind    bind to the current track
   ├ POST /api/unbind  remove a binding
   ├ POST /api/backdrop     black box around the capture
+  ├ POST /api/blackout     hide the game's ground plane and sky
   ├ POST /api/collision    MeshCollider on/off
   ├ POST /api/collisionview  hide / solid / wire
   └ POST /api/transform    scale and Y; writes placement.json
@@ -354,6 +371,7 @@ draws the shell (solid or wire). Bake is OpenVDB; see [SCENES.md](SCENES.md).
 | `SplatCollision.cs` | `collision.bin` → MeshCollider (Y-mirror on `.ply`) |
 | `SplatCollisionView.cs` | the collision shell (solid / wire) |
 | `SplatBackdrop.cs` | the inward-facing black box |
+| `WorldBlackout.cs` | hides the game's ground plane and sky, keeps its colliders |
 | `TrackName.cs` | the loading track's name, through several fallbacks |
 | `TrackBindings.cs` | reads and writes `bindings.json` |
 | `TrackProbe.cs` | hunts strings inside the obfuscated game (F12) |

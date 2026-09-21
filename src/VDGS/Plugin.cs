@@ -98,6 +98,8 @@ namespace VDGS
                     UnbindTrack = Unbind,
                     SetTransform = ApplyTransform,
                     SetBackdrop = ApplyBackdrop,
+                    SetBlackout = ApplyBlackout,
+                    DumpHierarchy = DumpHierarchy,
                     SetCollision = ApplyCollision,
                     SetCollisionView = ApplyCollisionView,
                     SetOrientation = ApplyOrientation,
@@ -151,6 +153,7 @@ namespace VDGS
                     { "turn", status.Turn },
                     { "mirror", status.MirrorY },
                     { "backdrop", status.BackdropOn },
+                    { "blackout", status.BlackoutOn },
                     // Two fields, not one: the UI must be able to tell "no collision mesh
                     // generated" apart from "mesh generated and switched off", or a missing
                     // file reads as a setting somebody turned off.
@@ -179,6 +182,22 @@ namespace VDGS
             {
                 if (!string.Equals(s.Name, name, StringComparison.OrdinalIgnoreCase)) continue;
                 s.SetBackdrop(on, log);
+            }
+            if (log.Length > 0)
+            {
+                try { File.AppendAllText(Probe.LogPath, log.ToString()); } catch { }
+            }
+        }
+
+        /// <summary>Hides the game's ground and sky for one capture, or brings them back.</summary>
+        private void ApplyBlackout(string name, bool on)
+        {
+            EnsureDiscovered();
+            var log = new StringBuilder();
+            foreach (var s in m_Scenes)
+            {
+                if (!string.Equals(s.Name, name, StringComparison.OrdinalIgnoreCase)) continue;
+                s.SetBlackout(on, log);
             }
             if (log.Length > 0)
             {
@@ -367,6 +386,17 @@ namespace VDGS
             yield return null;
             yield return null;
             Probe.Write("sceneLoaded:" + sceneName);
+
+            // A reloaded scene (restart, scenery change) comes back with its ground plane
+            // and skybox intact, so the blackout has to be applied to the new objects.
+            {
+                var blackoutLog = new StringBuilder();
+                WorldBlackout.Reapply(blackoutLog);
+                if (blackoutLog.Length > 0)
+                {
+                    try { File.AppendAllText(Probe.LogPath, blackoutLog.ToString()); } catch { }
+                }
+            }
 
             // Post-process volumes are often created after the scene finishes loading, so
             // a single pass here finds nothing. Sweep a few times over the next seconds.

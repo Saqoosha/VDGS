@@ -42,6 +42,8 @@ namespace VDGS
         internal Action<string> UnbindTrack;    // null clears the live track's binding
         internal Action<string, float?, float?, float?, float?> SetTransform;  // splat, scale, yOffset, x, z
         internal Action<string, bool> SetBackdrop;             // splat, on
+        internal Action<string, bool> SetBlackout;             // splat, on
+        internal Action DumpHierarchy;                         // F10 is the game's own key on macOS
         internal Action<string, bool> SetCollision;            // splat, on
         internal Action<string, string> SetCollisionView;      // splat, off|solid|wire
         internal Action<string, string, float?, bool?> SetOrientation;  // splat, up, turn, mirror
@@ -165,6 +167,32 @@ namespace VDGS
                     }
                     var bName = splat; var bOn = on;
                     QueueOnMain(() => SetBackdrop?.Invoke(bName, bOn));
+                    Respond(ctx, 200, "{\"ok\":true}");
+                    return;
+                }
+
+                case "/api/dump":
+                {
+                    // Same as F10, reachable without a key: VelociDrone binds F10 to its
+                    // network overlay, and macOS eats the function row unless fn is held.
+                    ReadBody(ctx);
+                    QueueOnMain(() => DumpHierarchy?.Invoke());
+                    Respond(ctx, 200, "{\"ok\":true}");
+                    return;
+                }
+
+                case "/api/blackout":
+                {
+                    var body = ReadBody(ctx);
+                    var req = JsonConvert.DeserializeObject<Dictionary<string, object>>(body);
+                    string splat = null; bool on = false;
+                    if (req != null)
+                    {
+                        if (req.TryGetValue("splat", out var sv) && sv != null) splat = sv.ToString();
+                        if (req.TryGetValue("on", out var ov) && ov != null) on = Convert.ToBoolean(ov);
+                    }
+                    var bName = splat; var bOn = on;
+                    QueueOnMain(() => SetBlackout?.Invoke(bName, bOn));
                     Respond(ctx, 200, "{\"ok\":true}");
                     return;
                 }

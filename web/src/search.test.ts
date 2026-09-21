@@ -13,6 +13,7 @@ function scene(name: string): Scene {
     scale: 1,
     y: 0,
     backdrop: false,
+    blackout: false,
     collision: false,
     collisionView: 'off',
   }
