@@ -73,7 +73,9 @@ namespace VDGS
         internal static void Release(string name, StringBuilder log)
         {
             if (!s_Wanters.Remove(name)) return;
-            if (s_Wanters.Count == 0 && s_Applied) Restore(log);
+            // Records without s_Applied: Apply threw part-way. Still ours to put back.
+            if (s_Wanters.Count == 0 && (s_Applied || s_Hidden.Count > 0 || s_HiddenTerrain.Count > 0 || s_Cameras.Count > 0))
+                Restore(log);
         }
 
         /// <summary>After a scene load, hide whatever new world objects arrived, if anyone still wants it.</summary>

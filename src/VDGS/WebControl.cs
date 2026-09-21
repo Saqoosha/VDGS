@@ -190,6 +190,11 @@ namespace VDGS
 
                 case "/api/blackout":
                 {
+                    if (ctx.Request.HttpMethod != "POST")
+                    {
+                        Respond(ctx, 405, "{\"error\":\"POST only\"}");
+                        return;
+                    }
                     var body = ReadBody(ctx);
                     var req = JsonConvert.DeserializeObject<Dictionary<string, object>>(body);
                     string splat = null; bool on = false;
