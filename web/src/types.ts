@@ -24,6 +24,7 @@ export type Scene = {
   turn: number
   mirror: boolean
   backdrop: boolean
+  blackout: boolean
   collision: boolean
   collisionView: CollisionView
 }

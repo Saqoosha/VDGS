@@ -25,6 +25,7 @@ function scene(over: Partial<Scene> = {}): Scene {
     turn: 0,
     mirror: true,
     backdrop: false,
+    blackout: false,
     collision: true,
     collisionView: 'off',
     ...over,

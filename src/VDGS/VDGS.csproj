@@ -43,6 +43,10 @@
       <HintPath>..\..\lib\unity\UnityEngine.IMGUIModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="UnityEngine.TerrainModule">
+      <HintPath>..\..\lib\unity\UnityEngine.TerrainModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="UnityEngine.PhysicsModule">
       <HintPath>..\..\lib\unity\UnityEngine.PhysicsModule.dll</HintPath>
       <Private>false</Private>
