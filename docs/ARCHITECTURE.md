@@ -228,7 +228,9 @@ capture being upright and it holds past the capture's bounds.
   capture asks, undone once when the last is despawned or switches it off. A scene reload
   (restart) brings a fresh visible Plane, so `Reapply` runs from `sceneLoaded` while anyone
   still wants it; it only adds to the records, so an additive load (the track editor on
-  top of the flight scene) keeps what is already hidden restorable
+  top of the flight scene) keeps what is already hidden restorable. The same sweep runs
+  once a second from `PollTrack`, because the editor hands over to flight without a scene
+  load and turns the ground and flight camera on as it does
 - fog is not touched; it is off in BlankCanvas, the only scenery this has been used on
 
 ---

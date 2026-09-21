@@ -389,8 +389,9 @@ namespace VDGS
 
             // A reloaded scene (restart, scenery change) comes back with its ground plane
             // and skybox intact, so the blackout has to be applied to the new objects.
-            // Not on the menu: the captures despawn on the next poll anyway.
-            if (AnyFlyableSceneLoaded())
+            // Not on the menu: the captures despawn on the next poll anyway. Same gate
+            // as PollTrack's, menuspawn included.
+            if (AnyFlyableSceneLoaded() || MenuSpawnAllowed())
             {
                 var blackoutLog = new StringBuilder();
                 WorldBlackout.Reapply(blackoutLog);
@@ -627,6 +628,10 @@ namespace VDGS
             // is cooked on a worker thread and is null for the first frames. Retried here so
             // the drawing appears on its own rather than needing a second click.
             foreach (var s in m_Scenes) s.PumpPendingView(log);
+
+            // The game turns its ground and flight camera on without a scene load when
+            // the track editor hands over to flight, so the blackout is re-swept here.
+            if (flyable) WorldBlackout.Sweep(log);
 
             if (log.Length > 0)
             {

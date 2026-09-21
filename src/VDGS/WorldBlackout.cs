@@ -38,6 +38,9 @@ namespace VDGS
     ///
     /// Every loaded scene is searched, not the active one: the flight scene is loaded
     /// alongside the menu and does not necessarily become active (see Plugin.PollTrack).
+    /// And the same idempotent sweep runs once a second from PollTrack, because the game
+    /// enables its ground and flight camera without a scene load when the track editor
+    /// hands over to flight - a capture spawned in the editor saw neither.
     /// </summary>
     internal static class WorldBlackout
     {
@@ -77,15 +80,28 @@ namespace VDGS
         internal static void Reapply(StringBuilder log)
         {
             if (s_Wanters.Count == 0) return;
-            // Objects of an unloaded scene read as null; drop those and keep the rest, so
-            // whatever is still hidden stays restorable.
+            Prune();
+            Apply(log, summary: true);
+        }
+
+        /// <summary>Periodic pass: catch objects the game enabled since the last Apply. Logs only what it changes.</summary>
+        internal static void Sweep(StringBuilder log)
+        {
+            if (s_Wanters.Count == 0) return;
+            Prune();
+            Apply(log, summary: false);
+        }
+
+        // Objects of an unloaded scene read as null; drop those and keep the rest, so
+        // whatever is still hidden stays restorable.
+        private static void Prune()
+        {
             s_Hidden.RemoveAll(r => r == null);
             s_HiddenTerrain.RemoveAll(t => t == null);
             s_Cameras.RemoveAll(c => c.Cam == null);
-            Apply(log);
         }
 
-        private static void Apply(StringBuilder log)
+        private static void Apply(StringBuilder log, bool summary = true)
         {
             var hidden = 0;
             var scenes = new List<string>();
@@ -101,7 +117,8 @@ namespace VDGS
                     // already off.
                     foreach (var r in root.GetComponentsInChildren<Renderer>(true))
                     {
-                        if (s_Hidden.Contains(r)) continue;
+                        // Recorded already: keep it off, the game may have turned it back on.
+                        if (s_Hidden.Contains(r)) { r.enabled = false; continue; }
                         if (!r.enabled) continue;
                         r.enabled = false;
                         s_Hidden.Add(r);
@@ -110,7 +127,7 @@ namespace VDGS
                     }
                     foreach (var t in root.GetComponentsInChildren<Terrain>(true))
                     {
-                        if (s_HiddenTerrain.Contains(t)) continue;
+                        if (s_HiddenTerrain.Contains(t)) { t.enabled = false; continue; }
                         if (!t.enabled) continue;
                         t.enabled = false;
                         s_HiddenTerrain.Add(t);
@@ -124,7 +141,8 @@ namespace VDGS
             foreach (var cam in Camera.allCameras)
             {
                 if (cam.clearFlags != CameraClearFlags.Skybox) continue;
-                if (IsTracked(cam)) continue;
+                // Tracked but back on Skybox: the game reset it; the recorded original stands.
+                if (IsTracked(cam)) { cam.clearFlags = CameraClearFlags.SolidColor; cam.backgroundColor = Color.black; continue; }
                 s_Cameras.Add(new CameraState { Cam = cam, Clear = cam.clearFlags, Background = cam.backgroundColor });
                 cam.clearFlags = CameraClearFlags.SolidColor;
                 cam.backgroundColor = Color.black;
@@ -133,9 +151,10 @@ namespace VDGS
             }
 
             var where = string.Join("+", scenes.ToArray());
-            log?.AppendLine("blackout: on in " + where + " - " + hidden + " renderer(s), " + cams
-                            + " camera(s) newly hidden, " + (s_Hidden.Count + s_HiddenTerrain.Count) + "/" + s_Cameras.Count + " held");
-            if (s_Hidden.Count + s_HiddenTerrain.Count == 0)
+            if (summary || hidden > 0 || cams > 0)
+                log?.AppendLine("blackout: on in " + where + " - " + hidden + " renderer(s), " + cams
+                                + " camera(s) newly hidden, " + (s_Hidden.Count + s_HiddenTerrain.Count) + "/" + s_Cameras.Count + " held");
+            if (summary && s_Hidden.Count + s_HiddenTerrain.Count == 0)
                 log?.AppendLine("blackout: no ground renderer found under " + string.Join("/", kGroundRoots)
                                 + " in " + where + " - this scenery is not known here");
             // Last, so a throw above leaves the next Want free to try again.
