@@ -443,7 +443,9 @@ Unity は左手系 Y-up なので、届いたキャプチャはそのままだ�
 `python3 tools/fetch_ssog.py <hash> <dir>` が落とす。`<name>.sog` と SOG の `meta.json` を持つ
 ディレクトリも読める（LOD 無し）。発見の順は `lod-meta.json` → `meta.json`（`formatVersion` なら
 変換済み、`version: 2` と `means` なら SOG）→ `.sog` → `.ply`。鏡映の規則は `.ply` と同じ。
-設計は docs/superpowers/specs/2026-09-17-ssog-lod-design.md、数字は docs/performance.ja.md §3。
+**全体は [docs/ssog.ja.md](docs/ssog.ja.md)** — ディスク上の形、復号の経路、段の選択、
+GPU 側、踏むと高くつく 5 つ。数字は docs/performance.ja.md §3。設計時の検討は
+docs/superpowers/specs/2026-09-17-ssog-lod-design.md にあるが、距離帯の節は採用しなかった案。
 
 **全段を常駐させ、葉ごとに 1 段だけ描く。** 飛行中の `SetData` を避けるため。非選択の splat は
 `CSCompactActive` でソート鍵バッファから外し、距離パスもソートも view パスも `_SortCount` 本
