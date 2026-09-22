@@ -11,8 +11,9 @@ export interface Env {
   CAPTURES: R2Bucket
 }
 
-// Everything else is the site.
-const FROM_R2 = /^\/(scene|track|app)\//
+// Everything else is the site. A DVR viewer (/dvr/<name>/) is a page in the site whose data
+// (a scene, a video, poses) sits in R2 under the same prefix.
+const FROM_R2 = /^\/(scene|track|app)\/|^\/dvr\/[^/]+\/data\//
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {

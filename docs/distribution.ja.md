@@ -258,8 +258,12 @@ metadata として刻み、次回はそれと突き合わせる。同じ日の c
 |---|---|
 | `/`, `/assets/*`, `/catalog.json` | 静的アセット（`build/release/site`） |
 | `/scene/*`, `/track/*`, `/app/*` | R2 バケット `vdgs`（`build/release/files`） |
+| `/dvr/<name>/` | DVR ビューアのページ（静的アセット。`tools/publish-dvr-viewer.sh` が `viewer/` を `base: /dvr/<name>/` で焼いて `build/dvr-viewer/<name>` に置き、`make-catalog.sh` の `rm -rf` 後も戻す） |
+| `/dvr/<name>/data/*` | 同じ R2（`dvr/<name>/data/`：SOG 2 本、ピンホール動画、姿勢 3 組、`marks.json`。スキャンの代理動画は出さない） |
 
 **分けている理由はサイズだけ** — デプロイは 1 ファイル 25 MiB 上限、キャプチャは数百 MB。
+viewer の `vite build` は `public/` を丸ごと dist に写すので、`public/data`（データへのシンボリックリンク）が
+入ると deploy が `Asset too large`（198 MiB の mp4）で落ちる —— `copyPublicDir: false` にしてある。
 **オリジンは 1 つ**にしてあるので、カタログの URL とページのリンクが食い違いようがない。
 R2 は Range 対応で streaming（回線が切れても再開できる）、`immutable` で長期キャッシュ
 （公開ファイルは同じ名前で中身が変わらない）。
