@@ -59,7 +59,13 @@ if [ -n "${VDGS_GAME:-}" ]; then
   # An absolute Windows path: scp wants it forward-slashed and with the drive kept.
   REMOTE_GAME_REL="$(printf '%s' "$VDGS_GAME" | tr '\\\\' '/' | sed 's/ /\\\\ /g')"
 fi
-if [ -n "${VDGS_HOST:-}" ] && scp -o BatchMode=yes -o ConnectTimeout=8 -q \
+if [ -n "${VDGS_SHADERS:-}" ]; then
+  # An explicit bundle wins over the game box, which is shared: a session testing an
+  # unreleased shader there would otherwise put it in the release, and the fetch below
+  # overwrites this cache on the way past.
+  [ "$VDGS_SHADERS" -ef "$BUNDLE" ] || cp "$VDGS_SHADERS" "$BUNDLE"
+  echo "   from $VDGS_SHADERS"
+elif [ -n "${VDGS_HOST:-}" ] && scp -o BatchMode=yes -o ConnectTimeout=8 -q \
      "$VDGS_HOST:$REMOTE_GAME_REL/vdgs/vdgs-shaders" \
      "$BUNDLE" 2>/dev/null; then
   echo "   from the game box"

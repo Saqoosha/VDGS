@@ -213,6 +213,26 @@ not show through the gaps. Two details worth knowing:
   game's ground plane is at 0 and would otherwise hide it. It is pinned through
   `parent.InverseTransformPoint` so it stays there under any placement
 
+### The blackout
+
+`WorldBlackout` hides the game's world itself instead of boxing the capture in: the ground
+plane's `Renderer` (and any Unity `Terrain`) goes off and every enabled camera clearing to
+`Skybox` clears to solid black instead. Colliders are untouched, so a capture with no
+collision mesh still lands on the game's floor. Unlike the box it does not depend on the
+capture being upright and it holds past the capture's bounds.
+
+- **Ground is found by root object name**, `Terrain`, in every loaded scene (BlankCanvas
+  is `Terrain/Plane`, a MeshRenderer + BoxCollider, read out of `level6` with UnityPy). A
+  scenery with no such root logs "no ground renderer found" and only the sky goes
+- **it is world state, counted by capture name**: applied once when the first spawned
+  capture asks, undone once when the last is despawned or switches it off. A scene reload
+  (restart) brings a fresh visible Plane, so `Reapply` runs from `sceneLoaded` while anyone
+  still wants it; it only adds to the records, so an additive load (the track editor on
+  top of the flight scene) keeps what is already hidden restorable. The same sweep runs
+  once a second from `PollTrack`, because the editor hands over to flight without a scene
+  load and turns the ground and flight camera on as it does
+- fog is not touched; it is off in BlankCanvas, the only scenery this has been used on
+
 ---
 
 ## Tracks and captures
@@ -294,6 +314,8 @@ HttpListener (:8777)
   ├ POST /api/bind    bind to the current track
   ├ POST /api/unbind  remove a binding
   ├ POST /api/backdrop     black box around the capture
+  ├ POST /api/blackout     hide the game's ground plane and sky
+  ├ POST /api/dump         hierarchy dump of every loaded scene (F10 without the key)
   ├ POST /api/collision    MeshCollider on/off
   ├ POST /api/collisionview  hide / solid / wire
   └ POST /api/transform    scale and Y; writes placement.json
@@ -354,6 +376,7 @@ draws the shell (solid or wire). Bake is OpenVDB; see [SCENES.md](SCENES.md).
 | `SplatCollision.cs` | `collision.bin` → MeshCollider (Y-mirror on `.ply`) |
 | `SplatCollisionView.cs` | the collision shell (solid / wire) |
 | `SplatBackdrop.cs` | the inward-facing black box |
+| `WorldBlackout.cs` | hides the game's ground plane and sky, keeps its colliders |
 | `TrackName.cs` | the loading track's name, through several fallbacks |
 | `TrackBindings.cs` | reads and writes `bindings.json` |
 | `TrackProbe.cs` | hunts strings inside the obfuscated game (F12) |

@@ -305,6 +305,24 @@ function ShownBlock({
               </p>
             ) : null}
           </div>
+          {/* Not gated on `rotated`: unlike the box, the blackout does not need an upright capture (WorldBlackout.cs). */}
+          <div>
+            <StampCheck
+              label="blackout"
+              checked={scene.blackout}
+              onChange={(on) => {
+                void (async () => {
+                  try {
+                    await api.setBlackout(scene.name, on)
+                    await onRefresh()
+                  } catch (e) {
+                    onFlash(e instanceof Error ? e.message : 'failed')
+                    await onRefresh()
+                  }
+                })()
+              }}
+            />
+          </div>
           {scene.hasCollision ? (
             <>
               <StampCheck

@@ -49,6 +49,8 @@ export const unbind = (track?: string) =>
   post('/api/unbind', track ? { track } : {})
 export const setBackdrop = (splat: string, on: boolean) =>
   post('/api/backdrop', { splat, on })
+export const setBlackout = (splat: string, on: boolean) =>
+  post('/api/blackout', { splat, on })
 export const setCollision = (splat: string, on: boolean) =>
   post('/api/collision', { splat, on })
 export const setCollisionView = (splat: string, mode: CollisionView) =>

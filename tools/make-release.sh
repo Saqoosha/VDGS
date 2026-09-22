@@ -61,7 +61,11 @@ cp "$DLL" "$STAGE/vdgs-mod/BepInEx/plugins/"
 say "fetching the shader bundle from the game box"
 # Baked, not built here: Unity on macOS refuses to compile D3D shaders and produces an
 # empty bundle without saying so. The size check below is the guard against shipping one.
-if [ -n "${VDGS_HOST:-}" ] && scp -o BatchMode=yes -o ConnectTimeout=8 -q \
+if [ -n "${VDGS_SHADERS:-}" ]; then
+  # An explicit bundle wins over the game box, which is a shared machine: a session
+  # testing an unreleased shader there would otherwise put it in the release.
+  cp "$VDGS_SHADERS" "$STAGE/vdgs-mod/vdgs/vdgs-shaders"
+elif [ -n "${VDGS_HOST:-}" ] && scp -o BatchMode=yes -o ConnectTimeout=8 -q \
      "$VDGS_HOST:Downloads/Velocidrone\\ Windows\\ Launcher/app/vdgs/vdgs-shaders" \
      "$STAGE/vdgs-mod/vdgs/vdgs-shaders" 2>/dev/null; then
   :
@@ -78,7 +82,9 @@ if [ "$BUNDLE_BYTES" -lt 1000000 ]; then
   echo "splat shader in it is unsupported. Re-bake before releasing." >&2
   exit 1
 fi
-echo "   bundle ok: $BUNDLE_BYTES bytes"
+# The digest, not just the length: a bundle from the wrong branch is the same size to
+# within a few hundred bytes, and the release is where that stops being recoverable.
+echo "   bundle ok: $BUNDLE_BYTES bytes, sha256 $(shasum -a 256 < "$STAGE/vdgs-mod/vdgs/vdgs-shaders" | cut -d' ' -f1)"
 
 say "building the control UI"
 # The plugin serves this from <game>/vdgs/ui while the game runs. Without it the browser

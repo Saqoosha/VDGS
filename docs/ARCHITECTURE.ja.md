@@ -211,6 +211,26 @@ Camera.onPreCull
   ため。`parent.InverseTransformPoint` 経由で固定してあるので、どんな placement でも
   そこに留まる
 
+### ブラックアウト
+
+`WorldBlackout` はキャプチャを箱で囲うのではなく、ゲームの世界そのものを消す——
+地面の `Renderer`（と Unity の `Terrain`）を切り、`Skybox` でクリアしている有効な
+全カメラを黒の単色クリアにする。コライダーは触らないので、collision mesh の無い
+キャプチャでもゲームの床に着地できる。箱と違ってキャプチャの直立に依存せず、範囲の
+外まで効く。
+
+- **地面はルートオブジェクト名 `Terrain` で、ロード済み全シーンから探す**（BlankCanvas
+  は `Terrain/Plane`、MeshRenderer ＋ BoxCollider。`level6` を UnityPy で読んで確認）。
+  そのルートが無いシーナリーは「no ground renderer found」をログに残し、空だけ消える
+- **世界の状態で、キャプチャ名で数える**。spawn 中の最初の 1 つが要求したとき 1 回だけ
+  適用し、最後の 1 つが despawn するか off にしたとき 1 回だけ戻す。シーンの読み直し
+  （リスタート）で Plane が見える状態で復活するので、誰かが要求している間は
+  `sceneLoaded` から `Reapply`。記録には足すだけなので、additive ロード（飛行シーンの
+  上に乗るトラックエディタ）でも隠した分は戻せる。同じ sweep を `PollTrack` から 1 秒
+  ごとに回す——エディタから飛行へはシーンロード無しで移り、そのとき地面と飛行カメラが
+  on になるため
+- fog は触らない。BlankCanvas（唯一使ったシーナリー）ではもともと off
+
 ---
 
 ## トラックと GS の対応
@@ -293,6 +313,8 @@ HttpListener (:8777)
   ├ POST /api/bind    現在のトラックに紐付け
   ├ POST /api/unbind  紐付けを解除
   ├ POST /api/backdrop     キャプチャ周りの黒い箱
+  ├ POST /api/blackout     ゲームの地面と空を消す
+  ├ POST /api/dump         ロード済み全シーンのヒエラルキー（キー無しの F10）
   ├ POST /api/collision    MeshCollider の on/off
   ├ POST /api/collisionview  hide / solid / wire
   └ POST /api/transform    スケールと Y。placement.json に書く
@@ -352,6 +374,7 @@ HttpListener (:8777)
 | `SplatCollision.cs` | `collision.bin` → MeshCollider（`.ply` は Y 鏡映） |
 | `SplatCollisionView.cs` | コリジョン殻の描画（solid / wire） |
 | `SplatBackdrop.cs` | 内向きの黒い箱 |
+| `WorldBlackout.cs` | ゲームの地面と空を消す。コライダーは残す |
 | `TrackName.cs` | ロード中のトラック名を多段フォールバックで取得 |
 | `TrackBindings.cs` | `bindings.json` の読み書き |
 | `TrackProbe.cs` | 難読化されたゲームから文字列の在処を探す（F12） |

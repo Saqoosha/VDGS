@@ -143,6 +143,18 @@ sha256 を固定して。**「先に BepInEx を入れて」は全インスト�
 アプリは開いて「mod ペイロードを持っていない」と言う。** NSIS インストーラも焼けるが、
 未署名では SmartScreen が同じように出るので今は得が無い。
 
+**シェーダーバンドルはゲーム機から取る。そこは共有マシンで、他人の未公開版が載っている
+ことがある。** `make-release.sh` も `make-win-app.sh` も `VDGS_HOST` があれば
+`<game>/vdgs/vdgs-shaders` を無条件に scp し、後者は**フォールバック用の
+`build/bundles/Windows/` にも書き戻す**ので、退避したつもりの版まで上書きされる。
+2026-09-17 に別セッションが LOD 版（1,539,708 バイト）を載せた状態で焼き、
+**master の DLL と誰も試していないシェーダー**という組み合わせが出荷物になりかけた。
+サイズ検査は通る —— 別ブランチのバンドルは数百バイトしか違わない。
+
+配るものを自分で決めるときは **`VDGS_SHADERS=<path>` を渡す**（両スクリプトでゲーム機より
+優先される）。ログに出る sha256 が意図した版かを毎回見ること。公開済みの版は
+`build/release/vdgs-mod-<日付>.zip` の中から取り出せる。
+
 **踏むと高くつく罠が 4 つあり、全部スクリプトに埋めてある：**
 
 - **ペイロードは毎回 `rm -rf` してから組む。** `resources/mod` は macOS ビルドと**共有**して
@@ -246,8 +258,12 @@ metadata として刻み、次回はそれと突き合わせる。同じ日の c
 |---|---|
 | `/`, `/assets/*`, `/catalog.json` | 静的アセット（`build/release/site`） |
 | `/scene/*`, `/track/*`, `/app/*` | R2 バケット `vdgs`（`build/release/files`） |
+| `/dvr/<name>/` | DVR ビューアのページ（静的アセット。`tools/publish-dvr-viewer.sh` が `viewer/` を `base: /dvr/<name>/` で焼いて `build/dvr-viewer/<name>` に置き、`make-catalog.sh` の `rm -rf` 後も戻す） |
+| `/dvr/<name>/data/*` | 同じ R2（`dvr/<name>/data/`：SOG 2 本、ピンホール動画、姿勢 3 組、`marks.json`。スキャンの代理動画は出さない） |
 
 **分けている理由はサイズだけ** — デプロイは 1 ファイル 25 MiB 上限、キャプチャは数百 MB。
+viewer の `vite build` は `public/` を丸ごと dist に写すので、`public/data`（データへのシンボリックリンク）が
+入ると deploy が `Asset too large`（198 MiB の mp4）で落ちる —— `copyPublicDir: false` にしてある。
 **オリジンは 1 つ**にしてあるので、カタログの URL とページのリンクが食い違いようがない。
 R2 は Range 対応で streaming（回線が切れても再開できる）、`immutable` で長期キャッシュ
 （公開ファイルは同じ名前で中身が変わらない）。

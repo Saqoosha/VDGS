@@ -43,6 +43,7 @@ function scene(over: Partial<Scene> = {}): Scene {
     turn: 0,
     mirror: false,
     backdrop: false,
+    blackout: false,
     collision: false,
     collisionView: 'off',
     lodDetail: 10,
@@ -133,6 +134,28 @@ describe('controls that explain themselves', () => {
 
     await vi.waitFor(() => expect(refresh).toHaveBeenCalled())
     expect(screen.queryByText(/backdrop refused/i)).toBeNull()
+  })
+
+  it('POSTs /api/blackout when the blackout checkbox is clicked', async () => {
+    mockOkFetch()
+    const before = sample(scene({ blackout: false }))
+    const after = sample(scene({ blackout: true }))
+    const refresh = vi.fn().mockResolvedValue(after)
+    render(<Control state={before} refresh={refresh} />)
+
+    const checkbox = screen
+      .getByText('blackout')
+      .closest('label')
+      ?.querySelector('[role="checkbox"]')
+    fireEvent.click(checkbox!)
+
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalled())
+    const [url, init] = vi.mocked(fetch).mock.calls[0]
+    expect(url).toBe('/api/blackout')
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({
+      splat: 'my-house',
+      on: true,
+    })
   })
 })
 

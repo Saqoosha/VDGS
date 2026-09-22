@@ -45,6 +45,9 @@ echo "== building the page =="
 ( cd "$ROOT/web" && bun run build ) | tail -2
 [ -f "$ROOT/web/dist/site.html" ] || { echo "no web/dist/site.html produced" >&2; exit 1; }
 cp "$ROOT/web/dist/site.html" "$OUT/index.html"
+# DVR viewers (tools/publish-dvr-viewer.sh) live under /dvr/<name>/ in the same site; this
+# rebuild wipes $OUT, so they are kept in build/dvr-viewer and copied back in.
+[ -d "$ROOT/build/dvr-viewer" ] && cp -R "$ROOT/build/dvr-viewer" "$OUT/dvr"
 cp -R "$ROOT/web/dist/assets" "$OUT/assets"
 [ -f "$ROOT/web/dist/favicon.svg" ] && cp "$ROOT/web/dist/favicon.svg" "$OUT/favicon.svg"
 # The page asks for /assets and /catalog.json, so this folder has to be the site root -

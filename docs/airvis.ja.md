@@ -67,15 +67,22 @@ FDF         4,999,971    97.3%      0.9994       0.00264      0.144743
 説明しようとして大きく薄いガウシアンを作る。**AirVis が自動生成するマスクは自撮り棒と
 マウントだけで、空は隠さない**（白 96.8〜100%）。
 
-**`maxSplats` も効いている可能性がある。** 疎点群に対する比が境目：
+**`maxSplats` も効くが、境目は学習器ごとに違い、trainer をまたいで比べてはいけない。**
+疎点群に対する比で見ると：
 
 ```
-FDF   859,591 点 -> 5M   5.8 倍   生存 97.3%
-360   785,480 点 -> 5M   6.4 倍   生存  7.6%
-（記録）10.8 万点 -> 1M   9.3 倍   崩壊
+AirVis   FDF   859,591 点 -> 5M      5.8 倍   生存 97.3%
+AirVis   360   785,480 点 -> 5M      6.4 倍   生存  7.6%   （空マスク無し。cap だけの責任ではない）
+AirVis   ゲート  44,695 点 -> 528k   11.8 倍   良品
+gsplat   360   249,727 点 -> 1M      4.0 倍   生存 68.1%
+gsplat   360   249,727 点 -> 3M     12.0 倍   生存  0.2%   崩壊
 ```
 
-**cap は疎点群の 2〜3 倍に置く。** 785k なら 2M。
+**gsplat は 2〜4 倍に置く。** 崩壊の機構は正則化が固定なこと —— splat が増えるほど 1 個
+あたりの光学的圧力は薄まるのに `opacity_reg 0.01` は据え置きで、薄い側へ雪崩れる。
+**AirVis のアプリはそれでも 11.8 倍で通る**（`scale_reg` / `opacity_reg` 0.01 固定 +
+Vulkan trainer）ので、大きい cap が要るなら trainer を単体で叩く（下）。AirVis の自動 cap
+（`cap_source=auto-image-count`）は画像数に比例せず、6,732 枚で 3.68M。
 
 ## 大域 mapper は枚数で落ちる。落ちても損はしない
 
@@ -106,6 +113,14 @@ GPU バンドル調整で、MSIX の LocalCache に `caspar-vulkan` という名
 
 **そして、いちばん良い結果 2 本は `casparBackend: "none"` で出ている。** 質の源ではない。
 効くとすれば間接的で、総当たり照合や大量の画像が「払える」ようになること。
+
+**中身の出どころは `third_party\colmap-runtime\airvis-colmap-runtime.json` が自己申告する。**
+AirVis 1.0.9.0 の COLMAP は private fork `RocklandTechnologies/AVSColmap` の `4.2.0.dev0`
+で、upstream 4.2.0 との差はリリース直前の 3 コミットだけ ＝ 実質 4.2.0。**ただし「設定だけ」
+ではない** —— upstream の Caspar は CUDA のみで pinhole / simple-radial のカーネルしか持たず、
+Vulkan 版は 1 ファイルも無い。AirVis は Vulkan と Metal の Caspar、`EQUIRECTANGULAR` の
+カメラモデル、Vulkan の特徴抽出・照合・語彙探索を自前で足している。速さの源はそこ。
+Vulkan を選ぶ理由は速度ではなく移植性（AMD / Intel / Apple）で、4090 一台なら CUDA でよい。
 
 ## 空・雲・人のマスクを足す
 
@@ -152,6 +167,44 @@ GPU バンドル調整で、MSIX の LocalCache に `caspar-vulkan` という名
 自体は正しい向きで、上端の帯が空 100%、下端が 7%。** リグ基準では一貫しているので
 SfM は問題にならず、マスクは 1 枚ずつ計算するので追随する。
 
+## trainer を単体で叩く（AirVis の SFM を飛ばして自前の COLMAP を食わせる）
+
+MSIX の `SplatTrainerWindows\AirVis-SplatTrainer.exe`（exe 2 本 + shaders、3.4 MB、自己完結）は
+**標準 COLMAP レイアウト（`images/` + `sparse/0/`、`masks/` があれば自動で拾う）を直接読む**。
+`WindowsApps` 直下は実行を拒まれるので `%USERPROFILE%\airvis-trainer` に複製して使う。
+`--help` が全オプションを出す。Vulkan なので CUDA より速く軽い：6M splats を 30,000 反復
+12 分 / VRAM 5.2 GB（gsplat は同じ GPU で 3M から 24 GB に張り付いて崩壊）。
+
+```
+AirVis-SplatTrainer.exe <colmap_dir> --max-splats 6000000 --alpha-mode masked ^
+  --mcmc-init-preset safe --scale-reg 0.01 --bilateral-grid false ^
+  --total-train-iters 30000 --export-every 10000 --export-path <out> ^
+  --export-name export_{iter}.ply --image-cache-mb max --strategy mcmc
+```
+
+**`--max-splats` を大きく取りすぎると preset が黙って `conservative` に落ちる。** このデータ
+（6,732 枚、疎点群 249,727）では 6M は `safe` のまま、11.1M で落ちた。落ちると
+`scale_reg=0`（大きさを罰しない → 1% がシーン幅の 3 分の 1 の巨大 splat → 針だらけ）、
+`opacity_reg` が 0 へ減衰、世界が正規化される（`frame=normalized`）。**3 つの症状が 1 つの
+フラグから出るので、必ずログの `=== Resolved trainer configuration ===` で `mcmc_init_preset` /
+`scale_reg` / `frame=` を確認してから放置する。** auto cap は `--total-train-iters 1` で
+1 分で聞ける（画像数に比例しない：320 枚→528k、6,732 枚→3.68M）。
+
+- `[LowQuality]` は手動フラグではなく画像幅 1900px 未満で自動。アプリの JSON の
+  `lowQualityCapture: true` はそれ
+- `--bilateral-grid` の CLI 既定は on。実測で負けている（色補正後 −0.41 dB）ので切る
+- **書き出しの ply は COLMAP のカメラと大域の相似変換で対応しない**（`safe` の `frame=points`
+  でも）。軸置換 48 通り × 倍率 3 通り（最高相関 0.43、正解は 0.89）、ICP（平面優勢で偽解）、
+  `--align-to-first-camera true`（1 枚 0.56、2 枚平均 0.29）、局所最適化（0.41）を全部外して
+  打ち切り。**AirVis 出力を自前カメラで描いて評価する筋は追わない** —— 品質は SuperSplat、
+  VDGS への配置は `align_ply.py` の手動合わせ
+- ply のプロパティ順は `x,y,z,scale,opacity,rot,f_dc,f_rest`、法線なし（アプリの export も
+  同じ）。名前で読めば無事、位置で読むローダーは取り違える。`--export-opacity-floor`
+  既定 0.05 で不透明度が下から押さえられるので、生存率の比較には使えない
+- **Windows の OpenSSH はセッション終了でプロセス木を殺す**（`Start-Process` でも）。
+  長い学習は `Register-ScheduledTask`（`-LogonType Interactive -RunLevel Highest`、
+  `-ExecutionTimeLimit ([TimeSpan]::Zero)`）で起動する
+
 ## 実測値
 
 ```
@@ -163,11 +216,33 @@ JDL v7  360 9,088（マスク有）    2M/100k   1,999,993  0.1101   52.9%  改�
 FDF     774 枚                  5M/100k   4,999,971  0.1447   97.3%  被覆 p50 1.68
 ```
 
-**マスクと cap で 7.6% → 52.9% まで戻したが、健全な走行の 89〜97% には届かない。**
-残る容疑者は全面マスクの 6.4%（`loss 0`）と、総当たり照合が切れていること。
-**ここで打ち切った**（2026-09-01）。狙いは細部ではなく地面の被覆で、合成（`Super User` の
-mixed folders に DJI と 360 を同居させる）が残った手だったが、**未検証のまま終了**。
-配備した JDL は DJI 456 枚だけで作られている。
+**AirVis の枠内ではマスクと cap で 7.6% → 52.9% が上限だった。** 残っていた容疑者は
+全面マスクの 6.4%（`loss 0`）と総当たり照合が切れていること —— どちらも外れで、
+**効いたのは SFM の登録率と学習器の正則化**（下）。
+
+**AirVis の外で同じ素材を回すと指標は健全な範囲に入る。ただし品質は使い物にならない**
+（Saqoosha の判定、2026-09-03。経緯は docs/findings-2026-09-03.md）：
+
+```
+                          SfM 登録        splats     生存    不透明度p50  最長軸p50   masked PSNR
+AirVis 360 単独（v6）      50%（自前 SFM）  4,999,456   7.6%    0.0522      0.0684      —
+COLMAP 4.2 リグ + gsplat   98.8%           1,000,000  68.1%    0.0304      0.0060      24.6
+COLMAP 4.2 リグ + AirVis   98.8%           6,000,000  100%*    0.050*      0.0000      —
+```
+
+（* AirVis の export は不透明度を 0.05 で下から押さえる。生存率は人工物、p50 は床の値）
+
+COLMAP 4.2 の `pycolmap.panorama`（perspective リグ、yaw 4 × pitch −35/0/+35 = 12 面、
+下向きリングが必ず 4 本入る）で登録が 50% → 98.8%。学習は空・人マスクを損失から外し、
+gsplat は `opacity_reg 0.001`、AirVis の trainer は `safe` preset（`scale_reg 0.01`）。
+gsplat は 1440² で cap 3M から崩壊（生存 0.2%）、5M は CUDA エラー。
+
+**それでも配備中の JDL（DJI 456 枚）より良くない**（Saqoosha の目視、SuperSplat）。
+360 単独は「崩壊しない」まで来たが、16 px/度と歩き撮りの動きブレ（Laplacian 分散の
+p95/p50 が 1.51 倍、5 枚に 1 枚を選抜しても 1.15 倍 ＝ 均一なので選抜が効かない）は
+撮影の物理で、設定では越えられない。**残る使い道は「DJI と同じ COLMAP モデルに 13 台目の
+カメラとして混ぜ、地面の被覆だけ 360 から足す」**。道具は揃った（リグ + 自前 SfM +
+trainer 単体、下）が未実施。配備した JDL は DJI 456 枚だけで作られている。
 
 **v4→v5 は学習を倍にして splat を 1.67 倍にした結果、細部は良くなったが被覆は上がらない。**
 MCMC は splat を増やすとき 1 個を小さくするので、面積の総和が変わらない。**地面の霞は

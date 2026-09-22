@@ -23,6 +23,7 @@ function scene(over: Partial<Scene> = {}): Scene {
     turn: 0,
     mirror: false,
     backdrop: false,
+    blackout: false,
     collision: true,
     collisionView: 'off',
     lodDetail: 1,
@@ -98,6 +99,9 @@ function apply(status: Status, url: string, body: Record<string, unknown>): Stat
   } else if (url === '/api/backdrop') {
     const s = named(body.splat)
     if (s) s.backdrop = body.on === true
+  } else if (url === '/api/blackout') {
+    const s = named(body.splat)
+    if (s) s.blackout = body.on === true
   } else if (url === '/api/collision') {
     const s = named(body.splat)
     if (s) s.collision = body.on === true

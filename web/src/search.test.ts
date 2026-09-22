@@ -18,6 +18,7 @@ function scene(name: string): Scene {
     turn: 0,
     mirror: false,
     backdrop: false,
+    blackout: false,
     collision: false,
     collisionView: 'off',
     lodDetail: 10,

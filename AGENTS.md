@@ -957,6 +957,18 @@ docs/superpowers/specs/2026-08-18-splat-collision-design.md。
 **壁の厚みは速度で決まる。** 物理は 400 Hz、150 km/h で 1 ステップ 0.104 m 進むので
 **厚さ 10 cm 未満の壁はすり抜ける**。level set の帯を voxel の 4 倍で焼くのはこのため。
 
+## DVR の飛行経路を 3DGS 上に復元する
+
+ゴーグルの DVR だけから全フレームのカメラ姿勢を同じ場所のスキャン上に求め、`viewer/` で 3DGS と DVR を
+重ねて確かめる（公開版 https://vdgs.saqoo.sh/dvr/jdl-2026-r6/、`tools/publish-dvr-viewer.sh`）。通し・設定・罠は [docs/dvr-localization.ja.md](docs/dvr-localization.ja.md)、道具は
+`tools/dvr/`。**同じスキャンなら 1〜2 時間、ほぼ GPU の放置。** 踏むと高くつく 3 つ：画素比較の loss は
+**両画像を σ 3 px でぼかさないと向きを見ない**（芝が画面の 3 分の 2）、mapper で穴を埋めたら
+**元の COLMAP アンカーを最優先**にして新規は DVR 自身の loss で採否を決める、ヘアピンでは
+slerp の**短い弧が実際と逆**なことがあり長い弧と画素で比べる。**位置は画素比較で探さない**（±6 m の格子探索は
+正しいアンカーまで 6 m 動かして loss を 14% 下げた。偽の極小がどこにでもある）。数度・1 m を超える外れは
+viewer の `mark` で人がランドマークを打ち `marks_apply.sh` で解く（1 周 1 時間、印の残差 32 → 7 px）。
+他のセッションの `wsl --shutdown` は走っている refine を黙って殺す。
+
 ## 残タスク
 
 - **`-force-d3d12` でメニュー放置がクラッシュする原因は未解明**（「副作用 2」）。

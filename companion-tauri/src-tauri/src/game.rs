@@ -494,7 +494,8 @@ pub fn try_read_bindings(root: &Path) -> io::Result<Bindings> {
     match fs::read_to_string(&path) {
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(Bindings::new()),
         Err(e) => Err(e),
-        Ok(text) => try_parse_bindings(&text),
+        // The mod reads through a UTF-8 BOM; refusing one hides every binding silently.
+        Ok(text) => try_parse_bindings(text.strip_prefix('\u{feff}').unwrap_or(&text)),
     }
 }
 
@@ -935,22 +936,11 @@ pub fn uninstall_mod(root: &Path, log: &mut dyn FnMut(String)) -> io::Result<()>
 ///
 /// `install_ply` and `remove_capture` both turn a name that ultimately comes from
 /// outside this process - a file the user picked, a row shown in the UI whose source is
-/// a track name or a hand-edited `bindings.json` - into a path component. One predicate,
-/// used by both: empty, `.`/`..`, any leading-dot name, any separator or embedded NUL, an
-/// absolute path, more than one path component, or the reserved `ui` name (that directory
-/// holds this app's own static assets, never a capture) are all refused.
+/// a track name or a hand-edited `bindings.json` - into a path component. The rule is
+/// [`is_plain_folder_name`], the one a catalog `installAs` passes.
 fn valid_capture_name(name: &str) -> bool {
-    if name.is_empty() || name == "." || name == ".." || name.starts_with('.') {
-        return false;
-    }
-    if name.contains('/') || name.contains('\\') || name.contains('\0') {
-        return false;
-    }
-    if name.eq_ignore_ascii_case("ui") {
-        return false;
-    }
     let p = Path::new(name);
-    !p.is_absolute() && p.components().count() == 1
+    is_plain_folder_name(name) && !p.is_absolute() && p.components().count() == 1
 }
 
 /// Removes a capture, whichever of the two shapes it is on disk.
@@ -1236,6 +1226,19 @@ mod tests {
     }
 
     #[test]
+    fn bindings_with_a_utf8_bom_are_read() {
+        let root = tmp();
+        let path = root.join("vdgs/bindings.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "\u{feff}{\r\n  \"VDGS X\": [\"x-dir\"]\r\n}\r\n").unwrap();
+        assert_eq!(try_read_bindings(&root).unwrap()["VDGS X"], vec!["x-dir"]);
+        // Binding again rewrites the file without the mark.
+        bind(&root, "VDGS Y", "y-dir", false).unwrap();
+        assert!(!std::fs::read(&path).unwrap().starts_with(&[0xEF, 0xBB, 0xBF]));
+        assert_eq!(read_bindings(&root).len(), 2);
+    }
+
+    #[test]
     fn bind_refuses_corrupt_bindings_and_leaves_file() {
         let root = tmp();
         let path = root.join("vdgs/bindings.json");
@@ -1381,6 +1384,20 @@ mod tests {
     fn remove_capture_reports_nothing_removed() {
         let root = tmp();
         assert!(!remove_capture(&root, "absent").unwrap());
+    }
+
+    #[test]
+    fn remove_capture_rejects_a_trailing_dot_or_space() {
+        // Windows strips both when resolving a path, so "ui." would land on the mod's own
+        // vdgs/ui and remove_dir_all it.
+        let root = tmp();
+        let ui = root.join("vdgs/ui");
+        std::fs::create_dir_all(&ui).unwrap();
+        std::fs::write(ui.join("index.html"), b"keep me").unwrap();
+        for bad in ["ui.", "ui ", "x.", "x ", "c:"] {
+            assert!(remove_capture(&root, bad).is_err(), "{bad:?} should be refused");
+        }
+        assert!(ui.join("index.html").exists());
     }
 
     #[test]

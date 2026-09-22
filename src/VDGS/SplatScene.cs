@@ -64,6 +64,10 @@ namespace VDGS
             // game's terrain and horizon show through every hole. See SplatBackdrop.
             public bool backdrop = false;
 
+            // Hide the game's own ground plane and sky while this capture is up, keeping
+            // the game's colliders. See WorldBlackout.
+            public bool blackout = false;
+
             // On by default: a capture that has a collision mesh generated for it is meant
             // to be flown as a solid room, and files written before this field existed
             // keep the initialiser (JsonUtility only overwrites keys the file contains).
@@ -307,6 +311,9 @@ namespace VDGS
                 report.AppendLine(Name + ": backdrop off - up=" + (placement.up ?? "(rotation)")
                                   + " is rotated, so the floor clamp would slice the capture");
 
+            if (placement.blackout)
+                WorldBlackout.Want(Name, report);
+
             // Off means nothing is built. Attaching regardless and disabling afterwards
             // would still cook the mesh - 277,736 triangles for drjohnson - inside the
             // spawn stall, so a perf run with collision switched off would silently
@@ -341,6 +348,7 @@ namespace VDGS
             m_Go = null;
             m_Renderer = null;
             m_PendingView = null;
+            WorldBlackout.Release(Name, null);
         }
 
         internal Transform Transform => m_Go != null ? m_Go.transform : null;
@@ -368,6 +376,7 @@ namespace VDGS
             internal readonly float Turn;
             internal readonly bool MirrorY;
             internal readonly bool BackdropOn;
+            internal readonly bool BlackoutOn;
             internal readonly bool CollisionOn;
             internal readonly string CollisionView;
             internal readonly float LodDetail;
@@ -378,13 +387,14 @@ namespace VDGS
 
             internal Status(float scale, float yOffset, float xOffset, float zOffset,
                              string up, float turn, bool mirrorY,
-                             bool backdropOn, bool collisionOn, string collisionView,
+                             bool backdropOn, bool blackoutOn, bool collisionOn, string collisionView,
                              float lodDetail, long lodBudget,
                              int? lodLeaves, long[] lodActive)
             {
                 Scale = scale; YOffset = yOffset; XOffset = xOffset; ZOffset = zOffset;
                 Up = up; Turn = turn; MirrorY = mirrorY;
-                BackdropOn = backdropOn; CollisionOn = collisionOn; CollisionView = collisionView;
+                BackdropOn = backdropOn; BlackoutOn = blackoutOn;
+                CollisionOn = collisionOn; CollisionView = collisionView;
                 LodDetail = lodDetail; LodBudget = lodBudget;
                 LodLeavesCount = lodLeaves; LodActive = lodActive;
             }
@@ -411,6 +421,7 @@ namespace VDGS
                 turn: p.turn,
                 mirrorY: MirrorFor(p),
                 backdropOn: spawned ? SplatBackdrop.IsAttached(m_Go.transform) : p.backdrop,
+                blackoutOn: spawned ? WorldBlackout.Wants(Name) : p.blackout,
                 collisionOn: spawned ? SplatCollision.IsEnabled(m_Go.transform) : p.collision,
                 collisionView: spawned ? SplatCollisionView.ModeOn(m_Go.transform) : p.collisionView,
                 lodDetail: spawned && m_Renderer != null ? m_Renderer.LodDetail : p.lodDetail,
@@ -472,6 +483,22 @@ namespace VDGS
             }
             SplatBackdrop.Attach(m_Go.transform, data.BoundsMin, data.BoundsMax,
                                  kBackdropMargin, kBackdropGroundY, log);
+        }
+
+        /// <summary>Hide or show the game's ground and sky for this capture, and remember the choice.</summary>
+        internal void SetBlackout(bool on, StringBuilder log)
+        {
+            var p = LoadPlacement();
+            p.blackout = on;
+            SavePlacementData(p, log);
+
+            if (m_Go == null)
+            {
+                log?.AppendLine(Name + ": blackout " + (on ? "on" : "off") + " (applies when spawned)");
+                return;
+            }
+            if (on) WorldBlackout.Want(Name, log);
+            else WorldBlackout.Release(Name, log);
         }
 
         /// <summary>Requested view, applied once the collider's mesh finishes cooking.</summary>
