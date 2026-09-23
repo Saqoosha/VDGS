@@ -423,6 +423,7 @@ namespace VDGS
             if (AnyFlyableSceneLoaded() || MenuSpawnAllowed())
             {
                 var blackoutLog = new StringBuilder();
+                WorldSky.Sweep(blackoutLog);
                 WorldBlackout.Reapply(blackoutLog);
                 if (blackoutLog.Length > 0)
                 {
@@ -670,7 +671,7 @@ namespace VDGS
 
             // The game turns its ground and flight camera on without a scene load when
             // the track editor hands over to flight, so the blackout is re-swept here.
-            if (flyable) WorldBlackout.Sweep(log);
+            if (flyable) { WorldSky.Sweep(log); WorldBlackout.Sweep(log); }
 
             if (log.Length > 0)
             {

@@ -166,6 +166,13 @@ if [ -n "$SCENE" ]; then
   mkdir -p "$STAGE/scene/vdgs/$SCENE"
   cp "$SCENE_DIR"/*.bin "$SCENE_DIR"/meta.json "$STAGE/scene/vdgs/$SCENE/"
   [ -f "$SCENE_DIR/placement.json" ] && cp "$SCENE_DIR/placement.json" "$STAGE/scene/vdgs/$SCENE/"
+  # The captured sky rides inside the folder, not beside it: the companion installs,
+  # updates and removes a capture as one folder, so a sibling file would never arrive,
+  # would not be swapped on Update, and would outlive Remove.
+  if [ -f "$SCENE_DIR/sky.jpg" ]; then
+    cp "$SCENE_DIR/sky.jpg" "$STAGE/scene/vdgs/$SCENE/"
+    echo "   sky: $(wc -c < "$SCENE_DIR/sky.jpg" | tr -d ' ') bytes"
+  fi
 
   # A capture without its collision mesh is flown straight through, and a capture without
   # its placement lands wherever the track's origin happens to be. Both are silent in the

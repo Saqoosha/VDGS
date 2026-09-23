@@ -66,7 +66,13 @@ namespace VDGS
 
             // Hide the game's own ground plane and sky while this capture is up, keeping
             // the game's colliders. See WorldBlackout.
-            public bool blackout = false;
+            //
+            // Null means "not chosen": on when the capture carries its own sky, off when it
+            // does not (see BlackoutFor). A capture's first release shipped a placement
+            // without this key, and the companion keeps the user's placement across an
+            // update, so a sky added in a later revision would otherwise never show for
+            // anyone who had the first one. An explicit false stays off.
+            public bool? blackout = null;
 
             // On by default: a capture that has a collision mesh generated for it is meant
             // to be flown as a solid room, and files written before this field existed
@@ -122,6 +128,13 @@ namespace VDGS
         /// never asked for mirroring - do not.
         /// </summary>
         private bool MirrorFor(Placement p) => DecodesAtLoad && (p.mirrorY ?? true);
+
+        /// <summary>
+        /// Whether blackout applies: the placement's choice when it made one, otherwise
+        /// whether the capture has a sky to show in place of the game's. Every read of the
+        /// flag goes through here, so the status the UI shows is the state the world is in.
+        /// </summary>
+        private bool BlackoutFor(Placement p) => p.blackout ?? File.Exists(WorldSky.PathFor(m_Dir));
 
         /// <summary>
         /// Whether the backdrop's local-space floor clamp still means what it says for the
@@ -310,8 +323,13 @@ namespace VDGS
                 report.AppendLine(Name + ": backdrop off - up=" + (placement.up ?? "(rotation)")
                                   + " is rotated, so the floor clamp would slice the capture");
 
-            if (placement.blackout)
+            if (BlackoutFor(placement))
+            {
+                // Sky first: blackout asks whether one is up before it decides what to do
+                // with the cameras, and a capture that has a sky wants its own, not black.
+                WorldSky.Want(Name, m_Dir, m_Go.transform, MirrorFor(placement), report);
                 WorldBlackout.Want(Name, report);
+            }
 
             // Off means nothing is built. Attaching regardless and disabling afterwards
             // would still cook the mesh - 277,736 triangles for drjohnson - inside the
@@ -348,6 +366,7 @@ namespace VDGS
             m_Renderer = null;
             m_PendingView = null;
             WorldBlackout.Release(Name, null);
+            WorldSky.Release(Name, null);
         }
 
         internal Transform Transform => m_Go != null ? m_Go.transform : null;
@@ -421,7 +440,7 @@ namespace VDGS
                 turn: p.turn,
                 mirrorY: MirrorFor(p),
                 backdropOn: spawned ? SplatBackdrop.IsAttached(m_Go.transform) : p.backdrop,
-                blackoutOn: spawned ? WorldBlackout.Wants(Name) : p.blackout,
+                blackoutOn: spawned ? WorldBlackout.Wants(Name) : BlackoutFor(p),
                 collisionOn: spawned ? SplatCollision.IsEnabled(m_Go.transform) : p.collision,
                 collisionView: spawned ? SplatCollisionView.ModeOn(m_Go.transform) : p.collisionView,
                 lodDetail: spawned && m_Renderer != null ? m_Renderer.LodDetail : p.lodDetail,
@@ -497,8 +516,16 @@ namespace VDGS
                 log?.AppendLine(Name + ": blackout " + (on ? "on" : "off") + " (applies when spawned)");
                 return;
             }
-            if (on) WorldBlackout.Want(Name, log);
-            else WorldBlackout.Release(Name, log);
+            if (on)
+            {
+                WorldSky.Want(Name, m_Dir, m_Go.transform, MirrorFor(p), log);
+                WorldBlackout.Want(Name, log);
+            }
+            else
+            {
+                WorldBlackout.Release(Name, log);
+                WorldSky.Release(Name, log);
+            }
         }
 
         /// <summary>Requested view, applied once the collider's mesh finishes cooking.</summary>

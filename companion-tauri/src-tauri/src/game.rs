@@ -395,7 +395,7 @@ pub fn scenes(root: &Path) -> Vec<SceneInfo> {
                 continue;
             }
             let mut bytes = 0u64;
-            for ext in [".ply", ".collision.bin", ".placement.json"] {
+            for ext in [".ply", ".collision.bin", ".placement.json", ".sky.jpg"] {
                 let p = vdgs.join(format!("{name}{ext}"));
                 if let Ok(meta) = fs::metadata(&p) {
                     bytes += meta.len();
@@ -971,7 +971,7 @@ pub fn remove_capture(root: &Path, name: &str) -> io::Result<bool> {
         fs::remove_dir_all(&dir)?;
         removed = true;
     }
-    for ext in [".ply", ".collision.bin", ".placement.json"] {
+    for ext in [".ply", ".collision.bin", ".placement.json", ".sky.jpg"] {
         let p = vdgs.join(format!("{name}{ext}"));
         if p.is_file() {
             assert_inside(&vdgs, &p)?;
@@ -1360,14 +1360,17 @@ mod tests {
         let root = tmp();
         let vdgs = root.join("vdgs");
         std::fs::create_dir_all(&vdgs).unwrap();
-        for f in ["a.ply", "a.collision.bin", "a.placement.json", "b.ply"] {
+        for f in ["a.ply", "a.collision.bin", "a.placement.json", "a.sky.jpg", "b.ply", "b.sky.jpg"] {
             std::fs::write(vdgs.join(f), b"x").unwrap();
         }
         assert!(remove_capture(&root, "a").unwrap());
         assert!(!vdgs.join("a.ply").exists());
         assert!(!vdgs.join("a.collision.bin").exists());
         assert!(!vdgs.join("a.placement.json").exists());
+        // A sky left behind would come back on the next capture that takes the name.
+        assert!(!vdgs.join("a.sky.jpg").exists());
         assert!(vdgs.join("b.ply").exists());
+        assert!(vdgs.join("b.sky.jpg").exists());
     }
 
     #[test]
