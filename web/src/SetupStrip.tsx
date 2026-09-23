@@ -87,6 +87,23 @@ export function SetupStrip({ state }: { state: SetupState | null }) {
       {/* Not on the website: with True Lens on every capture is drawn and none of it
           reaches the screen, every log says success, and the sky is empty - a note
           elsewhere is useless because the finger is already here. null/false must not warn. */}
+      {/* The mod travels inside this app, so an app nobody updates keeps installing the
+          old mod - on 2026-09-23 the R6 sky needed a new companion and the old one could
+          not say so. Shown only for a release strictly newer than this one. */}
+      {state?.appUpdate ? (
+        <div className="mt-4 border-l-2 border-primary bg-primary/10 px-4 py-3">
+          <p className="font-mono text-[11px] tracking-[0.18em] text-primary uppercase">
+            {t.setupAppUpdateHead} — {state.appUpdate}
+          </p>
+          <p className="mt-1.5 text-[14px] leading-relaxed text-foreground">
+            {t.setupAppUpdateBody}
+          </p>
+          <Button className="mt-3" size="sm" onClick={() => send('openAppUpdate')}>
+            {t.setupAppUpdateButton}
+          </Button>
+        </div>
+      ) : null}
+
       {state?.trueLens === true ? (
         // Loud on purpose. At the size of the other notes it sat in a column of small
         // grey monospace and read as one more caption, which is the same as not being

@@ -96,6 +96,8 @@ export type SetupState = {
    * captures are drawn and never reach the screen, and every log still says success.
    */
   trueLens: boolean | null
+  /** A companion release newer than this app, as the catalog offers it; null otherwise. */
+  appUpdate?: string | null
 }
 
 /** One capture on offer from the published catalog. */

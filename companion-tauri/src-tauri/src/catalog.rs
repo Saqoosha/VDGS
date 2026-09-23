@@ -149,14 +149,77 @@ fn read_file(e: &serde_json::Value) -> FileRef {
     }
 }
 
-pub fn fetch(url: &str) -> Result<Vec<Entry>, Error> {
+/// What one fetch of the catalog yields: the captures, and the companion build it offers
+/// for this platform (absent from catalogs made before the app was published beside them).
+pub struct Fetched {
+    pub entries: Vec<Entry>,
+    pub app_version: Option<String>,
+}
+
+pub fn fetch(url: &str) -> Result<Fetched, Error> {
     require_safe_url(url)?;
     let client = reqwest::blocking::Client::builder()
         .user_agent("VDGSCompanion")
         .timeout(Duration::from_secs(30))
         .build()?;
     let text = client.get(url).send()?.error_for_status()?.text()?;
-    parse(&text)
+    Ok(Fetched {
+        entries: parse(&text)?,
+        app_version: app_version(&text),
+    })
+}
+
+/// The page a catalog belongs to: the folder it sits in, which is where the site puts its
+/// download links - the root for vdgs.saqoo.sh/catalog.json, /vdgs/ for one hosted under a
+/// path. https only, with no local exception: this is handed to the system browser, and
+/// credentials, query and fragment are dropped on the way.
+pub fn site_of(catalog_url: &str) -> Option<String> {
+    let u = reqwest::Url::parse(catalog_url).ok()?;
+    if u.scheme() != "https" {
+        return None;
+    }
+    let path = u.path();
+    let dir = &path[..=path.rfind('/')?];
+    Some(format!("{}{}", u.origin().ascii_serialization(), dir))
+}
+
+/// The version of the companion the catalog offers for this platform, as written there.
+pub fn app_version(json: &str) -> Option<String> {
+    let root: serde_json::Value = serde_json::from_str(json).ok()?;
+    let key = if cfg!(windows) { "windows" } else { "macos" };
+    Some(root.get("app")?.get(key)?.get("version")?.as_str()?.to_string())
+}
+
+/// A release version as a comparable (year, month, day, nth build of the day).
+///
+/// The catalog writes CalVer - `2026.09.01.3` - and the bundle carries the SemVer that
+/// Tauri would accept for it - `2026.9.1+3`, leading zeros dropped and a fourth part moved
+/// into build metadata (tools/calver_to_semver.py). Both have to land on the same key, or
+/// every build would look newer than itself. Anything else, including the `0.1.0`
+/// placeholder of a dev build, is not a release and has no key.
+pub fn version_key(v: &str) -> Option<(u32, u32, u32, u32)> {
+    let (core, build) = match v.split_once('+') {
+        Some((c, b)) => (c, Some(b.parse::<u32>().ok()?)),
+        None => (v, None),
+    };
+    let parts: Vec<u32> = core
+        .split('.')
+        .map(|p| p.parse().ok())
+        .collect::<Option<_>>()?;
+    let key = match (parts.as_slice(), build) {
+        ([y, m, d], b) => (*y, *m, *d, b.unwrap_or(0)),
+        ([y, m, d, n], None) => (*y, *m, *d, *n),
+        _ => return None,
+    };
+    (key.0 >= 2000).then_some(key)
+}
+
+/// The offered version, if it is a release strictly newer than this app's own. Unreadable
+/// on either side is silence rather than a prompt: an update notice that is wrong once is
+/// not believed again.
+pub fn newer_app(offered: Option<&str>, own: &str) -> Option<String> {
+    let offered = offered?;
+    (version_key(offered)? > version_key(own)?).then(|| offered.to_string())
 }
 
 pub fn download(
@@ -307,6 +370,55 @@ fn is_note(name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_release_reads_the_same_as_calver_and_as_the_semver_the_bundle_carries() {
+        assert_eq!(version_key("2026.09.23"), Some((2026, 9, 23, 0)));
+        assert_eq!(version_key("2026.9.23"), Some((2026, 9, 23, 0)));
+        assert_eq!(version_key("2026.09.01.3"), Some((2026, 9, 1, 3)));
+        assert_eq!(version_key("2026.9.1+3"), Some((2026, 9, 1, 3)));
+        // Not releases: a dev build's placeholder, and things that are not versions.
+        assert_eq!(version_key("0.1.0"), None);
+        assert_eq!(version_key("2026.9"), None);
+        assert_eq!(version_key("2026.9.1+x"), None);
+        assert_eq!(version_key(""), None);
+    }
+
+    #[test]
+    fn only_a_strictly_newer_release_is_offered() {
+        assert_eq!(newer_app(Some("2026.09.23"), "2026.9.17").as_deref(), Some("2026.09.23"));
+        assert_eq!(newer_app(Some("2026.09.01.3"), "2026.9.1").as_deref(), Some("2026.09.01.3"));
+        assert_eq!(newer_app(Some("2026.09.23"), "2026.9.23"), None);
+        assert_eq!(newer_app(Some("2026.09.17"), "2026.9.23"), None);
+        assert_eq!(newer_app(Some("2026.09.01"), "2026.9.1+3"), None);
+        // Unreadable on either side says nothing rather than prompting.
+        assert_eq!(newer_app(None, "2026.9.17"), None);
+        assert_eq!(newer_app(Some("soon"), "2026.9.17"), None);
+        assert_eq!(newer_app(Some("2026.09.23"), "0.1.0"), None);
+    }
+
+    #[test]
+    fn the_offered_version_is_the_one_for_this_platform() {
+        let json = r#"{"formatVersion":1,"scenes":[],"app":{
+            "windows":{"version":"2026.09.23"},"macos":{"version":"2026.09.24"}}}"#;
+        let want = if cfg!(windows) { "2026.09.23" } else { "2026.09.24" };
+        assert_eq!(app_version(json).as_deref(), Some(want));
+        assert_eq!(app_version(r#"{"formatVersion":1,"scenes":[]}"#), None);
+    }
+
+    #[test]
+    fn the_download_page_is_the_catalogs_own_origin() {
+        assert_eq!(site_of("https://vdgs.saqoo.sh/catalog.json").as_deref(), Some("https://vdgs.saqoo.sh/"));
+        assert_eq!(site_of("https://x.github.io/vdgs/catalog.json").as_deref(), Some("https://x.github.io/vdgs/"));
+        assert_eq!(
+            site_of("https://u:p@x.github.io/vdgs/catalog.json?a=1#f").as_deref(),
+            Some("https://x.github.io/vdgs/")
+        );
+        // https only - the catalog fetch allows localhost over http, the browser hand-off does not.
+        assert_eq!(site_of("http://example.com/catalog.json"), None);
+        assert_eq!(site_of("http://localhost:8000/catalog.json"), None);
+        assert_eq!(site_of("file:///etc/passwd"), None);
+    }
+
     use super::*;
     use std::io::Write;
 

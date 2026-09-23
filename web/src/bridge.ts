@@ -48,6 +48,7 @@ export type Command =
   | 'removeCapture'
   | 'unbindTrack'
   | 'refreshCatalog'
+  | 'openAppUpdate'
   | 'get'
   | 'replace'
   | 'addTrack'
