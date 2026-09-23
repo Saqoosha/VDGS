@@ -53,6 +53,8 @@ check_the_rest() {
 # does not need the new page - $NAME is the one viewer allowed to change.
 say "checking what else the deploy would change"
 check_the_rest || exit 1
+# The deploy ships this checkout's Worker too - the routing to R2 - not only the site.
+bash "$ROOT/tools/check_worker_source.sh" || exit 1
 
 say "build the page"
 ( cd "$ROOT/viewer" && VITE_BASE="/dvr/$NAME/" bun run build )

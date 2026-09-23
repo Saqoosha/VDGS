@@ -160,6 +160,8 @@ say "checking the DVR viewers this deploy would replace"
 # Checked before any upload, so a refusal costs nothing and a rerun after the fix skips
 # whatever was already sent.
 python3 "$ROOT/tools/check_live_viewers.py" "$TMP/remote.json" "$SITE"
+# The deploy ships this checkout's Worker too - the routing to R2 - not only the site.
+bash "$ROOT/tools/check_worker_source.sh"
 
 say "captures to R2"
 # Uploaded before the catalog that names them: a list pointing at files that are not there
