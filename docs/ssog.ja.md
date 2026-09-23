@@ -228,9 +228,9 @@ RTX 3060 で 23 ms。17.3M 常駐でユニファイドメモリが崩れる。
 
 ## 未解決
 
-- **スポーンで 16 秒止まる。** RTX 3060 の実機で 17.3M が decode 7.6 秒・pack 8.3 秒。
-  M1 Max のエディタは 39〜67 秒。**飛ぶ前に出しておく**。`SplatWriter.PackRotation` と
-  `SogChunk.UnpackQuat` が splat ごとに 4 要素の配列を確保しているのが筆頭の容疑
+- **色テクスチャのアップロードで 1 回約 120 ms 引っかかる。** 復号・詰め直し・コリジョンの読み込みは
+  裏スレッド、ほかのバッファは 1 フレーム 4 ms ずつ送る（`SplatRenderer.SetData(data, spread: true)`）。
+  `Texture2D.SetPixelData` はミップ丸ごとしか受けないので、ここだけ割れない
 - **段の無い `.ply` が master より 0.85 ms（約 9%）遅い。** `-vdgsSortNth` で切ると
   ソート側 0.5 ms・view パス 0.3 ms。仮説 2 つは否定済み（LOD バッファを bind しない →
   何も描かれない、`SetKeyword` の回数を減らす → 変化なし）。パスごとの計測が要る

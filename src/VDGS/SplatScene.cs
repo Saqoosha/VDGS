@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using System.Threading.Tasks;
 using Newtonsoft.Json;
 using UnityEngine;
 
@@ -23,6 +24,33 @@ namespace VDGS
 
         internal string Name { get; }
         internal bool Spawned => m_Go != null;
+
+        // Decoding runs on a worker so the game keeps drawing; only the GPU upload is left
+        // on the main thread. One object per load, so a load that Despawn abandoned cannot
+        // write into the next one's state while it winds down.
+        private sealed class LoadJob
+        {
+            public Task<SplatData> Task;
+            public volatile string Stage = "reading";
+            public string Error;
+            public bool Mirror;
+            public float Started;
+            public SplatCollision.Prepared Collision;
+        }
+        private LoadJob m_Load;
+
+        private bool Uploading => m_Renderer != null && m_Renderer.Uploading;
+        private float m_UploadStarted;
+
+        /// <summary>Decoding on the worker, or uploading to the GPU over the next frames.</summary>
+        internal bool Loading => m_Load != null || Uploading;
+        /// <summary>Shown or on its way: what "wanted and already handled" means to callers.</summary>
+        internal bool Active => m_Go != null || m_Load != null;
+        internal string LoadStage => m_Load != null ? m_Load.Stage
+            : Uploading ? "uploading " + (m_Renderer.UploadProgress * 100f).ToString("0") + "%" : null;
+        internal float LoadSeconds => m_Load != null ? Time.realtimeSinceStartup - m_Load.Started
+            : Uploading ? Time.realtimeSinceStartup - m_UploadStarted : 0f;
+        private bool m_ReportUpload;
 
         // Newtonsoft, not Unity's JsonUtility: this class grew a `bool? mirrorY`, and
         // JsonUtility does not support Nullable fields at all - it neither writes nor
@@ -255,6 +283,10 @@ namespace VDGS
             return found;
         }
 
+        /// <summary>
+        /// Starts loading on a worker and returns at once; <see cref="PollLoad"/> finishes
+        /// the spawn on the main thread when the data is ready.
+        /// </summary>
         internal bool Spawn(StringBuilder report)
         {
             if (m_Go != null)
@@ -262,29 +294,87 @@ namespace VDGS
                 report.AppendLine(Name + ": already spawned");
                 return true;
             }
+            if (m_Load != null)
+            {
+                report.AppendLine(Name + ": still loading");
+                return true;
+            }
 
             // Read before the data: mirrorY decides how the .ply is parsed, so the
             // placement has to be known before PlyLoader runs, not after.
-            var placement = LoadPlacement();
-            var mirror = MirrorFor(placement);
+            var startPlacement = LoadPlacement();
+            var mirror = MirrorFor(startPlacement);
+            bool wantCollision = startPlacement.collision;
 
             // Converted captures ignore the flag - SplatData.Load reads packed buffers,
             // and mirroring them would mean decoding every format rather than flipping a
             // sign while parsing text.
-            SplatData data;
-            string error;
-            if (m_Dir.EndsWith(".ply", StringComparison.OrdinalIgnoreCase))
-                data = PlyLoader.Load(m_Dir, out error, mirror);
-            else if (DecodesAtLoad)
-                data = SogLoader.Load(m_Dir, out error, mirror);
-            else
-                data = SplatData.Load(m_Dir, out error);
+            string dir = m_Dir;
+            bool ply = dir.EndsWith(".ply", StringComparison.OrdinalIgnoreCase);
+            bool decodes = DecodesAtLoad;
+            var job = new LoadJob { Mirror = mirror, Started = Time.realtimeSinceStartup };
+            Action<string> stage = s => job.Stage = s;
+            job.Task = Task.Run(() =>
+            {
+                string error;
+                SplatData d;
+                if (ply) d = PlyLoader.Load(dir, out error, mirror, stage);
+                else if (decodes) d = SogLoader.Load(dir, out error, mirror, stage);
+                else d = SplatData.Load(dir, out error);
+                job.Error = error;
+                if (d != null && wantCollision)
+                {
+                    job.Stage = "reading collision";
+                    job.Collision = SplatCollision.Prepare(dir, mirror);
+                }
+                return d;
+            });
+            m_Load = job;
+            report.AppendLine(Name + ": loading");
+            return true;
+        }
+
+        /// <summary>
+        /// Called every frame. Finishes a load whose data is ready; returns true when it
+        /// wrote to <paramref name="report"/>.
+        /// </summary>
+        internal bool PollLoad(StringBuilder report)
+        {
+            if (m_ReportUpload && !Uploading)
+            {
+                m_ReportUpload = false;
+                if (m_Go == null) return false;
+                report.AppendLine(Name + ": uploaded in "
+                                  + (Time.realtimeSinceStartup - m_UploadStarted).ToString("0.0") + " s");
+                return true;
+            }
+
+            var job = m_Load;
+            if (job == null || !job.Task.IsCompleted) return false;
+
+            float waited = Time.realtimeSinceStartup - job.Started;
+            m_Load = null;
+            SplatData data = job.Task.Status == TaskStatus.RanToCompletion ? job.Task.Result : null;
             if (data == null)
             {
-                report.AppendLine(Name + ": load failed - " + error);
-                return false;
+                string why = job.Error ?? job.Task.Exception?.GetBaseException().Message ?? "no data";
+                report.AppendLine(Name + ": load failed - " + why);
+                return true;
             }
             report.AppendLine(Name + ": " + data.Describe());
+            m_UploadStarted = Time.realtimeSinceStartup;
+            Finish(data, job.Mirror, job.Collision, report);
+            report.AppendLine(Name + ": loaded in " + waited.ToString("0.0") + " s, set up in "
+                              + (Time.realtimeSinceStartup - m_UploadStarted).ToString("0.00") + " s");
+            m_ReportUpload = true;
+            return true;
+        }
+
+        private void Finish(SplatData data, bool mirror, SplatCollision.Prepared collision, StringBuilder report)
+        {
+            // Read again: the operator may have moved it while it loaded. Mirroring is the
+            // exception - it was baked into the data when the load started.
+            var placement = LoadPlacement();
 
             m_Go = new GameObject("VDGS_" + Name);
             UnityEngine.Object.DontDestroyOnLoad(m_Go);
@@ -310,7 +400,7 @@ namespace VDGS
             m_Renderer = m_Go.AddComponent<SplatRenderer>();
             m_Renderer.LodDetail = placement.lodDetail;
             m_Renderer.LodBudget = placement.lodBudget;
-            m_Renderer.SetData(data);
+            m_Renderer.SetData(data, spread: true);
 
             // A rotated capture cannot wear the backdrop - see IsUpright. Leaving the
             // capture's holes open to the game's terrain and horizon is the better failure:
@@ -327,7 +417,7 @@ namespace VDGS
             {
                 // Sky first: blackout asks whether one is up before it decides what to do
                 // with the cameras, and a capture that has a sky wants its own, not black.
-                WorldSky.Want(Name, m_Dir, m_Go.transform, MirrorFor(placement), report);
+                WorldSky.Want(Name, m_Dir, m_Go.transform, mirror, report);
                 WorldBlackout.Want(Name, report);
             }
 
@@ -342,7 +432,7 @@ namespace VDGS
                 // the first frames, so a view applied now would silently do nothing. Gated on
                 // the attach succeeding - a pending view with no collider to draw on retries
                 // once a second forever and writes a line to the track log each time.
-                if (SplatCollision.Attach(m_Go.transform, m_Dir, report, mirror)
+                if (SplatCollision.Attach(m_Go.transform, m_Dir, report, mirror, collision)
                     && placement.collisionView != SplatCollisionView.kOff)
                     m_PendingView = placement.collisionView;
             }
@@ -354,11 +444,12 @@ namespace VDGS
             report.AppendLine(Name + ": spawned at " + m_Go.transform.position
                               + " rot " + m_Go.transform.eulerAngles
                               + " scale " + placement.scale);
-            return true;
         }
 
         internal void Despawn()
         {
+            m_Load = null; // a load still running finishes into nothing
+            m_ReportUpload = false;
             if (m_Go == null)
                 return;
             UnityEngine.Object.Destroy(m_Go);
@@ -744,7 +835,7 @@ namespace VDGS
 
             if (reload)
             {
-                var wasSpawned = Spawned;
+                var wasSpawned = Active;
                 Despawn();
                 if (wasSpawned) Spawn(log);
                 return;

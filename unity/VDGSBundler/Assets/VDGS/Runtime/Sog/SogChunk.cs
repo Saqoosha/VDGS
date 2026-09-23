@@ -22,7 +22,6 @@ namespace VDGS.Sog
 
     public static class SogChunk
     {
-        private static readonly int[] QuatIdx = { 1, 2, 3, 0, 2, 3, 0, 1, 3, 0, 1, 2 };
         private static readonly int[] ShCoeffs = { 0, 3, 8, 15 };
         // 33.5M: room for a whole 17M scene bundled as one .sog, and it bounds every image.
         public const int MaxChunkSplats = 1 << 25;
@@ -260,19 +259,22 @@ namespace VDGS.Sog
             float a = (px / 255f * 2f - 1f) * InvSqrt2;
             float b = (py / 255f * 2f - 1f) * InvSqrt2;
             float c = (pz / 255f * 2f - 1f) * InvSqrt2;
-            // Place a,b,c into [w,x,y,z] via QuatIdx, then reconstruct dropped component.
-            float[] wxyz = { 0f, 0f, 0f, 0f };
-            int baseIdx = m * 3;
-            wxyz[QuatIdx[baseIdx]] = a;
-            wxyz[QuatIdx[baseIdx + 1]] = b;
-            wxyz[QuatIdx[baseIdx + 2]] = c;
+            // a,b,c fill [w,x,y,z] minus the dropped component m, which is reconstructed.
+            // Written out per m: an array here was one allocation per splat.
             float t = 1f - (a * a + b * b + c * c);
-            wxyz[m] = (float)Math.Sqrt(Math.Max(0.0, t));
-            // Output x y z w.
-            rot[off] = wxyz[1];
-            rot[off + 1] = wxyz[2];
-            rot[off + 2] = wxyz[3];
-            rot[off + 3] = wxyz[0];
+            float d = (float)Math.Sqrt(Math.Max(0.0, t));
+            float w, x, y, z;
+            switch (m)
+            {
+                case 0: w = d; x = a; y = b; z = c; break;
+                case 1: w = a; x = d; y = b; z = c; break;
+                case 2: w = a; x = b; y = d; z = c; break;
+                default: w = a; x = b; y = c; z = d; break;
+            }
+            rot[off] = x;
+            rot[off + 1] = y;
+            rot[off + 2] = z;
+            rot[off + 3] = w;
         }
     }
 }

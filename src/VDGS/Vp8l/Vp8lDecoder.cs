@@ -101,51 +101,58 @@ namespace VDGS.Vp8l
 
         // --- bit reader ------------------------------------------------------
 
+        // A 64-bit window refilled a byte at a time, consumed by shifting (libwebp's shape).
+        // Reading bit by bit, and rebuilding four bytes for every Huffman symbol, was most
+        // of the decode time. Past the end the window fills with zeros, as Prefetch did.
         sealed class BitReader
         {
             readonly byte[] m_Buf;
-            int m_Pos; // bit index into m_Buf
+            readonly long m_EndBit;
+            ulong m_Win;      // next unread bits, LSB first
+            int m_WinBits;    // valid bits in m_Win (zeros past the end count as valid)
+            int m_Next;       // next byte to load into the window
+            long m_Pos;       // bits consumed, absolute
 
             public BitReader(byte[] buf, int byteOffset)
             {
                 m_Buf = buf;
-                m_Pos = byteOffset * 8;
+                m_EndBit = (long)buf.Length * 8;
+                m_Next = byteOffset;
+                m_Pos = (long)byteOffset * 8;
+                Refill();
             }
 
-            public int BitPos => m_Pos;
+            void Refill()
+            {
+                while (m_WinBits <= 56)
+                {
+                    ulong b = m_Next < m_Buf.Length ? m_Buf[m_Next] : 0UL;
+                    m_Next++;
+                    m_Win |= b << m_WinBits;
+                    m_WinBits += 8;
+                }
+            }
 
             public uint ReadBits(int n)
             {
                 if (n == 0) return 0;
                 if (n > 24) throw new Vp8lException("read > 24 bits");
-                uint v = 0;
-                for (int i = 0; i < n; i++)
-                {
-                    int byteIndex = m_Pos >> 3;
-                    if (byteIndex >= m_Buf.Length) throw new Vp8lException("truncated bitstream");
-                    v |= (uint)((m_Buf[byteIndex] >> (m_Pos & 7)) & 1) << i;
-                    m_Pos++;
-                }
+                if (m_Pos + n > m_EndBit) throw new Vp8lException("truncated bitstream");
+                uint v = (uint)(m_Win & ((1UL << n) - 1));
+                Advance(n);
                 return v;
             }
 
-            // Peek enough bits for Huffman lookup without advancing.
-            public uint Prefetch()
-            {
-                int byteIndex = m_Pos >> 3;
-                int bit = m_Pos & 7;
-                uint v = 0;
-                // Up to 4 bytes is enough for a 15-bit max code.
-                for (int i = 0; i < 4; i++)
-                {
-                    int idx = byteIndex + i;
-                    if (idx >= m_Buf.Length) break;
-                    v |= (uint)m_Buf[idx] << (8 * i);
-                }
-                return v >> bit;
-            }
+            // Peek at least 32 bits for a Huffman lookup without advancing.
+            public uint Prefetch() => (uint)m_Win;
 
-            public void Advance(int n) { m_Pos += n; }
+            public void Advance(int n)
+            {
+                m_Win >>= n;
+                m_WinBits -= n;
+                m_Pos += n;
+                if (m_WinBits < 32) Refill();
+            }
         }
 
         // --- decoder body ----------------------------------------------------

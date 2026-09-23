@@ -146,6 +146,7 @@ namespace VDGS
                     { "shFormat", s.ShFormat },
                     { "bytes", s.Bytes },
                     { "shown", s.Spawned },
+                    { "loading", s.Loading },
                     { "scale", status.Scale },
                     { "y", status.YOffset },
                     { "x", status.XOffset },
@@ -259,8 +260,8 @@ namespace VDGS
             foreach (var s in m_Scenes)
             {
                 var want = !string.IsNullOrEmpty(name) && s.Name == name;
-                if (want && !s.Spawned) s.Spawn(log);
-                else if (!want && s.Spawned) { s.Despawn(); log.AppendLine(s.Name + ": despawned"); }
+                if (want && !s.Active) s.Spawn(log);
+                else if (!want && s.Active) { s.Despawn(); log.AppendLine(s.Name + ": despawned"); }
             }
 
             try { File.AppendAllText(Probe.LogPath, log.ToString()); } catch { }
@@ -364,7 +365,7 @@ namespace VDGS
                 // Nothing should stay on screen for a track that is no longer bound.
                 if (string.Equals(target, m_CurrentTrack, StringComparison.OrdinalIgnoreCase))
                     foreach (var s in m_Scenes)
-                        if (s.Spawned) s.Despawn();
+                        if (s.Active) s.Despawn();
             }
 
             log.AppendLine();
@@ -520,6 +521,7 @@ namespace VDGS
 
             m_Web?.Pump();
             PollTrack();
+            PollLoads();
 
             if (m_Perf != null)
             {
@@ -544,6 +546,50 @@ namespace VDGS
                 }
                 m_Perf.Tick(splats, spawned, shown, lod);
             }
+        }
+
+        private readonly StringBuilder m_PollLog = new StringBuilder();
+
+        private void PollLoads()
+        {
+            var log = m_PollLog;
+            log.Length = 0;
+            foreach (var s in m_Scenes)
+                s.PollLoad(log);
+            if (log.Length > 0)
+            {
+                try { File.AppendAllText(Probe.LogPath, log.ToString()); } catch { }
+            }
+        }
+
+        private GUIStyle m_LoadStyle;
+
+        // The game has no HUD of ours, and a load used to freeze the frame with no word
+        // about why. One line, top left, only while something loads.
+        private void OnGUI()
+        {
+            string line = null;
+            foreach (var s in m_Scenes)
+            {
+                if (!s.Loading) continue;
+                var one = "VDGS  loading " + s.Name + " - " + s.LoadStage
+                          + "  " + s.LoadSeconds.ToString("0") + " s";
+                line = line == null ? one : line + "\n" + one;
+            }
+            if (line == null) return;
+
+            if (m_LoadStyle == null)
+            {
+                m_LoadStyle = new GUIStyle(GUI.skin.box)
+                {
+                    fontSize = Mathf.Max(14, Screen.height / 50),
+                    padding = new RectOffset(12, 12, 8, 8),
+                };
+                m_LoadStyle.normal.textColor = Color.white;
+            }
+            var content = new GUIContent(line);
+            var size = m_LoadStyle.CalcSize(content);
+            GUI.Box(new Rect(16, 16, size.x, size.y), content, m_LoadStyle);
         }
 
         /// <summary>
@@ -615,7 +661,7 @@ namespace VDGS
             {
                 foreach (var s in m_Scenes)
                 {
-                    if (!s.Spawned) continue;
+                    if (!s.Active) continue;
                     s.Despawn();
                     log.AppendLine("  " + s.Name + ": despawned, '" + sceneName + "' has no world");
                 }
@@ -657,7 +703,7 @@ namespace VDGS
                                    + m_CurrentTrack + "' is no longer bound");
                     foreach (var s in m_Scenes)
                     {
-                        if (!s.Spawned) continue;
+                        if (!s.Active) continue;
                         s.Despawn();
                         log.AppendLine("  " + s.Name + ": despawned");
                     }
@@ -713,8 +759,8 @@ namespace VDGS
             foreach (var s in m_Scenes)
             {
                 var want = wanted.Contains(s.Name);
-                if (want && !s.Spawned) s.Spawn(log);
-                else if (!want && s.Spawned) { s.Despawn(); log.AppendLine("  " + s.Name + ": despawned"); }
+                if (want && !s.Active) s.Spawn(log);
+                else if (!want && s.Active) { s.Despawn(); log.AppendLine("  " + s.Name + ": despawned"); }
             }
         }
 
