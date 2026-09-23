@@ -139,7 +139,16 @@ namespace VDGS
                 }
             }
 
+            // A capture's own sky stands in for the game's by swapping the skybox
+            // MATERIAL, so the cameras must keep clearing to Skybox for it to be drawn
+            // at all. Blackout is about the ground once a sky is up; clearing to black
+            // here would paint over the panorama and leave no trace of why.
             var cams = 0;
+            if (WorldSky.Active)
+            {
+                if (s_Cameras.Count > 0) RestoreCameras(log);
+            }
+            else
             foreach (var cam in Camera.allCameras)
             {
                 if (cam.clearFlags != CameraClearFlags.Skybox) continue;
@@ -161,6 +170,23 @@ namespace VDGS
                                 + " in " + where + " - this scenery is not known here");
             // Last, so a throw above leaves the next Want free to try again.
             s_Applied = true;
+        }
+
+        /// <summary>Hand every camera we darkened its own clear mode back. Returns how many.</summary>
+        private static int RestoreCameras(StringBuilder log)
+        {
+            var cams = 0;
+            foreach (var c in s_Cameras)
+            {
+                if (c.Cam == null) continue;
+                c.Cam.clearFlags = c.Clear;
+                c.Cam.backgroundColor = c.Background;
+                cams++;
+            }
+            s_Cameras.Clear();
+            if (cams > 0)
+                log?.AppendLine("blackout: " + cams + " camera(s) back to Skybox - a capture's sky is up");
+            return cams;
         }
 
         private static bool IsTracked(Camera cam)
@@ -189,15 +215,7 @@ namespace VDGS
             }
             s_HiddenTerrain.Clear();
 
-            var cams = 0;
-            foreach (var c in s_Cameras)
-            {
-                if (c.Cam == null) continue;
-                c.Cam.clearFlags = c.Clear;
-                c.Cam.backgroundColor = c.Background;
-                cams++;
-            }
-            s_Cameras.Clear();
+            var cams = RestoreCameras(null);
             log?.AppendLine("blackout: off - " + restored + " renderer(s), " + cams + " camera(s) restored");
         }
     }

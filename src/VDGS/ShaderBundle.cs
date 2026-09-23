@@ -24,6 +24,8 @@ namespace VDGS
         internal static Shader DebugBoxesShader { get; private set; }
         /// <summary>Flat unlit colour, used for the backdrop box (see SplatBackdrop).</summary>
         internal static Shader BlackShader { get; private set; }
+        /// <summary>Equirectangular panorama as a skybox, used by <see cref="WorldSky"/>.</summary>
+        internal static Shader PanoSkyShader { get; private set; }
         internal static ComputeShader SplatUtilities { get; private set; }
 
         internal static bool Loaded => SplatShader != null && CompositeShader != null && SplatUtilities != null;
@@ -101,6 +103,7 @@ namespace VDGS
             DebugPointsShader = Find(byName, "Gaussian Splatting/Debug/Render Points", "GaussianDebugRenderPoints");
             DebugBoxesShader = Find(byName, "Gaussian Splatting/Debug/Render Boxes", "GaussianDebugRenderBoxes");
             BlackShader = Find(byName, "Unlit/BlackSkybox", "BlackSkybox");
+            PanoSkyShader = Find(byName, "VDGS/PanoSkybox", "PanoSkybox");
             SplatUtilities = computes.Length > 0 ? computes[0] : null;
 
             report.AppendLine("resolved splats="     + (SplatShader != null)
@@ -108,6 +111,7 @@ namespace VDGS
                             + " debugPoints="        + (DebugPointsShader != null)
                             + " debugBoxes="         + (DebugBoxesShader != null)
                             + " black="              + (BlackShader != null)
+                            + " panoSky="            + (PanoSkyShader != null)
                             + " splatUtilities="     + (SplatUtilities != null));
 
             return Loaded;
