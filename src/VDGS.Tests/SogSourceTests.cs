@@ -72,4 +72,13 @@ public class SogSourceTests
         File.WriteAllText(outsideFile, "not yours");
         return Path.Combine(root, "capture");
     }
+
+    // A zip entry's declared length is the archive's claim; the reader counts what inflates.
+    [Fact]
+    public void ReadCappedStopsAtTheCap()
+    {
+        Assert.Equal(10, SogSource.ReadCapped(new MemoryStream(new byte[10]), 10, "x").Length);
+        var e = Assert.Throws<SogException>(() => SogSource.ReadCapped(new MemoryStream(new byte[11]), 10, "x"));
+        Assert.Contains("exceeds 10 bytes", e.Message);
+    }
 }

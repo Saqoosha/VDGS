@@ -16,12 +16,13 @@ namespace VDGS.Vp8l
     {
         /// <summary>
         /// RGBA8, row-major, top row first. Throws Vp8lException on anything but a
-        /// simple-format lossless WebP ("RIFF....WEBPVP8L").
+        /// simple-format lossless WebP ("RIFF....WEBPVP8L"), or when the header asks for more
+        /// than <paramref name="maxPixels"/> (checked before anything is allocated).
         /// </summary>
-        public static byte[] Decode(byte[] webp, out int width, out int height)
+        public static byte[] Decode(byte[] webp, out int width, out int height, long maxPixels = 16384L * 16384)
         {
             if (webp == null) throw new Vp8lException("null input");
-            var dec = new Decoder(webp);
+            var dec = new Decoder(webp) { MaxPixels = maxPixels };
             dec.Decode(out width, out height, out uint[] argb);
             var rgba = new byte[width * height * 4];
             int o = 0;
@@ -165,12 +166,14 @@ namespace VDGS.Vp8l
             int m_ColorCacheBits;
             uint[] m_ColorCache;
 
+            public long MaxPixels;
+
             public Decoder(byte[] data) { m_Data = data; }
 
             public void Decode(out int width, out int height, out uint[] argb)
             {
                 int vp8lOffset = FindVp8lPayload(out int payloadLen);
-                if (vp8lOffset + payloadLen > m_Data.Length)
+                if (payloadLen > m_Data.Length - vp8lOffset)
                     throw new Vp8lException("VP8L chunk length past end of file");
 
                 m_Br = new BitReader(m_Data, vp8lOffset);
@@ -179,6 +182,8 @@ namespace VDGS.Vp8l
                 m_Height = (int)m_Br.ReadBits(14) + 1;
                 m_Br.ReadBits(1); // alpha_is_used hint
                 if (m_Br.ReadBits(3) != 0) throw new Vp8lException("unsupported VP8L version");
+                if ((long)m_Width * m_Height > MaxPixels)
+                    throw new Vp8lException("image " + m_Width + "x" + m_Height + " exceeds " + MaxPixels + " pixels");
 
                 DecodeImageStream(m_Width, m_Height, isLevel0: true, out argb);
                 width = m_Width;

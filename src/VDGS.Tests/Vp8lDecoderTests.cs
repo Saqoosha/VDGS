@@ -38,4 +38,16 @@ public class Vp8lDecoderTests
         var e = Assert.Throws<Vp8lException>(() => Vp8lDecoder.Decode(lossy, out _, out _));
         Assert.Contains("VP8 ", e.Message);
     }
+
+    // The size comes from the header, so a tiny file can ask for 16384x16384; the cap is
+    // checked before that allocation, and an image exactly at the cap still decodes.
+    [Fact]
+    public void RefusesAnImageLargerThanTheCap()
+    {
+        var webp = File.ReadAllBytes(Directory.GetFiles(Fixtures, "*.webp").OrderBy(x => x).First());
+        Vp8lDecoder.Decode(webp, out int w, out int h);
+        Vp8lDecoder.Decode(webp, out _, out _, (long)w * h);
+        var e = Assert.Throws<Vp8lException>(() => Vp8lDecoder.Decode(webp, out _, out _, (long)w * h - 1));
+        Assert.Contains("exceeds", e.Message);
+    }
 }

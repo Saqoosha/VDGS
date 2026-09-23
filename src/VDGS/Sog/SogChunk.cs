@@ -24,6 +24,8 @@ namespace VDGS.Sog
     {
         private static readonly int[] QuatIdx = { 1, 2, 3, 0, 2, 3, 0, 1, 3, 0, 1, 2 };
         private static readonly int[] ShCoeffs = { 0, 3, 8, 15 };
+        // 33.5M: room for a whole 17M scene bundled as one .sog, and it bounds every image.
+        public const int MaxChunkSplats = 1 << 25;
         private const float ShC0 = 0.2820948f;
         private static readonly float InvSqrt2 = 1f / (float)Math.Sqrt(2.0);
 
@@ -49,6 +51,8 @@ namespace VDGS.Sog
             if (meta.Version != 2)
                 throw new SogException("unsupported SOG version: " + meta.Version + " (need 2)");
             if (meta.Count < 0) throw new SogException("negative count");
+            if (meta.Count > MaxChunkSplats)
+                throw new SogException("count " + meta.Count + " exceeds " + MaxChunkSplats + " per chunk");
             if (meta.Means == null || meta.Means.Files == null || meta.Means.Files.Length < 2)
                 throw new SogException("means.files needs two entries");
             if (meta.Means.Mins == null || meta.Means.Maxs == null
@@ -127,8 +131,12 @@ namespace VDGS.Sog
                 int coeffs = ShCoeffs[bands];
                 int paletteCount = meta.ShN.Count;
                 if (paletteCount < 0) throw new SogException("shN.count negative");
+                // Labels are 16-bit, so a chunk cannot address more rows than this.
+                if (paletteCount > 65536) throw new SogException("shN.count " + paletteCount + " exceeds 65536");
 
-                byte[] centroids = DecodeRgbaRaw(files, Join(dir, meta.ShN.Files[0]), out int cW, out int cH);
+                long maxCentroidPixels = 64L * coeffs * (paletteCount / 64 + 2);
+                byte[] centroids = DecodeRgbaRaw(files, Join(dir, meta.ShN.Files[0]), maxCentroidPixels,
+                                                 out int cW, out int cH);
                 if (cW != 64 * coeffs)
                     throw new SogException(
                         "shN centroids width " + cW + " != expected " + (64 * coeffs)
@@ -196,18 +204,19 @@ namespace VDGS.Sog
 
         private static byte[] DecodeRgba(ISogFiles files, string path, int count, string what)
         {
-            byte[] rgba = DecodeRgbaRaw(files, path, out int w, out int h);
+            // A per-splat image needs count pixels; twice that plus slack covers any row padding.
+            byte[] rgba = DecodeRgbaRaw(files, path, 2L * count + 65536, out int w, out int h);
             if ((long)w * h < count)
                 throw new SogException(what + " texture too small: " + w + "x" + h + " for count " + count);
             return rgba;
         }
 
-        private static byte[] DecodeRgbaRaw(ISogFiles files, string path, out int w, out int h)
+        private static byte[] DecodeRgbaRaw(ISogFiles files, string path, long maxPixels, out int w, out int h)
         {
             byte[] webp = files.Read(path);
             try
             {
-                return Vp8lDecoder.Decode(webp, out w, out h);
+                return Vp8lDecoder.Decode(webp, out w, out h, maxPixels);
             }
             catch (Vp8lException e)
             {

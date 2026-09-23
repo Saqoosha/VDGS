@@ -299,6 +299,7 @@ namespace VDGS
 
             int leafCount = index.Leaves.Length + (envFile >= 0 ? 1 : 0);
             int runCount = index.Runs.Length + (envFile >= 0 ? 1 : 0);
+            if (runCount == 0) throw new SogException("lod-meta.json has no runs");
 
             var leaves = new LodBox[leafCount];
             for (int i = 0; i < index.Leaves.Length; i++)
@@ -342,6 +343,9 @@ namespace VDGS
             for (int r = 0; r < index.Runs.Length; r++)
             {
                 var run = index.Runs[r];
+                if ((long)run.Offset + run.Count > chunks[run.File].Count)
+                    throw new SogException("lod run " + r + " (leaf " + run.Leaf + ", level " + run.Level
+                        + ") ends past file " + run.File + "'s " + chunks[run.File].Count + " splats");
                 runOffset[r] = fileBase[run.File] + run.Offset;
                 runCountArr[r] = run.Count;
                 runLeaf[r] = run.Leaf;
@@ -359,14 +363,24 @@ namespace VDGS
                 runShBase[r] = paletteBase[envFile];
             }
 
+            // Every splat in exactly one run, or GPU compaction and the CPU sort count disagree.
+            const uint Unowned = uint.MaxValue;
             var runOfSplat = new uint[total];
+            for (int i = 0; i < total; i++) runOfSplat[i] = Unowned;
             for (int r = 0; r < runCount; r++)
             {
                 int lo = runOffset[r];
                 int hi = lo + runCountArr[r];
                 for (int i = lo; i < hi; i++)
+                {
+                    if (runOfSplat[i] != Unowned)
+                        throw new SogException("lod runs " + runOfSplat[i] + " and " + r + " overlap at splat " + i);
                     runOfSplat[i] = (uint)r;
+                }
             }
+            for (int i = 0; i < total; i++)
+                if (runOfSplat[i] == Unowned)
+                    throw new SogException("splat " + i + " belongs to no lod run");
 
             return new LodInfo
             {

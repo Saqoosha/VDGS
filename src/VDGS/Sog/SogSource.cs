@@ -86,6 +86,25 @@ namespace VDGS.Sog
             return name.StartsWith("./", StringComparison.Ordinal) ? name.Substring(2) : name;
         }
 
+        /// <summary>Largest file taken out of a .sog; a legitimate chunk image is far smaller.</summary>
+        public const int MaxEntryBytes = 512 * 1024 * 1024;
+
+        /// <summary>Reads a stream to its end, throwing once it passes <paramref name="max"/> bytes.</summary>
+        public static byte[] ReadCapped(Stream s, int max, string what)
+        {
+            using (var ms = new MemoryStream())
+            {
+                var buf = new byte[81920];
+                int n;
+                while ((n = s.Read(buf, 0, buf.Length)) > 0)
+                {
+                    if (ms.Length + n > max) throw new SogException(what + " exceeds " + max + " bytes");
+                    ms.Write(buf, 0, n);
+                }
+                return ms.ToArray();
+            }
+        }
+
         private sealed class ZipFiles : ISogFiles
         {
             private readonly ZipArchive m_Zip;
@@ -116,13 +135,10 @@ namespace VDGS.Sog
                     }
                 }
                 if (entry == null) throw new SogException("missing file in the capture: " + relativePath);
-                if (entry.Length > int.MaxValue) throw new SogException("zip entry too large: " + relativePath);
+                if (entry.Length > MaxEntryBytes) throw new SogException("zip entry too large: " + relativePath);
+                // Counted as it inflates: the declared length is the archive's claim, not a limit.
                 using (Stream s = entry.Open())
-                using (var ms = new MemoryStream((int)entry.Length))
-                {
-                    s.CopyTo(ms);
-                    return ms.ToArray();
-                }
+                    return ReadCapped(s, MaxEntryBytes, relativePath);
             }
 
             public void Dispose()

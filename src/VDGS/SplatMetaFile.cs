@@ -4,6 +4,7 @@ using System.IO.Compression;
 using System.Text;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using VDGS.Sog;
 
 namespace VDGS
 {
@@ -139,9 +140,9 @@ namespace VDGS
                     }
                     if (entry == null) return info;
                     using (var s = entry.Open())
-                    using (var r = new StreamReader(s, Encoding.UTF8))
                     {
-                        var root = JObject.Parse(r.ReadToEnd());
+                        var json = SogSource.ReadCapped(s, 1024 * 1024, "meta.json");
+                        var root = JObject.Parse(Encoding.UTF8.GetString(json));
                         info.Splats = root.Value<int?>("count") ?? 0;
                     }
                 }

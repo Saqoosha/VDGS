@@ -1,5 +1,7 @@
 using System.IO;
 using System.Linq;
+using System.Text;
+using Newtonsoft.Json.Linq;
 using VDGS.Sog;
 using Xunit;
 
@@ -40,5 +42,34 @@ public class SsogIndexTests
         var idx = SsogIndex.Parse(File.ReadAllBytes(Path.Combine(Ssog, "lod-meta.json")));
         using var files = SogSource.OpenDirectory(Ssog);
         Assert.Equal(idx.Count, idx.Files.Sum(f => SogChunk.Decode(files, f).Count));
+    }
+
+    // Each edit breaks one rule of the fixture's manifest; the parser must name it instead of
+    // letting a stray run reach the renderer.
+    [Theory]
+    [InlineData("level", "lod level 9 outside")]
+    [InlineData("file", "lod file 7 outside")]
+    [InlineData("offset", "needs an integer offset")]
+    [InlineData("negative", "offset/count negative")]
+    [InlineData("duplicate", "appears twice")]
+    [InlineData("levels", "lodLevels 0 outside")]
+    [InlineData("bound", "min > max")]
+    public void RejectsAMalformedManifest(string edit, string message)
+    {
+        var root = JObject.Parse(File.ReadAllText(Path.Combine(Ssog, "lod-meta.json")));
+        var leaf = (JObject)root["tree"]["children"][0];
+        var lods = (JObject)leaf["lods"];
+        switch (edit)
+        {
+            case "level": lods["9"] = lods["1"]; lods.Remove("1"); break;
+            case "file": lods["0"]["file"] = 7; break;
+            case "offset": ((JObject)lods["0"]).Remove("offset"); break;
+            case "negative": lods["0"]["count"] = -1; break;
+            case "duplicate": lods["01"] = lods["1"].DeepClone(); break;
+            case "levels": root["lodLevels"] = 0; root["counts"] = new JArray(); break;
+            case "bound": leaf["bound"]["min"][0] = 100; break;
+        }
+        var e = Assert.Throws<SogException>(() => SsogIndex.Parse(Encoding.UTF8.GetBytes(root.ToString())));
+        Assert.Contains(message, e.Message);
     }
 }

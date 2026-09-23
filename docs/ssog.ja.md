@@ -64,7 +64,8 @@ tree        二分木。内部ノードは children[2]、葉は bound{min[3],max
 どのチャンクファイルのどの範囲か」。
 
 **run はチャンクファイルを隙間なく敷き詰める。** `SsogIndexTests.RunsTileEachChunkFile` が
-fixture でそれを見ているが、**読み込み時には検証していない**（「踏むと高くつくところ」）。
+fixture でそれを見ている。**読み込み時も `BuildLod` が検査する** —— どの splat もちょうど 1 つの
+run に属すること。隙間や重なりは `SogException` になる（「外から来るデータ」）。
 
 ## 復号の経路
 
@@ -208,9 +209,16 @@ RTX 3060 で 23 ms。17.3M 常駐でユニファイドメモリが崩れる。
   **シンボリックリンクを辿らない**（netstandard2.0 に `ResolveLinkTarget` が無い）
 - **`shN` centroid 画像は幅しか検査していない。** 高さが足りないぶんのパレット行は無言で
   `codebook[0]` になる。SH が一定値でずれた色になる
-- **`lod-meta.json` は信用している。** run の `file` / `offset` / `count` も段のキーも
-  無検証で `BuildLod` と `LodSelector` に届く。壊れた manifest は不親切なメッセージで失敗するか、
-  `SplatScene.Spawn` を突き抜けて例外になり、半分組んだシーンが残る
+- **外から来るデータは読み込みの段で弾く。** キャプチャは第三者が作ったファイルなので：
+  - `SsogIndex.Parse` —— `count` / `lodLevels`（1〜16）/ run の `file` / `offset` / `count` は
+    整数が必須。段は範囲内、同じ葉に同じ段は 1 つ（`"1"` と `"01"` も重複扱い）、`bound` は min ≤ max
+  - `BuildLod` —— run が自分のチャンクに収まり、全 splat がちょうど 1 つの run に属する
+  - サイズ —— チャンクは 33.5M splats まで、パレットは 65,536 行まで。WebP はヘッダを読んだ時点で
+    画素数を上限と比べる（上限はチャンクの `count` から出す）。`.sog` の中身は申告サイズではなく
+    実際に展開した量で 512 MB で打ち切る
+
+  どれも `SogException` になり、`SogLoader.Load` の `error` として出る。**`Spawn` まで届かない**
+  ので、半分組んだシーンも残らない。以前はどれも無検査で、小さなファイル 1 つで 1〜2 GB を確保させられた
 - **environment チャンクは `counts` に入っていない。** `BuildLod` が余分な file・葉・run として
   後ろに足すので、**`SplatCount != Σcounts` は environment 付きでは正常**。ここに
   「Σ が合うこと」を検証として足すと**ベンチの姫路城が弾かれる**

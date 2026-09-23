@@ -17,6 +17,9 @@ namespace VDGS.Sog
 
     public sealed class SsogIndex
     {
+        /// <summary>LodSelector shifts by the level; SuperSplat writes 5.</summary>
+        public const int MaxLevels = 16;
+
         public int Count;
         public int[] Counts;
         public int LevelCount;
@@ -41,18 +44,25 @@ namespace VDGS.Sog
             }
 
             var idx = new SsogIndex();
-            idx.Count = root.Value<int>("count");
-            idx.LevelCount = root.Value<int>("lodLevels");
+            idx.Count = ReqInt(root, "count", "lod-meta.json");
+            idx.LevelCount = ReqInt(root, "lodLevels", "lod-meta.json");
+            if (idx.Count < 0) throw new SogException("lod-meta.json count negative");
+            if (idx.LevelCount < 1 || idx.LevelCount > MaxLevels)
+                throw new SogException("lod-meta.json lodLevels " + idx.LevelCount + " outside 1.." + MaxLevels);
             var countsTok = root["counts"] as JArray;
             if (countsTok == null) throw new SogException("lod-meta.json missing counts");
             idx.Counts = countsTok.ToObject<int[]>();
             if (idx.Counts == null || idx.Counts.Length != idx.LevelCount)
                 throw new SogException("lod-meta.json counts length != lodLevels");
+            foreach (int c in idx.Counts)
+                if (c < 0) throw new SogException("lod-meta.json counts has a negative entry");
 
             var filesTok = root["filenames"] as JArray;
             if (filesTok == null) throw new SogException("lod-meta.json missing filenames");
             idx.Files = filesTok.ToObject<string[]>();
             if (idx.Files == null) throw new SogException("lod-meta.json filenames null");
+            foreach (string f in idx.Files)
+                if (string.IsNullOrEmpty(f)) throw new SogException("lod-meta.json filenames has an empty entry");
 
             JToken env = root["environment"];
             idx.Environment = env == null || env.Type == JTokenType.Null ? null : env.Value<string>();
@@ -62,13 +72,13 @@ namespace VDGS.Sog
 
             var leaves = new List<SsogLeaf>();
             var runs = new List<SsogRun>();
-            Walk(tree, leaves, runs);
+            Walk(tree, idx, leaves, runs);
             idx.Leaves = leaves.ToArray();
             idx.Runs = runs.ToArray();
             return idx;
         }
 
-        private static void Walk(JToken node, List<SsogLeaf> leaves, List<SsogRun> runs)
+        private static void Walk(JToken node, SsogIndex idx, List<SsogLeaf> leaves, List<SsogRun> runs)
         {
             JToken children = node["children"];
             if (children != null && children.Type == JTokenType.Array)
@@ -76,12 +86,12 @@ namespace VDGS.Sog
                 var arr = (JArray)children;
                 if (arr.Count != 2)
                     throw new SogException("tree node children must be a pair");
-                Walk(arr[0], leaves, runs);
-                Walk(arr[1], leaves, runs);
+                Walk(arr[0], idx, leaves, runs);
+                Walk(arr[1], idx, leaves, runs);
                 return;
             }
 
-            JToken lods = node["lods"];
+            var lods = node["lods"] as JObject;
             if (lods == null)
                 throw new SogException("tree leaf missing lods");
 
@@ -89,6 +99,8 @@ namespace VDGS.Sog
             if (bound == null) throw new SogException("tree leaf missing bound");
             float[] min = BoundVec(bound["min"], "min");
             float[] max = BoundVec(bound["max"], "max");
+            for (int a = 0; a < 3; a++)
+                if (!(min[a] <= max[a])) throw new SogException("tree leaf bound min > max");
 
             int leafIndex = leaves.Count;
             leaves.Add(new SsogLeaf
@@ -98,26 +110,44 @@ namespace VDGS.Sog
             });
 
             // Emit levels in ascending order so Runs are leaf-major, level-ascending.
-            var levelKeys = new List<int>();
-            foreach (JProperty p in ((JObject)lods).Properties())
+            var leafRuns = new List<SsogRun>();
+            foreach (JProperty p in lods.Properties())
             {
                 if (!int.TryParse(p.Name, out int lv))
                     throw new SogException("lod key not an int: " + p.Name);
-                levelKeys.Add(lv);
-            }
-            levelKeys.Sort();
-            foreach (int lv in levelKeys)
-            {
-                JToken r = lods[lv.ToString()];
-                runs.Add(new SsogRun
+                if (lv < 0 || lv >= idx.LevelCount)
+                    throw new SogException("lod level " + lv + " outside 0.." + (idx.LevelCount - 1));
+                foreach (var seen in leafRuns)
+                    if (seen.Level == lv) throw new SogException("lod level " + lv + " appears twice in one leaf");
+                var r = p.Value as JObject;
+                if (r == null) throw new SogException("lod " + p.Name + " is not an object");
+                var run = new SsogRun
                 {
-                    File = r.Value<int>("file"),
-                    Offset = r.Value<int>("offset"),
-                    Count = r.Value<int>("count"),
+                    File = ReqInt(r, "file", "lod"),
+                    Offset = ReqInt(r, "offset", "lod"),
+                    Count = ReqInt(r, "count", "lod"),
                     Leaf = leafIndex,
                     Level = lv
-                });
+                };
+                if (run.File < 0 || run.File >= idx.Files.Length)
+                    throw new SogException("lod file " + run.File + " outside 0.." + (idx.Files.Length - 1));
+                if (run.Offset < 0 || run.Count < 0)
+                    throw new SogException("lod offset/count negative");
+                leafRuns.Add(run);
             }
+            leafRuns.Sort((x, y) => x.Level.CompareTo(y.Level));
+            runs.AddRange(leafRuns);
+        }
+
+        private static int ReqInt(JObject obj, string key, string where)
+        {
+            JToken t = obj[key];
+            if (t == null || t.Type != JTokenType.Integer)
+                throw new SogException(where + " needs an integer " + key);
+            long v = t.ToObject<long>();
+            if (v < int.MinValue || v > int.MaxValue)
+                throw new SogException(where + " " + key + " out of range");
+            return (int)v;
         }
 
         private static float[] BoundVec(JToken tok, string name)
