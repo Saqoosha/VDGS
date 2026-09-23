@@ -339,7 +339,7 @@ docs/superpowers/specs/2026-09-17-ssog-lod-design.md。
 
 選択は見かけの大きさの帯 + 予算 + ヒステリシス（`LodSelector`）。非選択の splat は
 `CSCompactActive` でソート鍵バッファから外れるので、距離パスもソートも view パスも
-`_SortCount` 本だけ走る — **常駐の 87% を占める splat ごとの固定コストを、選ばれていない
+`_SortCount` 本だけ走る — **フレームの 87% を占める splat ごとの固定コストを、選ばれていない
 splat は払わない。**
 
 ### 実測（RTX 3060、エディタ D3D12、1024²、カメラはシーン内、2026-09-17）

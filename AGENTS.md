@@ -450,12 +450,12 @@ docs/superpowers/specs/2026-09-17-ssog-lod-design.md にあるが、距離帯の
 **全段を常駐させ、葉ごとに 1 段だけ描く。** 飛行中の `SetData` を避けるため。非選択の splat は
 `CSCompactActive` でソート鍵バッファから外し、距離パスもソートも view パスも `_SortCount` 本
 だけ走る。RTX 3060 で LOD 無し 23.1 ms → LOD 既定 10.9 ms（17.3M 常駐、2.98M 描画）。
-**ただし level 2 だけの ply（2.24M）は 8.1 ms** — 常駐の費用がゼロになるわけではない。
+**ただし level 2 だけの ply（2.24M）は 9.3 ms** — 常駐の費用がゼロになるわけではない。
 段は `placement.json` の `lodDetail`（無単位の見かけの大きさ、既定 1）と `lodBudget`
 （既定 3M）で決まり、Tweak のダイアルで動かせる。
 
 - **WebP は純 C# で解く**（`src/VDGS/Vp8l/`）。dwebp とバイト一致を xunit で見ている
-- **SH は常に `Cluster64k`。** チャンクごとにパレットが 65,536 本あり splat の索引は 16 bit
+- **SH は常に `Cluster64k`。** チャンクごとにパレットが最大 65,536 本あり splat の索引は 16 bit
   なので、run ごとの `shBase` をシェーダーで足す（`_RunInfo[run*2+1]`）
 - **パレットがちょうど 65,536 本なのが普通。** 「範囲外ラベル用のゼロ行」を上限に数えると
   実データが全部弾かれる（fixture は小さくて踏めなかった）

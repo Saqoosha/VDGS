@@ -39,11 +39,11 @@ means    { mins[3], maxs[3], files[2] }      位置。下位・上位バイト�
 scales   { codebook[256], files[1] }         対数スケール。索引はバイト
 quats    { files[1] }                        smallest-three。alpha に 252+m
 sh0      { codebook[256], files[1] }         DC 項
-shN      { count, bands, codebook[256], files[1..2] }   SH パレット
+shN      { count, bands, codebook[256], files[2] }     SH パレット
 ```
 
 **`quats` の alpha は落とした成分の番号を `252 + m` で持つ。** 252〜255 以外は
-splat-transform が符号化できなかった splat なので単位回転にする。
+単位回転として扱う。
 
 **`shN` は 64 列のタイル並び。** centroid 画像の幅は `64 * ShCoeffs[bands]` でなければ
 ならず、合わなければ `SogException` を投げる（高さは見ていない。「踏むと高くつくところ」）。
@@ -64,22 +64,22 @@ tree        二分木。内部ノードは children[2]、葉は bound{min[3],max
 どのチャンクファイルのどの範囲か」。
 
 **run はチャンクファイルを隙間なく敷き詰める。** `SsogIndexTests.RunsTileEachChunkFile` が
-fixture でそれを見ているが、**読み込み時には検証していない**（「未解決」）。
+fixture でそれを見ているが、**読み込み時には検証していない**（「踏むと高くつくところ」）。
 
 ## 復号の経路
 
 `src/VDGS/Vp8l/` と `src/VDGS/Sog/` は **UnityEngine に依存しない**。同じファイルが
 BepInEx プラグイン（netstandard2.0）と xunit（net8）の両方にリンクされるので、`unsafe` も
-外部パッケージも使えない。テストが書けるのはこの分割のおかげ。
+Newtonsoft 以外の外部パッケージも使えない。テストが書けるのはこの分割のおかげ。
 
 ### VP8L を純 C# で解く
 
-`Vp8lDecoder.cs`（931 行）。仕様は RFC 9649 §3。Huffman グループ、14 種の予測器、
+`Vp8lDecoder.cs`。仕様は RFC 9649 §3。Huffman グループ、14 種の予測器、
 カラーキャッシュ、LZ77、4 つの逆変換まで実装してある。
 
-**`dwebp` とバイト一致を xunit で見ている** — `.webp` が 27 枚と、ベンチシーン自身の
-チャンク。`dwebp` の出した画素そのものは 14 MB あるので置かず、**`<バイト数> <sha256>` の
-1 行**を `.sha256` として隣に置いてある。ハッシュ一致はバイト一致なので、検査の強さは
+**`dwebp` とバイト一致を xunit で見ている** — 合成した `.webp` 27 枚。`dwebp` の出した画素
+そのものは 14 MB あるので置かず、
+**`<バイト数> <sha256>` の 1 行**を `.sha256` として隣に置いてある。ハッシュ一致はバイト一致なので、検査の強さは
 変わらない。どちらも `tools/make_vp8l_fixtures.sh` が再生成する。
 
 ### チャンクから `SogSplats` へ
@@ -207,7 +207,7 @@ RTX 3060 で 23 ms。17.3M 常駐でユニファイドメモリが崩れる。
   レターを弾き、結合後のパスをルートと前置き比較する。ただし `Path.GetFullPath` は
   **シンボリックリンクを辿らない**（netstandard2.0 に `ResolveLinkTarget` が無い）
 - **`shN` centroid 画像は幅しか検査していない。** 高さが足りないぶんのパレット行は無言で
-  ゼロになる。SH が一部だけ消えた絵になる
+  `codebook[0]` になる。SH が一定値でずれた色になる
 - **`lod-meta.json` は信用している。** run の `file` / `offset` / `count` も段のキーも
   無検証で `BuildLod` と `LodSelector` に届く。壊れた manifest は不親切なメッセージで失敗するか、
   `SplatScene.Spawn` を突き抜けて例外になり、半分組んだシーンが残る
@@ -225,5 +225,5 @@ RTX 3060 で 23 ms。17.3M 常駐でユニファイドメモリが崩れる。
   何も描かれない、`SetKeyword` の回数を減らす → 変化なし）。パスごとの計測が要る
 - **名前の綴りが読み手ごとに違う。** `SogSource.Resolve` と `SogSource.ZipFiles.Read` は
   先頭の `./` について揃えたが、`Resolve` はバックスラッシュを拒み `ZipFiles.Read` は
-  正規化する。`SplatMetaFile.ReadSogZip` はどちらも剥がさないので、エントリが `./meta.json`
+  正規化する。`SplatMetaFile.ReadSogZip` は `./` を剥がさないので、エントリが `./meta.json`
   の `.sog` は**正しく描けるのに `splats: 0` と表示される**

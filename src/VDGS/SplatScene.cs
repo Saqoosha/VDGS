@@ -104,8 +104,7 @@ namespace VDGS
 
         /// <summary>
         /// True when this scene is decoded at load time (.ply, .sog, or a SOG/ssog
-        /// directory) rather than a pre-packed converted directory. Renamed from IsPly:
-        /// the old name meant "decoded at load", and SOG takes the same path.
+        /// directory) rather than a pre-packed converted directory.
         /// </summary>
         private bool DecodesAtLoad =>
             IsFileCapture
@@ -410,7 +409,8 @@ namespace VDGS
             if (m_Renderer != null && m_Renderer.LodLeaves > 0)
             {
                 lodLeaves = m_Renderer.LodLeaves;
-                lodActive = m_Renderer.LodActivePerLevel;
+                // Copied: the caller serializes off the main thread while Update rewrites it.
+                lodActive = (long[])m_Renderer.LodActivePerLevel?.Clone();
             }
             return new Status(
                 scale: spawned ? m_Go.transform.localScale.x : p.scale,

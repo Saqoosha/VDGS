@@ -31,7 +31,8 @@ namespace VDGS
             m_OtherStride = clusterSh ? 18 : 16;
 
             Pos = new byte[count * 12];
-            Other = new byte[count * m_OtherStride];
+            // Whole words: RawBuffer drops a partial last word (an odd count at stride 18).
+            Other = new byte[(count * m_OtherStride + 3) & ~3];
 
             SplatData.CalcTextureSize(count, out int texW, out int texH);
             m_TexWidth = texW;

@@ -56,8 +56,7 @@ namespace VDGS
         internal static string PathFor(string dir)
         {
             // A single-file capture (.ply or a bundled .sog) keeps its mesh beside it; a
-            // directory keeps it inside. Missing .sog here once sent the lookup to
-            // "x.sog/collision.bin", which never exists, and the mesh beside it was ignored.
+            // directory keeps it inside.
             return dir.EndsWith(".ply", StringComparison.OrdinalIgnoreCase)
                 || dir.EndsWith(".sog", StringComparison.OrdinalIgnoreCase)
                 ? Path.ChangeExtension(dir, ".collision.bin")

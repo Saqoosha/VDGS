@@ -307,7 +307,7 @@ namespace VDGS
     /// <summary>
     /// Several levels of the same regions, all resident at once (streamed SOG). A leaf is a
     /// box of space; a run is one leaf at one level, a contiguous range of splats. The
-    /// renderer draws exactly one run per leaf and parks the rest.
+    /// renderer draws at most one run per leaf and compacts the rest out of the sort.
     /// </summary>
     public sealed class LodInfo
     {
