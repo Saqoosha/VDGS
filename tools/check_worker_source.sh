@@ -14,21 +14,34 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Fetched first: a stale origin/master would compare against what master used to be.
-git -C "$ROOT" fetch -q origin master || {
-  echo "   worker/: could not fetch origin/master - refusing to deploy blind" >&2; exit 1; }
+# Over HTTPS with no credentials where the repository allows it (it is public): origin is
+# ssh through the 1Password agent, which hides its approval prompt when the app that asked
+# is in the background - an agent-run publish would wait 60 s and fail on a fine worker/.
+# ssh stays as the fallback. Into a ref of its own, removed on exit.
+REF=refs/vdgs/deploy-check-master
+trap 'git -C "$ROOT" update-ref -d "$REF" 2>/dev/null || true' EXIT
+ORIGIN="$(git -C "$ROOT" remote get-url origin)"
+HTTPS="$(printf '%s' "$ORIGIN" | sed -E 's#^git@github\.com:#https://github.com/#')"
+if GIT_TERMINAL_PROMPT=0 git -C "$ROOT" -c credential.helper= fetch -q "$HTTPS" "+master:$REF" 2>/dev/null; then
+  :
+elif git -C "$ROOT" fetch -q origin "+master:$REF"; then
+  :
+else
+  echo "   worker/: could not fetch master - refusing to deploy blind" >&2; exit 1
+fi
 
-changed="$( { git -C "$ROOT" diff --name-only origin/master -- worker/
+changed="$( { git -C "$ROOT" diff --name-only "$REF" -- worker/
               git -C "$ROOT" ls-files --others --exclude-standard -- worker/; } | sort -u)"
 if [ -z "$changed" ]; then
-  echo "   worker/: same as origin/master"
+  echo "   worker/: same as master"
   exit 0
 fi
 if [ "${VDGS_WORKER_CHANGE:-}" = 1 ]; then
-  echo "   worker/: differs from origin/master - allowed by VDGS_WORKER_CHANGE=1"
+  echo "   worker/: differs from master - allowed by VDGS_WORKER_CHANGE=1"
   printf '     %s\n' $changed
   exit 0
 fi
-echo "   worker/: this checkout's Worker is not origin/master's, and the deploy would put it live:" >&2
+echo "   worker/: this checkout's Worker is not master's, and the deploy would put it live:" >&2
 printf '     %s\n' $changed >&2
 echo "   Deploy from a checkout of origin/master, or set VDGS_WORKER_CHANGE=1 to ship this one." >&2
 exit 1

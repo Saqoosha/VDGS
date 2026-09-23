@@ -47,14 +47,14 @@ check_the_rest() {
     echo "   could not list $REMOTE:$BUCKET/dvr - refusing to deploy blind" >&2; return 1; }
   python3 "$ROOT/tools/check_live_site.py" "$SITE" || return 1
   VDGS_VIEWER_CHANGE="$NAME" python3 "$ROOT/tools/check_live_viewers.py" "$TMP/dvr.json" "$SITE" || return 1
+  # The deploy ships this checkout's Worker too - the routing to R2 - not only the site.
+  bash "$ROOT/tools/check_worker_source.sh" || return 1
 }
 # Before the build, not after: a refusal must leave build/dvr-viewer/$NAME and the site as
 # they were, or the next publish.sh from here finds an unpublished build in them. The check
 # does not need the new page - $NAME is the one viewer allowed to change.
 say "checking what else the deploy would change"
 check_the_rest || exit 1
-# The deploy ships this checkout's Worker too - the routing to R2 - not only the site.
-bash "$ROOT/tools/check_worker_source.sh" || exit 1
 
 say "build the page"
 ( cd "$ROOT/viewer" && VITE_BASE="/dvr/$NAME/" bun run build )

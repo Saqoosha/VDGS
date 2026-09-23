@@ -216,6 +216,9 @@ say "checking the DVR viewers again, just before the deploy"
 # another checkout in that time would be reverted by the deploy all the same.
 python3 "$ROOT/tools/check_live_viewers.py" "$TMP/after.json" "$SITE"
 
+# Again: a change to worker/ merged during the uploads would otherwise be reverted.
+bash "$ROOT/tools/check_worker_source.sh"
+
 say "site and catalog"
 # The R2 keys go no further. wrangler authenticates as its own OAuth session and has no
 # use for a bucket write token, and neither does anything npx drags in behind it.
