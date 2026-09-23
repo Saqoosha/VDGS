@@ -373,6 +373,16 @@ COLMAP の出どころは `third_party\colmap-runtime\airvis-colmap-runtime.json
   レイアウトを直接読むので、COLMAP 4.2 の `pycolmap.panorama` リグ（360 の登録 50% → 98.8%）
   を食わせる。CUDA + Caspar 付き pycolmap のビルドと罠は docs/findings-2026-09-03.md
 
+### spirula-studio で作る（全文は docs/spirula.ja.md）
+
+フレーム抽出・SAM 3 のマスク・SfM・学習が 1 つの exe に入っていて、win4090 の `D:\spirula\` にある。
+R6（Avata 2）は採用、R5 の 360（Insta360 X3）は不採用。
+
+- **Avata 2 のテレメトリは読めない。** GPS は `--metric-positions` で渡す。X3 のテレメトリ（IMU）は読める
+- **同じ印刷のアーチへの貼り間違いを `fold-split` が切った**（COLMAP は 26 枚を別のアーチに貼っていた）
+- **`sam track` は連番（`frame_00000.png`）で書く。** stem に付け替えないと、マスクが黙って外れる
+- 不透明度が柔らかい（中央値 0.11、AirVis は 0.98）。浮遊物は少ないが、色は AirVis 版の編集を移して合わせた
+
 ### 屋外キャプチャの掃除とコリジョン（全文は docs/cleanup.ja.md）
 
 屋内シーンと前提が違うところだけ：
@@ -437,58 +447,23 @@ Unity は左手系 Y-up なので、届いたキャプチャはそのままだ�
 自動で外れ、理由をログに残す。`up` が空で `rotation` が単位行列でない手書きの
 `placement.json`（この設計より前のファイル）も同じ扱いで弾く。
 
-### 空は映像から作る（`sky.jpg`）
+### 空は映像から作る（全文は docs/sky.ja.md）
 
-`blackout` は地面と一緒に空も黒くするが、屋外のキャプチャで黒い空は不自然。**空は無限遠に
-あるので視差が無く、SfM の姿勢さえあれば全フレームの空画素が 1 枚のパノラマに重なる。**
-`tools/sky_pano.py`（姿勢 × SAM 3 の空マスクで equirect に積む）→ `tools/sky_fill.py`（見ていない
-天頂を 3 次 SH で延長、地平線下は暗く落とす）で JPEG を作る。
+**空は無限遠にあるので視差が無く、SfM の姿勢さえあれば全フレームの空画素が 1 枚のパノラマに重なる。**
+`tools/sky_pano.py` → `tools/sky_fill.py` で作り、変換済みフォルダなら `<dir>/sky.jpg`、`.ply` なら隣の
+`<name>.sky.jpg` に置く。mod（`WorldSky`）はカメラに触らず `RenderSettings.skybox` を差し替える。
 
-- **置き場所**：変換済みフォルダなら `<dir>/sky.jpg`（フォルダごと配布・更新・削除されるため）、
-  `.ply` なら隣の `<name>.sky.jpg`。無ければ従来どおり黒
-- **空は blackout の一部として出る。** `blackout` のキーが無ければ、空ファイルがあるときだけ自動で on
-  （`SplatScene.BlackoutFor`）。明示の `false` なら空も出ない。キーを省けるようにしたのは、
-  公開済みの初版の placement にこのキーが無く、companion は更新時に利用者の placement を残すから ——
-  後の revision で空を足しても、初版の利用者には届かなくなる
-- **パノラマは ply のローカル座標で作る**（`sky_pano.py --frame` に ply を作ったのと同じ行列）。
-  mod は capture の `worldToLocalMatrix` を渡すだけなので、Tweak の `turn` に空が追従する。
-  別のフレームで作った ply（別の GPS フィット）と組むと、そのぶん太陽がずれる
-- **カメラの clear には触らず `RenderSettings.skybox` を差し替える。** 空が出ている間は
-  `WorldBlackout` がカメラを Skybox に戻す（黒で clear するとパノラマを塗り潰す）
-- **DLL とシェーダーバンドルは一緒に出す。** `PanoSkybox` の無い古いバンドルだと
-  `panorama shader is missing from the bundle` をログに出して黒に落ちる
+- **空は blackout の一部として出る。** キーが無ければ、空ファイルがあるときだけ自動で on（`SplatScene.BlackoutFor`）。
+  初版の placement にキーが無く、companion は更新時に利用者の placement を残すため
+- **パノラマは ply のファイルの座標で作る**（`sky_pano.py --frame` に ply を作ったのと同じ行列）。
+  web 版は Unity 版を u で鏡映して W/2 ずらせば導ける。v の式は Unity と WebGL で符号が逆
+- **DLL とシェーダーバンドルは一緒に出す。** 古いバンドルでは黒に落ちる
+- **検算は空の画像自身の太陽で。** 別の時刻の映像（DVR）の空と比べたら、鏡像（誤り）のほうがよく合うという数字が出た
 
-**踏んだ罠 3 つ。どれも絵を見ただけでは原因が分からなかった**：
-
-- **equirect の継ぎ目に暗い破線。** `atan2` が経度 ±180° で 0 と 1 に飛び、GPU が隣の画素との差分から
-  最小ミップを選ぶ。半回転ずらした u の微分を `tex2Dgrad` に渡して直した。パノラマ自体に暗い列は無い
-- **パノラマの斑点の正体はゼロ。** 1 フレームの隣接画素が同じビンに落ちると、書き込みは 1 個なのに
-  カウンタは全部数え、中央値に空き枠のゼロが混ざる。1 フレーム 1 ビン 1 サンプルにして 22% → 0%
-- **v の向きは Unity と WebGL で逆。** Unity はテクスチャを上下反転して読むので `acos(−y)/π`、
-  上から数えるサンプラは `acos(y)/π`。画像の行 0 が天頂なのはどちらも同じ
-
-検算は**空の画像自身の太陽**で行う：R6 は白飛び重心が方位 97.7°、撮影時刻の実際の太陽が 101.3°。
-**DVR など別時刻の映像の空を基準にしてはいけない** —— 一度それで測ったら、鏡像（誤り）のほうが
-よく合うという数字が出た。
-
-### SuperSplat に空と飛行経路ごと出す
-
-SuperSplat の Publish が運ぶのは splat と背景色だけで、skybox は運べない（ビューア自体は
-`skyboxUrl` を読めるが、エディタに UI が無い）。だから**空を splat にして ply に焼き込む**：
-`tools/sky_to_splats.py` が半径 2 km の球面に不透明な円盤を黄金螺旋で並べ、パノラマの色を付ける
-（R6 で 301,468 個）。球はシーンの外接球の一部なので、ビューアの遠クリップの内側に必ず入る。
-パノラマは焼き込む先の ply と同じフレームのもの（web 版なら web のパノラマ）を使う。
-
-カメラアニメーションは **VelociDrone の WebSocket** から取る。`tools/vd_record.py` が
-`ws://<ゲーム機の LAN の IP>:60003/velocidrone` を JSON Lines で全部記録し、
-`tools/vd_path_to_supersplat.py` が placement の逆変換でキャプチャ座標に戻して、1 周ぶんのキーにする。
-
-- **ゲームは localhost では待っていない。** LAN の IP で待つ。設定で WebSocket Communication と
-  WebSocket IMU Data を on にする（user11.db の `sim_states` の `use-web-socket` / `web-socket-imu`）
-- **Python の `websockets` は `ping_interval=None` で繋ぐ。** ゲームはプロトコルの ping に答えないので、
-  既定のままだと 51 秒ごとに 11 秒途切れる。ゲームの ping は JSON の `{"command":"ping"}`
-- エディタへはタイムラインのイベントで入れる（`camera.loadPoses`）。**メモリにしか無い**ので、
-  ページを再読み込みしたら入れ直す
+SuperSplat は skybox を運べないので、`tools/sky_to_splats.py` で空を splat の球にして ply に焼き込む。
+カメラアニメーションは VelociDrone の WebSocket（`ws://<LAN の IP>:60003/velocidrone`）を
+`tools/vd_record.py` で録り、`tools/vd_path_to_supersplat.py` でキャプチャ座標に戻す。
+**Python の `websockets` は `ping_interval=None` で繋ぐ**（既定だと 51 秒ごとに 11 秒途切れる）。
 
 ## プラグインの構成
 
