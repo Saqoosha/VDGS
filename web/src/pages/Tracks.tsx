@@ -33,7 +33,9 @@ type Row =
   | ({ kind: "track" } & TrackEntry & {
       catalogId?: string;
       update?: boolean;
-      // Bound to a different capture than the catalog's cut of this same track.
+      // The entry was found by track, not by capture: fetching it has to rebind.
+      viaTrack?: boolean;
+      // ...and the capture the track is bound to is installed, so the row says Replace.
       replaces?: boolean;
     });
 
@@ -172,6 +174,7 @@ export default function Tracks({
       update:
         !!byCapture &&
         !!catalog?.entries.find((e) => e.id === byCapture)?.update,
+      viaTrack: !!byTrack,
       replaces: !!byTrack && t.captureInstalled,
     };
   });
@@ -611,7 +614,10 @@ function Actions({
     // nothing - worse than no button, because nothing tells whoever clicked it that it
     // failed. Offer Get only once a real catalog entry has been resolved.
     return row.catalogId ? (
-      <Button disabled={fileBusy} onClick={() => send("get", row.catalogId)}>
+      <Button
+        disabled={fileBusy}
+        onClick={() => send(row.viaTrack ? "replace" : "get", row.catalogId)}
+      >
         Get
       </Button>
     ) : null;

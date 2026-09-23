@@ -125,6 +125,15 @@ describe('the merged track table', () => {
     expect(screen.getAllByRole('progressbar', { name: /downloading VDGS JDL 2026 R6/i })).toHaveLength(1)
   })
 
+  it('rebinds when Get fetches a missing capture found by track rather than by capture', () => {
+    render(<Tracks state={state({
+      tracks: [{ ...handBound, captureInstalled: false }],
+      catalog: { url: 'u', error: null, entries: [r6] },
+    })} busy={false} {...noop} />)
+    fireEvent.click(screen.getByRole('button', { name: /^get$/i }))
+    expect(vi.mocked(send)).toHaveBeenCalledWith('replace', 'jdl-2026-r6')
+  })
+
   it('offers no Replace when the track is bound to the catalog cut itself', () => {
     render(<Tracks state={state({
       tracks: [track({ track: 'VDGS JDL 2026 R6', capture: 'JDL-2026-R6' })],
