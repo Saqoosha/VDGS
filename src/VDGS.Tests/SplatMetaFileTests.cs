@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.IO.Compression;
 using System.Text;
 using Newtonsoft.Json;
 using Xunit;
@@ -73,6 +74,22 @@ namespace VDGS.Tests
                 Assert.True(info.Bytes >= 100);
             }
             finally { Directory.Delete(dir, true); }
+        }
+
+        // The loader already found "./meta.json"; the listing used to miss it and show 0 splats.
+        [Theory]
+        [InlineData("meta.json")]
+        [InlineData("./meta.json")]
+        [InlineData(".\\meta.json")]
+        public void Bundled_sog_counts_whatever_the_entry_spelling(string entry)
+        {
+            var path = Path.Combine(_dir, "x.sog");
+            using (var zip = ZipFile.Open(path, ZipArchiveMode.Create))
+            using (var w = new StreamWriter(zip.CreateEntry(entry).Open()))
+                w.Write("{\"version\":2,\"count\":1234}");
+            var info = SplatMetaFile.Read(path);
+            Assert.Equal("sog", info.Kind);
+            Assert.Equal(1234, info.Splats);
         }
     }
 }

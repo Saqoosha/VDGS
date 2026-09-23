@@ -86,6 +86,9 @@ namespace VDGS.Sog
             return name.StartsWith("./", StringComparison.Ordinal) ? name.Substring(2) : name;
         }
 
+        /// <summary>A zip entry name as every reader compares it: forward slashes, no leading "./".</summary>
+        public static string ZipEntryName(string name) => StripDotSlash(name.Replace('\\', '/'));
+
         /// <summary>Largest file taken out of a .sog; a legitimate chunk image is far smaller.</summary>
         public const int MaxEntryBytes = 512 * 1024 * 1024;
 
@@ -118,16 +121,14 @@ namespace VDGS.Sog
 
             public byte[] Read(string relativePath)
             {
-                string key = StripDotSlash(relativePath.Replace('\\', '/'));
+                string key = ZipEntryName(relativePath);
                 ZipArchiveEntry entry = m_Zip.GetEntry(key);
                 if (entry == null)
                 {
                     // Some writers prefix "./" or use backslashes; try a linear scan.
                     foreach (ZipArchiveEntry e in m_Zip.Entries)
                     {
-                        var name = e.FullName.Replace('\\', '/');
-                        if (name.StartsWith("./", StringComparison.Ordinal)) name = name.Substring(2);
-                        if (string.Equals(name, key, StringComparison.Ordinal))
+                        if (string.Equals(ZipEntryName(e.FullName), key, StringComparison.Ordinal))
                         {
                             entry = e;
                             break;

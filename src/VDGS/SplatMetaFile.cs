@@ -130,7 +130,7 @@ namespace VDGS
                     {
                         foreach (var e in zip.Entries)
                         {
-                            if (string.Equals(e.FullName.Replace('\\', '/'), "meta.json",
+                            if (string.Equals(SogSource.ZipEntryName(e.FullName), "meta.json",
                                               StringComparison.Ordinal))
                             {
                                 entry = e;
