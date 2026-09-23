@@ -224,6 +224,14 @@ viewer は JS 1 本）、違えば**何も上げる前に**止まる。アップ
 全 viewer が 404 になり「live じゃない」と読んでしまう。直すのは `bash tools/pull-dvr-viewer.sh <name>`（live のページと
 それが名指す資産を写し取る）→ `make-catalog.sh` のやり直し。わざと変えるときは `VDGS_VIEWER_CHANGE=<name>`。
 
+**`publish-dvr-viewer.sh` も同じ置き換え方をする。** 変えたいのは `dvr/<name>/` だけなのに、
+deploy はこのチェックアウトのサイト丸ごと —— カタログ、トップページ、他の viewer —— を出す。
+サイトを別の時点で組んだチェックアウトからだと**カタログを巻き戻し**、
+サイトが無ければ**トップを消す**。2026-09-23 に別のセッションがこれを理由に実行を控えた。`tools/check_live_site.py` が
+`catalog.json`（バイト単位）とトップの `index.html`（ビーコンを除く）とそれが名指す資産を、
+`check_live_viewers.py` が今上げる `<name>` 以外の viewer を確かめる。データを上げる前と、
+`.sog` を上げ終えた deploy の直前の 2 回。live を読む部分は `tools/_live.py` に 1 つだけ置いてある。
+
 **配られる HTML は上げたバイトと同じとは限らない。** Cloudflare Web Analytics が `</body>` の前に
 ビーコンを差し込む —— しかもリクエストの形で入ったり入らなかったりする（curl には無く、Python の
 urllib には有った）。比べる前にも写し取るときにも取り除く。取り除けば上げたバイトに戻ることは確認済み。

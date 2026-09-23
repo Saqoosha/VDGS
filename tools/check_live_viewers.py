@@ -23,29 +23,13 @@ VDGS_VIEWER_CHANGE=<name>[,<name>] lets a named viewer change on purpose.
 """
 import json
 import os
-import random
 import re
 import sys
-import urllib.error
-import urllib.request
+
+from _live import fetch, missing_assets, say
 
 remote_json, site = sys.argv[1], sys.argv[2]
-base = os.environ.get("VDGS_BASE_URL", "https://vdgs.saqoo.sh").rstrip("/")
 allowed = {n.strip() for n in os.environ.get("VDGS_VIEWER_CHANGE", "").split(",") if n.strip()}
-
-# Named: the zone's bot check answers Python's default User-Agent with a 403.
-UA = {"User-Agent": "vdgs-publish"}
-# Cloudflare Web Analytics adds its beacon before </body> in some responses and not others
-# (curl got none, urllib got one), so what is served is not always the bytes deployed.
-# Removed before comparing; without this every viewer reads as changed.
-INJECTED = re.compile(rb'<script[^>]*static\.cloudflareinsights\.com[^>]*></script>\n?')
-ASSET = re.compile(rb'(?:/dvr/[^/"\']+/)?(assets/[A-Za-z0-9_.-]+)')
-
-
-def say(line, err=False):
-    # One stream, flushed: stdout is block-buffered under a pipe, and a refusal printed to
-    # stderr could otherwise land above lines that read as passing.
-    print(line, file=sys.stderr if err else sys.stdout, flush=True)
 
 
 names = sorted({
@@ -55,36 +39,16 @@ names = sorted({
 })
 
 
-def live_index(name):
-    # A cache-busting query: the site's HTML is revalidated, but an edge can still hold the
-    # previous copy for a moment after a deploy, and a stale answer here is a wrong verdict.
-    url = "%s/dvr/%s/?cb=%d" % (base, name, random.randrange(1 << 30))
-    try:
-        with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=20) as r:
-            return INJECTED.sub(b"", r.read())
-    except urllib.error.HTTPError as e:
-        if e.code == 404:
-            return None
-        reason = "HTTP %d" % e.code
-    except Exception as e:  # noqa: BLE001 - anything else is "could not look", never a pass
-        reason = "%s: %s" % (type(e).__name__, e)
-    say("   dvr/%s: could not read %s (%s) - refusing to deploy blind" % (name, url, reason), True)
-    sys.exit(1)
-
-
 bad = []
 for name in names:
-    live = live_index(name)
+    live = fetch("dvr/%s/" % name, "dvr/%s" % name)
     if live is None:
         say("   dvr/%s: not live, nothing to protect" % name)
         continue
     local_dir = os.path.join(site, "dvr", name)
     local_path = os.path.join(local_dir, "index.html")
     local = open(local_path, "rb").read() if os.path.exists(local_path) else None
-    missing = sorted({
-        m.decode() for m in ASSET.findall(local or b"")
-        if not os.path.isfile(os.path.join(local_dir, m.decode()))
-    })
+    missing = missing_assets(local, local_dir)
     if local == live and not missing:
         say("   dvr/%s: same as live" % name)
     elif name in allowed:

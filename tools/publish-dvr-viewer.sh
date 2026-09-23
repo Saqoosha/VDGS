@@ -31,15 +31,34 @@ unset CREDS
 [ -n "$AK" ] && [ -n "$SK" ] || { echo "$MOUNT has no R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY" >&2; exit 1; }
 UC="$(printf '%s' "$REMOTE" | tr '[:lower:]-' '[:upper:]_')"
 export "RCLONE_CONFIG_${UC}_ACCESS_KEY_ID=$AK" "RCLONE_CONFIG_${UC}_SECRET_ACCESS_KEY=$SK"; unset AK SK
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT INT TERM
+
+# The deploy below replaces the whole site from this checkout, not just dvr/$NAME: the
+# catalog, the front page and every other viewer go out as they are here. Each of those must
+# already be what is live, or this publish reverts it (or, with no copy, removes it) with no
+# error anywhere. Checked before the upload, and again before the deploy, because the scene
+# files take minutes and the site can be published from another checkout meanwhile.
+check_the_rest() {
+  rclone --s3-no-check-bucket lsjson --recursive --files-only --include "dvr/**" \
+    "$REMOTE:$BUCKET" > "$TMP/dvr.json" || {
+    echo "   could not list $REMOTE:$BUCKET/dvr - refusing to deploy blind" >&2; exit 1; }
+  python3 "$ROOT/tools/check_live_site.py" "$SITE"
+  VDGS_VIEWER_CHANGE="$NAME${VDGS_VIEWER_CHANGE:+,$VDGS_VIEWER_CHANGE}" \
+    python3 "$ROOT/tools/check_live_viewers.py" "$TMP/dvr.json" "$SITE"
+}
+say "checking what else the deploy would change"
+check_the_rest
 
 say "data -> r2:$BUCKET/dvr/$NAME/data/"
-TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT INT TERM
 mkdir -p "$TMP/scene"
 for f in dvr_pinhole.mp4 dvr_pinhole.mp4.json poses60_refined15.json poses60_init15.json poses60_refined10.json scan_cameras.json marks.json sky.jpg; do
   cp "$DATA/$f" "$TMP/$f"; done
 cp "$DATA/scene/JDL-2026-R6-fix-web.sog" "$DATA/scene/JDL-2026-R6-fix-web-edit.sog" "$DATA/scene/JDL-2026-R6-spirula-web-edit.sog" "$TMP/scene/"
 du -sh "$TMP"
 rclone --s3-no-check-bucket copy --checksum --progress "$TMP" "$REMOTE:$BUCKET/dvr/$NAME/data/"
+
+say "checking again, just before the deploy"
+check_the_rest
 
 say "deploy"
 ( cd "$ROOT/worker" && npx wrangler deploy )
