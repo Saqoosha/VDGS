@@ -437,6 +437,38 @@ Unity は左手系 Y-up なので、届いたキャプチャはそのままだ�
 自動で外れ、理由をログに残す。`up` が空で `rotation` が単位行列でない手書きの
 `placement.json`（この設計より前のファイル）も同じ扱いで弾く。
 
+### 空は映像から作る（`sky.jpg`）
+
+`blackout` は地面と一緒に空も黒くするが、屋外のキャプチャで黒い空は不自然。**空は無限遠に
+あるので視差が無く、SfM の姿勢さえあれば全フレームの空画素が 1 枚のパノラマに重なる。**
+`tools/sky_pano.py`（姿勢 × SAM 3 の空マスクで equirect に積む）→ `tools/sky_fill.py`（見ていない
+天頂を 3 次 SH で延長、地平線下は暗く落とす）で JPEG を作る。
+
+- **置き場所**：変換済みフォルダなら `<dir>/sky.jpg`（フォルダごと配布・更新・削除されるため）、
+  `.ply` なら隣の `<name>.sky.jpg`。無ければ従来どおり黒
+- **`blackout: true` のときしか使われない。** `WorldSky.Want` は blackout の分岐の中で呼ばれる。
+  外れていると空は黙って無視され、ゲームの空が出る
+- **パノラマは ply のローカル座標で作る**（`sky_pano.py --frame` に ply を作ったのと同じ行列）。
+  mod は capture の `worldToLocalMatrix` を渡すだけなので、Tweak の `turn` に空が追従する。
+  別のフレームで作った ply（別の GPS フィット）と組むと、そのぶん太陽がずれる
+- **カメラの clear には触らず `RenderSettings.skybox` を差し替える。** 空が出ている間は
+  `WorldBlackout` がカメラを Skybox に戻す（黒で clear するとパノラマを塗り潰す）
+- **DLL とシェーダーバンドルは一緒に出す。** `PanoSkybox` の無い古いバンドルだと
+  `panorama shader is missing from the bundle` をログに出して黒に落ちる
+
+**踏んだ罠 3 つ。どれも絵を見ただけでは原因が分からなかった**：
+
+- **equirect の継ぎ目に暗い破線。** `atan2` が経度 ±180° で 0 と 1 に飛び、GPU が隣の画素との差分から
+  最小ミップを選ぶ。半回転ずらした u の微分を `tex2Dgrad` に渡して直した。パノラマ自体に暗い列は無い
+- **パノラマの斑点の正体はゼロ。** 1 フレームの隣接画素が同じビンに落ちると、書き込みは 1 個なのに
+  カウンタは全部数え、中央値に空き枠のゼロが混ざる。1 フレーム 1 ビン 1 サンプルにして 22% → 0%
+- **v の向きは Unity と WebGL で逆。** Unity はテクスチャを上下反転して読むので `acos(−y)/π`、
+  上から数えるサンプラは `acos(y)/π`。画像の行 0 が天頂なのはどちらも同じ
+
+検算は**空の画像自身の太陽**で行う：R6 は白飛び重心が方位 97.7°、撮影時刻の実際の太陽が 101.3°。
+**DVR など別時刻の映像の空を基準にしてはいけない** —— 一度それで測ったら、鏡像（誤り）のほうが
+よく合うという数字が出た。
+
 ## プラグインの構成
 
 ```
@@ -451,6 +483,7 @@ src/VDGS/
   SplatCollision.cs      collision.bin -> MeshCollider（.ply は読み込み時に Y 鏡映）
   SplatCollisionView.cs  コリジョン殻の描画（半透明＋背面カリング / ワイヤー）
   SplatBackdrop.cs       キャプチャを黒い箱で囲う
+  WorldSky.cs            キャプチャの sky.jpg をゲームの skybox と差し替える
   TrackName.cs     ロード中のトラック名をランタイムに問い合わせる
   TrackBindings.cs トラック名 -> GS の対応表（bindings.json）
   TrackProbe.cs    難読化されたゲームから文字列の在処を探す調査用

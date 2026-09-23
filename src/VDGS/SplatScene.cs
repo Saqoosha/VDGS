@@ -257,7 +257,12 @@ namespace VDGS
                                   + " is rotated, so the floor clamp would slice the capture");
 
             if (placement.blackout)
+            {
+                // Sky first: blackout asks whether one is up before it decides what to do
+                // with the cameras, and a capture that has a sky wants its own, not black.
+                WorldSky.Want(Name, m_Dir, m_Go.transform, report);
                 WorldBlackout.Want(Name, report);
+            }
 
             // Off means nothing is built. Attaching regardless and disabling afterwards
             // would still cook the mesh - 277,736 triangles for drjohnson - inside the
@@ -294,6 +299,7 @@ namespace VDGS
             m_Renderer = null;
             m_PendingView = null;
             WorldBlackout.Release(Name, null);
+            WorldSky.Release(Name, null);
         }
 
         internal Transform Transform => m_Go != null ? m_Go.transform : null;
@@ -420,8 +426,16 @@ namespace VDGS
                 log?.AppendLine(Name + ": blackout " + (on ? "on" : "off") + " (applies when spawned)");
                 return;
             }
-            if (on) WorldBlackout.Want(Name, log);
-            else WorldBlackout.Release(Name, log);
+            if (on)
+            {
+                WorldSky.Want(Name, m_Dir, m_Go.transform, log);
+                WorldBlackout.Want(Name, log);
+            }
+            else
+            {
+                WorldBlackout.Release(Name, log);
+                WorldSky.Release(Name, log);
+            }
         }
 
         /// <summary>Requested view, applied once the collider's mesh finishes cooking.</summary>

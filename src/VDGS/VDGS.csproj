@@ -51,6 +51,10 @@
       <HintPath>..\..\lib\unity\UnityEngine.PhysicsModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="UnityEngine.ImageConversionModule">
+      <HintPath>..\..\lib\unity\UnityEngine.ImageConversionModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="UnityEngine.AssetBundleModule">
       <HintPath>..\..\lib\unity\UnityEngine.AssetBundleModule.dll</HintPath>
       <Private>false</Private>
