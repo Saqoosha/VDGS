@@ -19,7 +19,7 @@ STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT INT TERM
 
 python3 - "$BASE" "$NAME" "$STAGE" <<'PY'
-import os, random, re, sys, urllib.request
+import os, random, re, sys, urllib.error, urllib.request
 base, name, stage = sys.argv[1].rstrip("/"), sys.argv[2], sys.argv[3]
 prefix = "/dvr/%s/" % name
 
@@ -27,8 +27,14 @@ def get(rel):
     url = base + prefix + rel + ("?cb=%d" % random.randrange(1 << 30) if rel == "" else "")
     # Named: the zone's bot check answers Python's default User-Agent with a 403.
     req = urllib.request.Request(url, headers={"User-Agent": "vdgs-publish"})
-    with urllib.request.urlopen(req, timeout=60) as r:
-        return r.read()
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return r.read()
+    except Exception as e:  # noqa: BLE001 - any failure stops with nothing moved
+        # The old copy is only replaced once every file is here. A 404 on an asset can be a
+        # string in the bundle that only looks like one.
+        sys.exit("could not fetch %s (%s) - build/dvr-viewer/%s left as it was"
+                 % (url, getattr(e, "code", None) or e, name))
 
 # Asset references as the build writes them: absolute under the viewer's base, or relative.
 ref = re.compile(rb'(?:%s)?(assets/[A-Za-z0-9_.-]+\.(?:js|mjs|css|wasm|png|jpg|svg|woff2?))'
@@ -54,6 +60,13 @@ if not seen:
     sys.exit("the live page names no assets - not what a viewer build looks like, refusing")
 PY
 
+# Copied next to DEST first and swapped in by rename, so a copy that fails part way leaves
+# the old one in place rather than a half page that the deploy check could pass on index.html
+# alone. Into a fresh directory, not the mktemp one, which is mode 0700.
+mkdir -p "$(dirname "$DEST")"
+NEW="$DEST.new.$$"
+rm -rf "$NEW"; mkdir -p "$NEW"
+cp -R "$STAGE/." "$NEW/"
 # The old copy is set aside, not deleted: it may be the only copy of a build someone meant
 # to publish from here.
 if [ -d "$DEST" ]; then
@@ -62,6 +75,5 @@ if [ -d "$DEST" ]; then
   mv "$DEST" "$OLD"
   echo "   previous copy -> ${OLD#$ROOT/}"
 fi
-mkdir -p "$(dirname "$DEST")"
-cp -R "$STAGE" "$DEST"
+mv "$NEW" "$DEST"
 echo "-> build/dvr-viewer/$NAME is now the live page. Run make-catalog.sh again before publishing."
