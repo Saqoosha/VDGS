@@ -1,10 +1,11 @@
 {
   "id": "jdl-2026-r6",
   "name": "VDGS JDL 2026 R6",
-  "description": "The Japan Drone League 2026 Round 6 race site at Kawada Park, Toyota, Japan. Draft: no collision yet, so gates and ground are flown through, and the haze near the ground has not been cleaned up. An update will replace it.",
+  "description": "The Japan Drone League 2026 Round 6 race site at Kawada Park, Toyota, Japan, reconstructed from Saqoosha's own DJI Avata 2 FPV footage, with the sky photographed on the same flight. The sky needs the VDGS mod from 2026-09-23 or later: update this app, then reinstall the mod. No collision yet, so gates and ground are flown through.",
   "author": "Saqoosha",
   "licence": "CC0-1.0",
   "captured": "2026-09-19",
   "installAs": "JDL-2026-R6",
+  "revision": 2,
   "track": "VDGS-JDL-2026-R6.track.json"
 }
