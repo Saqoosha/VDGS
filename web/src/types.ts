@@ -50,6 +50,8 @@ export type Capture = {
 export type TrackEntry = {
   track: string
   capture: string | null
+  /** The bound capture names one by one; `capture` is them joined for display. */
+  captures?: string[]
   splats: number
   bytes?: number
   collision: boolean
@@ -114,6 +116,8 @@ export type CatalogEntry = {
    * `get`; optional because older/partial fixtures do not carry it.
    */
   installAs?: string | null
+  /** The track this entry installs, as displayed - what a track row claims it by. */
+  track?: string | null
 }
 
 export type CatalogState = {

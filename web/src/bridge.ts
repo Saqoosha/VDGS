@@ -49,6 +49,7 @@ export type Command =
   | 'unbindTrack'
   | 'refreshCatalog'
   | 'get'
+  | 'replace'
   | 'addTrack'
   | 'fly'
 

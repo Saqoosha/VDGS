@@ -30,7 +30,14 @@ type Row =
   | ({ kind: "catalog" } & CatalogEntry)
   // catalogId is the id to hand `get` when the capture is not on this machine yet, or
   // again when the catalog has a newer cut of it (update).
-  | ({ kind: "track" } & TrackEntry & { catalogId?: string; update?: boolean });
+  | ({ kind: "track" } & TrackEntry & {
+      catalogId?: string;
+      update?: boolean;
+      // The entry was found by track, not by capture: fetching it has to rebind.
+      viaTrack?: boolean;
+      // ...and the capture the track is bound to is installed, so the row says Replace.
+      replaces?: boolean;
+    });
 
 function rowName(row: Row): string {
   return row.kind === "catalog" ? row.name : row.track;
@@ -47,11 +54,26 @@ function rowName(row: Row): string {
  * fetch and the row gets no action at all rather than a button that does nothing.
  */
 function resolveCatalogId(
-  capture: string | null,
+  captures: string[],
   catalog: CatalogState | null,
 ): string | undefined {
-  if (!capture || !catalog) return undefined;
-  return catalog.entries.find((e) => e.installAs === capture)?.id;
+  if (!captures.length || !catalog) return undefined;
+  return catalog.entries.find(
+    (e) => !!e.installAs && captures.includes(e.installAs),
+  )?.id;
+}
+
+/**
+ * The catalog's cut of this track when the track is bound to some other capture - one
+ * picked by hand, or added from a .ply under the catalog's name. Without this the track
+ * showed twice: its own row, and the catalog entry as an "available" row of the same
+ * name, and a Get lit both rows' progress because jobs are matched to rows by name.
+ */
+function resolveByTrack(
+  track: string,
+  catalog: CatalogState | null,
+): string | undefined {
+  return catalog?.entries.find((e) => e.track === track)?.id;
 }
 
 /**
@@ -144,14 +166,21 @@ export default function Tracks({
   }, []);
 
   const trackRows: Row[] = tracks.map((t) => {
-    const catalogId = resolveCatalogId(t.capture, catalog);
+    // `captures` is one name per bound capture; `capture` joins them for display and
+    // is the fallback for a host that does not send the list.
+    const captures = t.captures ?? (t.capture ? [t.capture] : []);
+    const byCapture = resolveCatalogId(captures, catalog);
+    const byTrack = byCapture ? undefined : resolveByTrack(t.track, catalog);
+    const catalogId = byCapture ?? byTrack;
     return {
       kind: "track",
       ...t,
       catalogId,
       update:
-        !!catalogId &&
-        !!catalog?.entries.find((e) => e.id === catalogId)?.update,
+        !!byCapture &&
+        !!catalog?.entries.find((e) => e.id === byCapture)?.update,
+      viaTrack: !!byTrack,
+      replaces: !!byTrack && t.captureInstalled,
     };
   });
   // A catalog entry already claimed by a track - installed, or already the Get target of
@@ -590,21 +619,26 @@ function Actions({
     // nothing - worse than no button, because nothing tells whoever clicked it that it
     // failed. Offer Get only once a real catalog entry has been resolved.
     return row.catalogId ? (
-      <Button disabled={fileBusy} onClick={() => send("get", row.catalogId)}>
+      <Button
+        disabled={fileBusy}
+        onClick={() => send(row.viaTrack ? "replace" : "get", row.catalogId)}
+      >
         Get
       </Button>
     ) : null;
   }
-  // An update is the same get: the folder is swapped for the new cut, the binding and
-  // placement.json are left alone.
+  // An update is a get: the folder is swapped for the new cut, the binding and
+  // placement.json are left alone. Replace is for a track bound to a capture that is not
+  // the catalog's: the catalog's cut is installed and the track is rebound to it, even if
+  // that folder was already on disk, and the capture it showed stays installed, unbound.
   const update =
-    row.update && row.catalogId ? (
+    row.catalogId && (row.update || row.replaces) ? (
       <Button
         size="sm"
         disabled={fileBusy}
-        onClick={() => send("get", row.catalogId)}
+        onClick={() => send(row.update ? "get" : "replace", row.catalogId)}
       >
-        Update
+        {row.update ? "Update" : "Replace"}
       </Button>
     ) : null;
   // Always shown, beside Tweak: they used to appear on hover only, which hid one of the

@@ -15,6 +15,10 @@ use crate::tracks;
 pub struct TrackEntry {
     pub track: String,
     pub capture: Option<String>,
+    /// The bound capture names one by one; `capture` is them joined for display. The row
+    /// merge matches a catalog entry against each, since a track bound to the catalog cut
+    /// and to another capture reads "x + y" and matches neither as a whole.
+    pub captures: Vec<String>,
     pub splats: u64,
     pub bytes: u64,
     pub collision: bool,
@@ -47,6 +51,10 @@ pub struct CatalogEntryOut {
     /// itself, which `get` does not recognise: the button looked live and did nothing.
     #[serde(rename = "installAs")]
     pub install_as: Option<String>,
+    /// The track this entry installs, in its displayed form. A track row claims its
+    /// catalog entry by this when the capture it is bound to is not `installAs` - without
+    /// it the same track showed as two rows, the installed one and an "available" one.
+    pub track: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -269,6 +277,7 @@ fn catalog_state(
                 installed,
                 update,
                 install_as: e.install_as.clone(),
+                track: e.track_name.as_deref().map(tracks::display_name),
             }
         })
         .collect();
@@ -315,6 +324,7 @@ fn build_tracks(
             } else {
                 Some(names.join(" + "))
             },
+            captures: names.to_vec(),
             splats,
             bytes,
             collision,
@@ -447,6 +457,15 @@ mod tests {
             track_name: Some(track_name.to_string()),
             revision: 1,
         }
+    }
+
+    #[test]
+    fn catalog_entries_carry_their_track_in_displayed_form() {
+        // Stored form on disk and in the catalog, displayed form in bindings and the
+        // table - the row merge compares against the table's, so decode here.
+        let e = entry("VDGS+JDL+2026%2bR6", Some("x-dir"));
+        let c = catalog_state(Some(std::slice::from_ref(&e)), None, "u", &[], None, &game::Bindings::new()).unwrap();
+        assert_eq!(c.entries[0].track.as_deref(), Some("VDGS JDL 2026+R6"));
     }
 
     #[test]

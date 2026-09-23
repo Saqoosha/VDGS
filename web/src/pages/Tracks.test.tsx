@@ -96,6 +96,63 @@ describe('the merged track table', () => {
     expect(screen.getByRole('button', { name: /remove/i })).toBeInTheDocument()
   })
 
+  // The game box on 2026-09-23: the track was bound by hand to one capture while the
+  // catalog installs the same track as another. It listed twice, and a Get lit both rows.
+  const r6 = {
+    id: 'jdl-2026-r6', name: 'VDGS JDL 2026 R6', description: null, author: null,
+    licence: null, splats: 1, bytes: 1, installed: false, update: false,
+    installAs: 'JDL-2026-R6', track: 'VDGS JDL 2026 R6',
+  }
+  const handBound = track({ track: 'VDGS JDL 2026 R6', capture: 'JDL-2026-R6-fix-edit' })
+
+  it('lists a track bound to another capture once, and offers Replace with the catalog cut', () => {
+    render(<Tracks state={state({
+      tracks: [handBound], catalog: { url: 'u', error: null, entries: [r6] },
+    })} busy={false} {...noop} />)
+    expect(screen.getAllByText('VDGS JDL 2026 R6')).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: /replace/i }))
+    // Not 'get': with the catalog's folder already on disk a get is an update and keeps
+    // the old binding, so Replace would download and change nothing.
+    expect(vi.mocked(send)).toHaveBeenCalledWith('replace', 'jdl-2026-r6')
+    expect(screen.getByRole('button', { name: /remove/i })).toBeInTheDocument()
+  })
+
+  it('shows one progress bar, not two, while that Replace downloads', () => {
+    render(<Tracks state={state({
+      tracks: [handBound], catalog: { url: 'u', error: null, entries: [r6] },
+      busy: 'downloading VDGS JDL 2026 R6', busyPercent: 10,
+    })} busy={true} {...noop} />)
+    expect(screen.getAllByRole('progressbar', { name: /downloading VDGS JDL 2026 R6/i })).toHaveLength(1)
+  })
+
+  it('rebinds when Get fetches a missing capture found by track rather than by capture', () => {
+    render(<Tracks state={state({
+      tracks: [{ ...handBound, captureInstalled: false }],
+      catalog: { url: 'u', error: null, entries: [r6] },
+    })} busy={false} {...noop} />)
+    fireEvent.click(screen.getByRole('button', { name: /^get$/i }))
+    expect(vi.mocked(send)).toHaveBeenCalledWith('replace', 'jdl-2026-r6')
+  })
+
+  it('offers no Replace when the catalog cut is one of several captures the track is bound to', () => {
+    render(<Tracks state={state({
+      tracks: [track({ track: 'VDGS JDL 2026 R6', capture: 'JDL-2026-R6 + extra',
+        captures: ['JDL-2026-R6', 'extra'] })],
+      catalog: { url: 'u', error: null, entries: [{ ...r6, installed: true }] },
+    })} busy={false} {...noop} />)
+    expect(screen.queryByRole('button', { name: /replace/i })).toBeNull()
+    expect(screen.getAllByText('VDGS JDL 2026 R6')).toHaveLength(1)
+  })
+
+  it('offers no Replace when the track is bound to the catalog cut itself', () => {
+    render(<Tracks state={state({
+      tracks: [track({ track: 'VDGS JDL 2026 R6', capture: 'JDL-2026-R6' })],
+      catalog: { url: 'u', error: null, entries: [{ ...r6, installed: true }] },
+    })} busy={false} {...noop} />)
+    expect(screen.queryByRole('button', { name: /replace/i })).toBeNull()
+    expect(screen.getAllByText('VDGS JDL 2026 R6')).toHaveLength(1)
+  })
+
   it('offers no Update on an installed track that is current', () => {
     render(<Tracks state={state({
       tracks: [track({ capture: 'fdf' })],

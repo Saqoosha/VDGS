@@ -371,7 +371,10 @@ impl Host {
         });
     }
 
-    fn get_from_catalog(self: &Arc<Self>, id: &str) {
+    /// `replace`: the track is bound to some other capture and is to be rebound to this
+    /// entry's, even when the entry's folder is already on disk - which a plain get treats
+    /// as an update and so leaves the binding alone.
+    fn get_from_catalog(self: &Arc<Self>, id: &str, replace: bool) {
         let (app, entry) = {
             let i = self.inner.lock().unwrap();
             let Some(app) = i.game.clone() else {
@@ -433,6 +436,21 @@ impl Host {
                                 "The catalog calls this track \"{published}\" but the published file calls it \"{}\". Nothing was changed.",
                                 t.name
                             ));
+                        }
+                    }
+                    // Checked before the capture download, not after: rebinding to a
+                    // track the database holds with other gates would fly this capture
+                    // over another course, and that is worth refusing before hundreds
+                    // of megabytes rather than after.
+                    if replace {
+                        let db = tracks::db_path();
+                        if let Some(existing) = tracks::find(&db, &t.name).map_err(|e| e.to_string())? {
+                            if existing.value != t.value_string() {
+                                return Err(format!(
+                                    "A different track is already called \"{}\" in VelociDrone, with other gates. Replace would put this capture over another course, so nothing was changed.",
+                                    tracks::display_name(&t.name)
+                                ));
+                            }
                         }
                     }
                     parsed = Some(t);
@@ -504,7 +522,11 @@ impl Host {
 
                 if let Some(ref install_as) = entry.install_as {
                     let shown = tracks::display_name(&t.name);
-                    if game::bind(&root, &shown, install_as, updating).map_err(|e| e.to_string())? {
+                    // An update keeps whatever binding the track has; a replace is the
+                    // request to change it.
+                    if game::bind(&root, &shown, install_as, updating && !replace)
+                        .map_err(|e| e.to_string())?
+                    {
                         log(format!("bound \"{shown}\" to {install_as}"));
                     } else {
                         log(format!("\"{shown}\" keeps its binding"));
@@ -1075,7 +1097,12 @@ fn dispatch(
         "refreshCatalog" => h.refresh_catalog(),
         "get" => {
             if let Some(id) = id {
-                h.get_from_catalog(&id);
+                h.get_from_catalog(&id, false);
+            }
+        }
+        "replace" => {
+            if let Some(id) = id {
+                h.get_from_catalog(&id, true);
             }
         }
         "removeTrack" => {
