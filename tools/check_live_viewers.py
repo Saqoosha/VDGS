@@ -32,22 +32,32 @@ remote_json, site = sys.argv[1], sys.argv[2]
 allowed = {n.strip() for n in os.environ.get("VDGS_VIEWER_CHANGE", "").split(",") if n.strip()}
 
 
+# Every viewer that is published (its data is in R2) and every one this deploy would ship
+# (a folder here): a folder with no data behind it still goes live, and one whose data was
+# kept after its page was taken down would come back.
+local_dvr = os.path.join(site, "dvr")
 names = sorted({
     o["Path"].split("/")[1]
     for o in json.load(open(remote_json))
     if re.match(r"dvr/[^/]+/data/", o["Path"])
-})
+} | ({d for d in os.listdir(local_dvr) if os.path.isdir(os.path.join(local_dvr, d))}
+     if os.path.isdir(local_dvr) else set()))
 
 
 bad = []
 for name in names:
     live = fetch("dvr/%s/" % name, "dvr/%s" % name)
-    if live is None:
-        say("   dvr/%s: not live, nothing to protect" % name)
-        continue
     local_dir = os.path.join(site, "dvr", name)
     local_path = os.path.join(local_dir, "index.html")
     local = open(local_path, "rb").read() if os.path.exists(local_path) else None
+    if live is None:
+        if local is None:
+            say("   dvr/%s: not live, nothing to protect" % name)
+        elif name in allowed:
+            say("   dvr/%s: would be added - allowed by VDGS_VIEWER_CHANGE" % name)
+        else:
+            bad.append((name, "is not live, and this deploy would ADD it"))
+        continue
     missing = missing_assets(local, local_dir)
     if local == live and not missing:
         say("   dvr/%s: same as live" % name)

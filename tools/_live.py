@@ -23,8 +23,10 @@ UA = {"User-Agent": "vdgs-publish"}
 # Stripped, the live page is byte-identical to what was deployed (measured 2026-09-23).
 INJECTED = re.compile(rb'<script[^>]*static\.cloudflareinsights\.com[^>]*></script>\n?')
 
-# The hashed files a page names, as the build writes them: under a base path, or relative.
-ASSET = re.compile(rb'(?:/dvr/[^/"\']+/)?(assets/[A-Za-z0-9_.-]+)')
+# The hashed files a page names, as the build writes them: under a base path, or relative,
+# and possibly nested (assets/fonts/x.woff2). Stopping at the first / reported "assets/fonts"
+# as a missing file.
+ASSET = re.compile(rb'(?:/dvr/[^/"\']+/)?(assets(?:/[A-Za-z0-9_.-]+)+)')
 
 
 def say(line, err=False):
@@ -36,6 +38,8 @@ def say(line, err=False):
 def fetch(path, label):
     """The live bytes at BASE/path, beacon stripped; None for a 404. Anything else that
     stops us from looking refuses the deploy - "could not look" is never a pass."""
+    # A cache-busting query: HTML is revalidated, but an edge can still hold the previous
+    # copy for a moment after a deploy, and a stale answer here is a wrong verdict.
     url = "%s/%s?cb=%d" % (BASE, path, random.randrange(1 << 30))
     try:
         with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=20) as r:
