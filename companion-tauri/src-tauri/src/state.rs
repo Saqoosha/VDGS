@@ -100,6 +100,10 @@ pub struct SetupState {
     pub true_lens: Option<bool>,
     #[serde(rename = "lanUrl")]
     pub lan_url: Option<String>,
+    /// The companion version the catalog offers when it is newer than this app; the mod
+    /// ships inside the app, so this is also how a newer mod reaches an existing machine.
+    #[serde(rename = "appUpdate")]
+    pub app_update: Option<String>,
 }
 
 pub struct Inputs<'a> {
@@ -107,6 +111,8 @@ pub struct Inputs<'a> {
     pub resource_dir: &'a Path,
     pub catalog: Option<&'a [catalog::Entry]>,
     pub catalog_error: Option<&'a str>,
+    /// A newer companion on offer (see `Inner::app_update`).
+    pub app_update: Option<&'a str>,
     pub catalog_url: &'a str,
     pub busy: Option<&'a str>,
     pub busy_percent: Option<u8>,
@@ -182,6 +188,7 @@ pub fn build(i: Inputs) -> SetupState {
         unbound,
         true_lens,
         lan_url: lan_url(),
+        app_update: i.app_update.map(str::to_string),
     }
 }
 
@@ -406,6 +413,7 @@ mod tests {
             resource_dir: &root,
             catalog: None,
             catalog_error: None,
+            app_update: None,
             catalog_url: catalog::DEFAULT_URL,
             busy: None,
             busy_percent: None,

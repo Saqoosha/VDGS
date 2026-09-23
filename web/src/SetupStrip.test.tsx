@@ -1,8 +1,11 @@
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
 import { SetupStrip } from './SetupStrip'
+import { send } from './bridge'
 import { rememberLang } from './i18n'
 import type { SetupState } from './types'
+
+vi.mock('./bridge', () => ({ send: vi.fn() }))
 
 function state(over: Partial<SetupState> = {}): SetupState {
   return {
@@ -102,5 +105,16 @@ describe('the setup strip', () => {
     // rather than left to whatever wording the sentence happens to carry.
     expect(screen.getByText(/scans will not appear/i)).toBeInTheDocument()
     expect(screen.getByText(/never reach the screen/i)).toBeInTheDocument()
+  })
+
+  it('offers the newer app only when the host says there is one, and asks the host to open it', () => {
+    rememberLang('en')
+    const { rerender } = render(<SetupStrip state={state({ appUpdate: null })} />)
+    expect(screen.queryByText(/newer version of this app/i)).toBeNull()
+    rerender(<SetupStrip state={state({ appUpdate: '2026.09.24' })} />)
+    expect(screen.getByText(/newer version of this app is out — 2026\.09\.24/i)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /download/i }))
+    // No URL from the page: the host opens the catalog's own site and nothing else.
+    expect(vi.mocked(send)).toHaveBeenCalledWith('openAppUpdate')
   })
 })

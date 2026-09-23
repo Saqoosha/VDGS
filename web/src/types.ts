@@ -95,6 +95,8 @@ export type SetupState = {
    * VelociDrone's True Lens setting. null = unknown; only true must warn — with it on
    * captures are drawn and never reach the screen, and every log still says success.
    */
+  /** A companion release newer than this app, as the catalog offers it; null otherwise. */
+  appUpdate?: string | null
   trueLens: boolean | null
 }
 

@@ -30,7 +30,8 @@ fn check_catalog(url: Option<&str>) -> i32 {
     attach_console();
     let url = url.unwrap_or(catalog::DEFAULT_URL);
     match catalog::fetch(url) {
-        Ok(entries) => {
+        Ok(fetched) => {
+            let entries = fetched.entries;
             // Every field the C# printed. Dropping to bare ids was a real loss: this is
             // the one pass anyone makes before publishing, and `no licence` is the line it
             // exists to surface - an absent licence is not permission. `install_as` is the
@@ -38,6 +39,12 @@ fn check_catalog(url: Option<&str>) -> i32 {
             // nothing appears", and the track line says whether an entry carries a course
             // at all. A catalog that parses can still be all three of those things wrong.
             println!("{}: {} capture(s)", url, entries.len());
+            // What the update notice compares against: without it an app that stays quiet
+            // cannot be told apart from a catalog that offers nothing.
+            println!(
+                "  app for this platform: {}",
+                fetched.app_version.as_deref().unwrap_or("(none offered)")
+            );
             for e in &entries {
                 println!(
                     "  {}  {}  {} splats  {} MB  {}",

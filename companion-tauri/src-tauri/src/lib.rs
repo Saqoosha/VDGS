@@ -30,6 +30,10 @@ struct Inner {
     game: Option<PathBuf>,
     catalog: Option<Vec<catalog::Entry>>,
     catalog_error: Option<String>,
+    /// A companion build newer than this one, as the catalog offers it. The mod ships inside
+    /// the app, so an app nobody updates keeps installing the old mod: the R6 sky of
+    /// 2026-09-23 needed a new companion, and the old one had no way to say so.
+    app_update: Option<String>,
     busy: Option<String>,
     busy_percent: Option<u8>,
     running: bool,
@@ -67,6 +71,7 @@ impl Host {
                 game: i.game.clone(),
                 catalog: i.catalog.clone(),
                 catalog_error: i.catalog_error.clone(),
+                app_update: i.app_update.clone(),
                 catalog_url: i
                     .settings
                     .catalog_url
@@ -81,6 +86,7 @@ impl Host {
             resource_dir: &self.resource_dir,
             catalog: snapshot.catalog.as_deref(),
             catalog_error: snapshot.catalog_error.as_deref(),
+            app_update: snapshot.app_update.as_deref(),
             catalog_url: &snapshot.catalog_url,
             busy: snapshot.busy.as_deref(),
             busy_percent: snapshot.busy_percent,
@@ -341,6 +347,39 @@ impl Host {
         self.post(json!({"type":"picked","path": ply.to_string_lossy(),"stem": stem}));
     }
 
+    /// Opens the download page in the system browser. The page sends no URL: the one opened
+    /// is the origin of the catalog this app already reads, and only while an update is on
+    /// offer, so nothing the page says can make this open anything else.
+    fn open_app_update(&self) {
+        let url = {
+            let i = self.inner.lock().unwrap();
+            if i.app_update.is_none() {
+                return;
+            }
+            let catalog = i
+                .settings
+                .catalog_url
+                .clone()
+                .unwrap_or_else(|| catalog::DEFAULT_URL.to_string());
+            match catalog::site_of(&catalog) {
+                Some(site) => site,
+                None => return,
+            }
+        };
+        #[cfg(target_os = "macos")]
+        let opened = std::process::Command::new("open").arg(&url).spawn();
+        // explorer.exe hands a URL to the default browser without a shell in between, so
+        // nothing in it is parsed as a command. Its exit status is meaningless (1 on success).
+        #[cfg(windows)]
+        let opened = std::process::Command::new("explorer").arg(&url).spawn();
+        #[cfg(not(any(target_os = "macos", windows)))]
+        let opened: std::io::Result<std::process::Child> =
+            Err(std::io::Error::other("no browser opener on this platform"));
+        if let Err(e) = opened {
+            self.log(&format!("could not open {url}: {e}"));
+        }
+    }
+
     fn refresh_catalog(self: &Arc<Self>) {
         let url = self
             .inner
@@ -353,10 +392,16 @@ impl Host {
         self.run_busy("fetching the catalog", move |host, log| {
             match catalog::fetch(&url) {
                 Ok(got) => {
-                    log(format!("catalog: {} capture(s)", got.len()));
+                    log(format!("catalog: {} capture(s)", got.entries.len()));
+                    let own = host.app.package_info().version.to_string();
+                    let update = catalog::newer_app(got.app_version.as_deref(), &own);
+                    if let Some(v) = &update {
+                        log(format!("VDGS {v} is out - this app is {own}"));
+                    }
                     let mut i = host.inner.lock().unwrap();
-                    i.catalog = Some(got);
+                    i.catalog = Some(got.entries);
                     i.catalog_error = None;
+                    i.app_update = update;
                     Ok(())
                 }
                 Err(ex) => {
@@ -1019,6 +1064,7 @@ struct Snapshot {
     game: Option<PathBuf>,
     catalog: Option<Vec<catalog::Entry>>,
     catalog_error: Option<String>,
+    app_update: Option<String>,
     catalog_url: String,
     busy: Option<String>,
     busy_percent: Option<u8>,
@@ -1095,6 +1141,7 @@ fn dispatch(
         "uninstallMod" => h.uninstall_mod(),
         "pickPly" => h.pick_ply(),
         "refreshCatalog" => h.refresh_catalog(),
+        "openAppUpdate" => h.open_app_update(),
         "get" => {
             if let Some(id) = id {
                 h.get_from_catalog(&id, false);
@@ -1201,6 +1248,7 @@ pub fn run() {
                     game,
                     catalog: None,
                     catalog_error: None,
+                    app_update: None,
                     busy: None,
                     busy_percent: None,
                     running: launch::is_running(),

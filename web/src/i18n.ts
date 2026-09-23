@@ -65,6 +65,12 @@ export const how = {
     setupTrueLensB:
       " off in VelociDrone's settings. With it on the scans are drawn every frame and " +
       'never reach the screen, and nothing in the game says why.',
+    // The mod ships inside this app, so a newer app is also the only way a newer mod -
+    // and whatever a new capture needs from it - reaches this machine.
+    setupAppUpdateHead: 'a newer version of this app is out',
+    setupAppUpdateBody: 'The mod ships inside it: new scans may need it to show everything. ' +
+      'Download it, open it, then press the mod button above.',
+    setupAppUpdateButton: 'Download',
     loaderA: 'the loader is BepInEx 5.4.23.5 - ',
     loaderMid: ' on windows, ',
     loaderB: ' on macos, patched so its preloader survives on apple silicon. either way ' +
@@ -100,6 +106,10 @@ export const how = {
     setupTrueLensB:
       ' を切ること。on のままだとスキャンは毎フレーム描画されているのに画面に届かず、' +
       'ゲームは理由を何も表示しない。',
+    setupAppUpdateHead: 'このアプリの新しい版が出ている',
+    setupAppUpdateBody: 'mod はアプリの中に入っていて、新しいスキャンはそれが無いと全部は表示されないことがある。' +
+      'ダウンロードして開き直し、上の mod のボタンを押す。',
+    setupAppUpdateButton: 'ダウンロード',
     loaderA: 'ローダーは BepInEx 5.4.23.5。Windows は ',
     loaderMid: '、macOS は ',
     loaderB: '（preloader を Apple Silicon で動くように直したもの）。どちらも本家のリリースから取得し、固定した digest と照合する。',
