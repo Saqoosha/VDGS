@@ -14,7 +14,7 @@ faithful log rather than a summary: turning it into a camera path is a separate 
 (tools/vd_path_to_supersplat.py). The socket closes when the game quits or leaves the
 flight, and this reconnects until stopped with Ctrl-C.
 
-    python3 tools/vd_record.py flight.jsonl [--url ws://127.0.0.1:60003/velocidrone]
+    python3 tools/vd_record.py flight.jsonl --url ws://<the game machine's LAN IP>:60003/velocidrone
 """
 import argparse
 import asyncio
@@ -63,7 +63,8 @@ async def run(url, out_path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("out")
-    ap.add_argument("--url", default="ws://127.0.0.1:60003/velocidrone")
+    ap.add_argument("--url", required=True,
+                    help="ws://<LAN IP>:60003/velocidrone - the game does not listen on 127.0.0.1")
     a = ap.parse_args()
     try:
         asyncio.run(run(a.url, a.out))
