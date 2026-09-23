@@ -154,6 +154,14 @@ done < "$TMP/plan.tsv"
   echo "   advertises the new digest. Rebuild under a new version instead." >&2
   exit 1; }
 
+say "checking the DVR viewers this deploy would replace"
+# The deploy below replaces the site whole, DVR viewer pages included, and those come from
+# this checkout's build/dvr-viewer - a copy that can be older than what is live, or missing.
+# Checked before any upload, so a refusal costs nothing and a rerun after the fix skips
+# whatever was already sent.
+BASE="$(python3 -c 'import json,sys; u=json.load(open(sys.argv[1]))["scenes"][0]["scene"]["url"]; print("/".join(u.split("/")[:3]))' "$SITE/catalog.json")"
+python3 "$ROOT/tools/check_live_viewers.py" "$TMP/remote.json" "$SITE" "$BASE"
+
 say "captures to R2"
 # Uploaded before the catalog that names them: a list pointing at files that are not there
 # yet is the one state worth avoiding, and it is the state a reversed order leaves behind

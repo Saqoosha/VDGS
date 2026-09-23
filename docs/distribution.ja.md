@@ -209,6 +209,22 @@ build metadata にする：
 **`publish.sh` は R2 に上げてから deploy する。**
 逆にすると、**まだ無いファイルを指すリストを必ず一度公開する**ことになる。
 
+**`publish.sh` は live の DVR ビューアを守ってから deploy する。** deploy はサイトを丸ごと
+置き換え、`/dvr/<name>/` のページもその中にある。ページの出どころはこのチェックアウトの
+`build/dvr-viewer/<name>` で、**最後にこのチェックアウトで `publish-dvr-viewer.sh` を回した時点の写し**
+でしかない。別のチェックアウトから新しい版を上げていると、キャプチャの公開が**古い版に巻き戻し**、
+写しが無ければ**消す**。エラーは出ない。2026-09-23 に本体の写しが 09-22 版のまま live が新しく、
+公開の直前で気づいた。
+
+`tools/check_live_viewers.py` が R2 の `dvr/<name>/data/` から live の一覧を取り、各 `index.html` を
+比べて、違えば**何も上げる前に**止まる。直すのは `bash tools/pull-dvr-viewer.sh <name>`（live のページと
+それが名指す資産を写し取る）→ `make-catalog.sh` のやり直し。わざと変えるときは `VDGS_VIEWER_CHANGE=<name>`。
+
+**配られる HTML は上げたバイトと同じとは限らない。** Cloudflare Web Analytics が `</body>` の前に
+ビーコンを差し込む —— しかもリクエストの形で入ったり入らなかったりする（curl には無く、Python の
+urllib には有った）。比べる前にも写し取るときにも取り除く。取り除けば上げたバイトに戻ることは確認済み。
+Python の既定の User-Agent はこのゾーンのボット判定で 403 になるので、名乗る。
+
 **上げるのは `rclone`。`wrangler` では 300 MiB を超えると必ず落ちる**
 （`Wrangler only supports uploading files up to 300 MiB in size`、multipart のオプションが
 無い）。FDF 2026-08-22 は 375 MB でここに当たった。鍵は 1Password の `VDGS` 環境を
