@@ -471,6 +471,25 @@ Unity は左手系 Y-up なので、届いたキャプチャはそのままだ�
 **DVR など別時刻の映像の空を基準にしてはいけない** —— 一度それで測ったら、鏡像（誤り）のほうが
 よく合うという数字が出た。
 
+### SuperSplat に空と飛行経路ごと出す
+
+SuperSplat の Publish が運ぶのは splat と背景色だけで、skybox は運べない（ビューア自体は
+`skyboxUrl` を読めるが、エディタに UI が無い）。だから**空を splat にして ply に焼き込む**：
+`tools/sky_to_splats.py` が半径 2 km の球面に不透明な円盤を黄金螺旋で並べ、パノラマの色を付ける
+（R6 で 301,468 個）。球はシーンの外接球の一部なので、ビューアの遠クリップの内側に必ず入る。
+パノラマは焼き込む先の ply と同じフレームのもの（web 版なら web のパノラマ）を使う。
+
+カメラアニメーションは **VelociDrone の WebSocket** から取る。`tools/vd_record.py` が
+`ws://<ゲーム機の LAN の IP>:60003/velocidrone` を JSON Lines で全部記録し、
+`tools/vd_path_to_supersplat.py` が placement の逆変換でキャプチャ座標に戻して、1 周ぶんのキーにする。
+
+- **ゲームは localhost では待っていない。** LAN の IP で待つ。設定で WebSocket Communication と
+  WebSocket IMU Data を on にする（user11.db の `sim_states` の `use-web-socket` / `web-socket-imu`）
+- **Python の `websockets` は `ping_interval=None` で繋ぐ。** ゲームはプロトコルの ping に答えないので、
+  既定のままだと 51 秒ごとに 11 秒途切れる。ゲームの ping は JSON の `{"command":"ping"}`
+- エディタへはタイムラインのイベントで入れる（`camera.loadPoses`）。**メモリにしか無い**ので、
+  ページを再読み込みしたら入れ直す
+
 ## プラグインの構成
 
 ```
