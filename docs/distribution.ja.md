@@ -217,7 +217,8 @@ build metadata にする：
 公開の直前で気づいた。
 
 `tools/check_live_viewers.py` が R2 の `dvr/<name>/data/` から live の一覧を取り、各 `index.html` と、
-それが名指す資産が手元に揃っているかを確かめ、違えば**何も上げる前に**止まる。アップロードは数分
+それが**直接**名指す資産が手元に揃っているかを確かめ（JS が後から読むものまでは追わない。いまの
+viewer は JS 1 本）、違えば**何も上げる前に**止まる。アップロードは数分
 かかるので、**deploy の直前にもう一度**確かめる。比べる相手は deploy 先の `VDGS_BASE_URL`（既定
 `https://vdgs.saqoo.sh`）で、カタログの URL の host ではない —— 別の base URL で組んだカタログだと
 全 viewer が 404 になり「live じゃない」と読んでしまう。直すのは `bash tools/pull-dvr-viewer.sh <name>`（live のページと

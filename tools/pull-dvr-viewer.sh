@@ -16,7 +16,11 @@ NAME="${1:?name, e.g. jdl-2026-r6}"
 BASE="${VDGS_BASE_URL:-https://vdgs.saqoo.sh}"
 DEST="$ROOT/build/dvr-viewer/$NAME"
 STAGE="$(mktemp -d)"
-trap 'rm -rf "$STAGE"' EXIT INT TERM
+# The swap copy sits beside build/dvr-viewer, not in it: make-catalog.sh publishes every
+# folder in there, so one left by an interrupted run would go live as a viewer of its own.
+# Same filesystem, so the final mv is still a rename.
+NEW="$ROOT/build/.dvr-viewer-new.$NAME.$$"
+trap 'rm -rf "$STAGE" "$NEW"' EXIT INT TERM
 
 python3 - "$BASE" "$NAME" "$STAGE" <<'PY'
 import os, random, re, sys, urllib.error, urllib.request
@@ -64,7 +68,6 @@ PY
 # the old one in place rather than a half page that the deploy check could pass on index.html
 # alone. Into a fresh directory, not the mktemp one, which is mode 0700.
 mkdir -p "$(dirname "$DEST")"
-NEW="$DEST.new.$$"
 rm -rf "$NEW"; mkdir -p "$NEW"
 cp -R "$STAGE/." "$NEW/"
 # The old copy is set aside, not deleted: it may be the only copy of a build someone meant
