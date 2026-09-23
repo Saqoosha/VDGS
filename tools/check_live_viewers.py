@@ -56,7 +56,7 @@ for name in names:
         elif name in allowed:
             say("   dvr/%s: would be added - allowed by VDGS_VIEWER_CHANGE" % name)
         else:
-            bad.append((name, "is not live, and this deploy would ADD it"))
+            bad.append((name, "ADD"))
         continue
     missing = missing_assets(local, local_dir)
     if local == live and not missing:
@@ -71,12 +71,23 @@ for name in names:
     else:
         bad.append((name, "would lose files its page loads: %s" % ", ".join(missing)))
 
+added = [n for n, what in bad if what == "ADD"]
+changed = [n for n, what in bad if what != "ADD"]
 for name, what in bad:
-    say("   dvr/%s: the live viewer %s" % (name, what), True)
-if bad:
+    if what == "ADD":
+        say("   dvr/%s: not live, and this deploy would ADD it" % name, True)
+    else:
+        say("   dvr/%s: the live viewer %s" % (name, what), True)
+if changed:
     say("   This checkout's build/dvr-viewer is not what is live. To keep the live page:", True)
-    for name, _ in bad:
+    for name in changed:
         say("     bash tools/pull-dvr-viewer.sh %s" % name, True)
-    say("   then run make-catalog.sh again (it rebuilds the whole release set). To ship this", True)
-    say("   copy on purpose, set VDGS_VIEWER_CHANGE=%s" % ",".join(n for n, _ in bad), True)
+    say("   then run make-catalog.sh again (it rebuilds the whole release set).", True)
+if added:
+    # Nothing live to pull: this is a build that was never deployed, often one left by a
+    # publish-dvr-viewer.sh run that stopped after uploading its data.
+    say("   Not live, so there is nothing to pull. Publish it with tools/publish-dvr-viewer.sh,", True)
+    say("   or remove build/dvr-viewer/<name> and run make-catalog.sh again: %s" % ", ".join(added), True)
+if bad:
+    say("   To ship this copy on purpose, set VDGS_VIEWER_CHANGE=%s" % ",".join(n for n, _ in bad), True)
     sys.exit(1)
