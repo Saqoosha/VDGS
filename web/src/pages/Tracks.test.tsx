@@ -111,7 +111,9 @@ describe('the merged track table', () => {
     })} busy={false} {...noop} />)
     expect(screen.getAllByText('VDGS JDL 2026 R6')).toHaveLength(1)
     fireEvent.click(screen.getByRole('button', { name: /replace/i }))
-    expect(vi.mocked(send)).toHaveBeenCalledWith('get', 'jdl-2026-r6')
+    // Not 'get': with the catalog's folder already on disk a get is an update and keeps
+    // the old binding, so Replace would download and change nothing.
+    expect(vi.mocked(send)).toHaveBeenCalledWith('replace', 'jdl-2026-r6')
     expect(screen.getByRole('button', { name: /remove/i })).toBeInTheDocument()
   })
 

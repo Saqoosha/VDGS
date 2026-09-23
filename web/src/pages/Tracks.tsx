@@ -616,16 +616,16 @@ function Actions({
       </Button>
     ) : null;
   }
-  // An update is the same get: the folder is swapped for the new cut, the binding and
-  // placement.json are left alone. Replace is also the same get, for a track bound to a
-  // capture that is not the catalog's: the catalog's cut is installed and the track is
-  // rebound to it, and the capture it showed until now stays installed, unbound.
+  // An update is a get: the folder is swapped for the new cut, the binding and
+  // placement.json are left alone. Replace is for a track bound to a capture that is not
+  // the catalog's: the catalog's cut is installed and the track is rebound to it, even if
+  // that folder was already on disk, and the capture it showed stays installed, unbound.
   const update =
     row.catalogId && (row.update || row.replaces) ? (
       <Button
         size="sm"
         disabled={fileBusy}
-        onClick={() => send("get", row.catalogId)}
+        onClick={() => send(row.update ? "get" : "replace", row.catalogId)}
       >
         {row.update ? "Update" : "Replace"}
       </Button>
