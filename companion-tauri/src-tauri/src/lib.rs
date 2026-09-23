@@ -410,6 +410,8 @@ impl Host {
                     let mut i = host.inner.lock().unwrap();
                     i.catalog = None;
                     i.catalog_error = Some(error);
+                    // An offer from an earlier fetch is not evidence of one now.
+                    i.app_update = None;
                     Ok(())
                 }
             }
