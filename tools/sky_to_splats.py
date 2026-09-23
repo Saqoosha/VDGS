@@ -12,14 +12,14 @@ The discs sit on a golden-spiral lattice - equal area everywhere, so neither the
 horizon nor the zenith gets a crowd - down to a little below the horizon, where the
 capture's own ground takes over. Their Gaussian width is a fraction of the lattice
 spacing large enough that three overlapping neighbours leave no see-through gap
-(0.8 of the spacing: about 99% coverage between centres), and that width is the
-sky's effective blur, so the spacing is chosen to match the panorama's own softness.
+(0.8 of the spacing: about 99% coverage between centres). That width is the sky's
+effective blur; the default spacing suits a panorama already blurred by a few pixels.
 
 The panorama must be in the frame of the .ply it is baked into, with the equirect
 convention of tools/sky_pano.py: row 0 is the zenith, u = atan2(x, -z) / 2pi + 0.5.
 
     python3 tools/sky_to_splats.py scene.ply sky.jpg out.ply [--radius 2000]
-        [--spacing 0.3] [--below -8] [--center x,y,z]
+        [--spacing 0.3] [--width 0.8] [--below -8] [--center x,y,z]
 """
 import argparse
 import math
@@ -122,13 +122,13 @@ def main():
     rgb = (sky[y0, x0] * (1 - fx) * (1 - fy) + sky[y0, x1] * fx * (1 - fy)
            + sky[y1, x0] * (1 - fx) * fy + sky[y1, x1] * fx * fy)
 
-    sigma = a.width * step * a.radius          # metres on the dome
+    sigma = a.width * step * a.radius          # scene units on the dome
     out = np.zeros((len(d), len(props)), np.float32)
     pos = center + d * a.radius
     out[:, [col["x"], col["y"], col["z"]]] = pos
     out[:, [col["f_dc_0"], col["f_dc_1"], col["f_dc_2"]]] = (rgb - 0.5) / C0
     out[:, col["opacity"]] = math.log(0.995 / 0.005)
-    # Flat along the local z, which quat_z_to points at the dome's centre line.
+    # Flat along local z, which quat_z_to aligns with the radius.
     out[:, col["scale_0"]] = math.log(sigma)
     out[:, col["scale_1"]] = math.log(sigma)
     out[:, col["scale_2"]] = math.log(sigma * 0.02)

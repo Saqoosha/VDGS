@@ -122,7 +122,8 @@ SuperSplat の Publish が運ぶのは splat と背景色だけで、skybox は�
 Worker の deploy は r2 の準備中のサイトとぶつかる。だから**空を splat にして ply に焼き込んだ**。
 
 ```bash
-# web フレームの ply に、web フレームのパノラマを焼き込む
+# web フレームの ply に、web フレームのパノラマを焼き込む。sky-web.jpg は、sky_pano.py を web の行列
+# （{"scale": 1, "R": [[1,0,0],[0,0,1],[0,-1,0]], "t": [0,0,0]}）で回すか、Unity 版を u で鏡映して W/2 ずらして作る
 python3 tools/sky_to_splats.py JDL-2026-R6-spirula-web-edit.ply sky-web.jpg out.ply   # --radius 2000 --spacing 0.3
 ```
 

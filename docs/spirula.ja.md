@@ -44,8 +44,8 @@ spirula train --data . --colmap-recon-dir ws/sparse/0 --cap-max 3000000 --num-it
   貼っていた。spirula はそれを「2 つの場所が重ねて書かれている」と検出して、17 枚（97.7〜101.6 秒）を別モデルに
   切り離した。貼り間違いは起きない代わりに、その 4 秒はメインのモデルに入らない
 - 出力の PLY は SfM の ENU メートル座標のまま（`scene_transform.json` が恒等）。Unity へは
-  `fit_transform.py --apply` に `{R: [[1,0,0],[0,0,1],[0,1,0]]}`（y と z の入れ替え、det −1）、
-  web へは `{R: [[1,0,0],[0,0,1],[0,-1,0]]}`
+  `fit_transform.py --apply` に `{"scale": 1, "R": [[1,0,0],[0,0,1],[0,1,0]], "t": [0,0,0]}`
+  （y と z の入れ替え、det −1）、web へは R を `[[1,0,0],[0,0,1],[0,-1,0]]` にしたもの
 - **不透明度が柔らかい。** 中央値 0.11（AirVis の MCMC は 0.98）、5 m を超える splat は 1,870 個（AirVis は 43,843 個）。
   Saqoosha が `w` で比べた判定は「浮遊物が少ない、色が悪い」。色は AirVis 版に Saqoosha が SuperSplat で掛けた
   編集を splat ごとに復元して掛けた（`tools/recolor_r6_edit.py`）

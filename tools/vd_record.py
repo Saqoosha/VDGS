@@ -35,10 +35,9 @@ async def run(url, out_path):
     with open(out_path, "a", buffering=1) as out:
         while True:
             try:
-                # ping_interval=None: the game answers only its own JSON ping (sent below),
-                # not the protocol-level ping websockets sends by default. With the default
-                # the library drops the connection 40 s in and spends 10 s closing it - an
-                # 11 s hole in the flight every 51 s, which is what the first recording had.
+                # ping_interval=None: the game answers only its JSON ping (ping() above), not
+                # the protocol ping websockets sends by default, which then drops the link
+                # 40 s in and takes 10 s to close it - an 11 s hole every 51 s.
                 async with websockets.connect(url, max_size=None, ping_interval=None) as ws:
                     print(f"connected: {url} at {time.strftime('%H:%M:%S')}", flush=True)
                     pinger = asyncio.create_task(ping(ws))

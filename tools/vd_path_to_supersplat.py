@@ -1,32 +1,30 @@
 #!/usr/bin/env python3
 """Turn a VelociDrone flight recorded by tools/vd_record.py into SuperSplat camera keys.
 
-The WebSocket reports the drone in the game's world frame. A capture sits in that
-world under its placement.json - position, then a turn about Y - so the inverse of
-that placement takes the flight back into the capture's own frame, the frame its .ply
-was written in (the same move the sky makes, see WorldSky). From there --to-web negates
-Z: the web/SuperSplat copy of a capture is the Unity one with Z flipped
-(enu_to_unity vs enu_to_web).
+The WebSocket reports the drone in the game's world frame. A capture sits in that world
+as world = position + scale * R_y(turn) * local, with a .ply read under mirrorY also
+flipped in Y; inverting that takes the flight into the frame the capture's file was
+written in. --to-web then negates Z, which is how the web/SuperSplat copy of a capture
+differs from the Unity one (docs/sky.ja.md).
 
 The camera is the drone's position, looking at where the drone will be a moment later
 (--lookahead). That is not the pilot's view - the FPV camera rolls and pitches with
 the frame, and SuperSplat's camera has no roll to give it - but a camera that looks
 along the path it is about to fly reads as a follow shot rather than as shake.
 
-Laps are cut at the start gate: its position is where the drone was when the race
-reported the first gate, and a lap ends at the next close pass of that point. --start
-instead cuts a loop anywhere: from that moment to the drone's next return to the same
-place. A camera loop does not have to begin at the start gate, and the WebSocket has
-been seen to fall silent for 11 s at a time mid-race, which can leave no whole
-gate-to-gate lap - so a window containing a silence is refused rather than bridged
-with a straight line through whatever was in the way.
+Laps are cut at the start gate, taken as where the drone was when the race reported
+gate 1. --start cuts a loop from any moment to the drone's next return there instead.
+A window the stream went silent in is refused rather than bridged with a straight line;
+recordings made before vd_record.py stopped using the library keepalive have such gaps.
+Distances (--gate-radius, the loop and hover thresholds) are in capture units.
 
     python3 tools/vd_path_to_supersplat.py flight.jsonl placement.json out.json
-        [--lap 2 | --all] [--keys-per-second 10] [--frame-rate 30] [--to-web]
+        [--lap 2 | --all | --start S] [--keys-per-second 10] [--frame-rate 30] [--to-web]
 """
 import argparse
 import json
 import math
+import os
 
 import numpy as np
 
@@ -50,16 +48,29 @@ def load(path):
     return np.array(t), np.array(pos), first_gate
 
 
-def world_to_capture(pos, placement):
-    """Inverse of the mod's placement for up = +y: position, then Unity Euler (0, turn, 0)."""
-    if placement.get("up", "+y") != "+y":
-        raise SystemExit("only up = +y placements are handled")
+def world_to_capture(pos, placement, is_ply):
+    """Inverse of the mod's placement (SplatScene.Spawn): position, a rotation about Y, and for a
+    .ply read with mirrorY the Y flip the loader applied (SplatScene.MirrorFor)."""
+    up = placement.get("up")
+    if up:                                                   # Spawn composes up and turn...
+        if up != "+y":
+            raise SystemExit(f"up = {up} is not handled, only +y")
+        deg = float(placement.get("turn", 0.0))
+    else:                                                    # ...and falls back to the raw rotation
+        rx, ry, rz = (float(v) for v in placement.get("rotation", [0, 0, 0]))
+        if abs(rx) > 1e-6 or abs(rz) > 1e-6:
+            raise SystemExit(f"rotation {[rx, ry, rz]} is not a turn about Y, which is all that is handled")
+        deg = ry
     p = np.array(placement["position"], float)
     s = float(placement.get("scale", 1.0))
-    a = math.radians(float(placement.get("turn", 0.0)))
+    a = math.radians(deg)
     c, sn = math.cos(a), math.sin(a)
     R = np.array([[c, 0, sn], [0, 1, 0], [-sn, 0, c]])      # Unity's rotation about +Y
-    return ((pos - p) @ R) / s                               # R^T (pos - p) / s, row vectors
+    local = ((pos - p) @ R) / s                              # R^T (pos - p) / s, row vectors
+    mirror = placement.get("mirrorY")
+    if is_ply and (mirror is None or mirror):
+        local = local * np.array([1.0, -1.0, 1.0])
+    return local
 
 
 def main():
@@ -76,7 +87,7 @@ def main():
     ap.add_argument("--smooth", type=float, default=0.15, help="position smoothing, seconds")
     ap.add_argument("--fov", type=float, default=90.0)
     ap.add_argument("--gate-radius", type=float, default=4.0,
-                    help="metres from the start gate that counts as passing it")
+                    help="capture units from the start gate that count as passing it")
     ap.add_argument("--to-web", action="store_true", help="negate Z for the web/SuperSplat frame")
     ap.add_argument("--start", type=float,
                     help="loop from this many seconds after the first sample to the next return here")
@@ -90,11 +101,14 @@ def main():
     silences = [(t[i] - t[0], t[i + 1] - t[0]) for i in np.nonzero(np.diff(t) > a.max_gap)[0]]
     for s0, s1 in silences:
         print(f"stream silent {s0:6.1f} -> {s1:6.1f} s ({s1 - s0:.1f} s)")
-    local = world_to_capture(world, json.load(open(a.placement)))
+    # A converted folder keeps placement.json inside it; a .ply keeps <name>.placement.json
+    # beside it, and only a .ply is mirrored as it loads.
+    is_ply = os.path.basename(a.placement) != "placement.json"
+    local = world_to_capture(world, json.load(open(a.placement)), is_ply)
     if a.to_web:
         local = local * np.array([1.0, 1.0, -1.0])
 
-    # Resample to a steady clock: the socket delivers in bursts.
+    # Resample receive time onto a steady grid; the box filter below absorbs its jitter.
     rate = 60.0
     tt = np.arange(t[0], t[-1], 1 / rate)
     P = np.stack([np.interp(tt, t, local[:, k]) for k in range(3)], 1)
@@ -107,13 +121,12 @@ def main():
 
     if a.start is not None:
         s = int(np.searchsorted(tt, t[0] + a.start))
+        if not 0 <= s < len(P) - int(20 * rate):
+            raise SystemExit("--start is outside the flight or too close to its end")
         home = P[s]
         dist = np.linalg.norm(P - home, axis=1)
         after = s + int(20 * rate)                          # a loop is at least 20 s
-        if after >= len(P):
-            raise SystemExit("--start is too close to the end of the flight")
-        # The return: the first local minimum of distance back to the start, closer
-        # than a few metres.
+        # The return: the first local minimum of distance back to the start, within 4 units.
         e = None
         for i in range(after, len(P) - 1):
             if dist[i] < 4.0 and dist[i] <= dist[i - 1] and dist[i] <= dist[i + 1]:
@@ -166,7 +179,10 @@ def write(a, P, tt, s, e, rate, label):
     look = int(round(a.lookahead * rate))
     step = max(1, int(round(rate / a.keys_per_second)))
     poses = []
-    for n, i in enumerate(range(s, e + 1, step)):
+    idx = list(range(s, e + 1, step))
+    if idx[-1] != e:
+        idx.append(e)                    # end on the window's last sample, so a loop closes
+    for i in idx:
         tgt = P[min(i + look, len(P) - 1)]
         if np.linalg.norm(tgt - P[i]) < 0.5:          # hovering: keep looking the same way
             tgt = poses[-1]["target"] if poses else (P[i] + [0, 0, 1]).tolist()
