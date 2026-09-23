@@ -348,8 +348,8 @@ impl Host {
     }
 
     /// Opens the download page in the system browser. The page sends no URL: the one opened
-    /// is the origin of the catalog this app already reads, and only while an update is on
-    /// offer, so nothing the page says can make this open anything else.
+    /// is the folder of the catalog this app already reads (https only), and only while an
+    /// update is on offer, so nothing the page says can make this open anything else.
     fn open_app_update(&self) {
         let url = {
             let i = self.inner.lock().unwrap();

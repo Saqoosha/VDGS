@@ -169,12 +169,18 @@ pub fn fetch(url: &str) -> Result<Fetched, Error> {
     })
 }
 
-/// The site a catalog belongs to - its URL's scheme and host - if that is a safe address.
-/// The download page lives there, beside the catalog.
+/// The page a catalog belongs to: the folder it sits in, which is where the site puts its
+/// download links - the root for vdgs.saqoo.sh/catalog.json, /vdgs/ for one hosted under a
+/// path. https only, with no local exception: this is handed to the system browser, and
+/// credentials, query and fragment are dropped on the way.
 pub fn site_of(catalog_url: &str) -> Option<String> {
-    require_safe_url(catalog_url).ok()?;
     let u = reqwest::Url::parse(catalog_url).ok()?;
-    Some(format!("{}/", u.origin().ascii_serialization()))
+    if u.scheme() != "https" {
+        return None;
+    }
+    let path = u.path();
+    let dir = &path[..=path.rfind('/')?];
+    Some(format!("{}{}", u.origin().ascii_serialization(), dir))
 }
 
 /// The version of the companion the catalog offers for this platform, as written there.
@@ -402,7 +408,14 @@ mod tests {
     #[test]
     fn the_download_page_is_the_catalogs_own_origin() {
         assert_eq!(site_of("https://vdgs.saqoo.sh/catalog.json").as_deref(), Some("https://vdgs.saqoo.sh/"));
+        assert_eq!(site_of("https://x.github.io/vdgs/catalog.json").as_deref(), Some("https://x.github.io/vdgs/"));
+        assert_eq!(
+            site_of("https://u:p@x.github.io/vdgs/catalog.json?a=1#f").as_deref(),
+            Some("https://x.github.io/vdgs/")
+        );
+        // https only - the catalog fetch allows localhost over http, the browser hand-off does not.
         assert_eq!(site_of("http://example.com/catalog.json"), None);
+        assert_eq!(site_of("http://localhost:8000/catalog.json"), None);
         assert_eq!(site_of("file:///etc/passwd"), None);
     }
 
