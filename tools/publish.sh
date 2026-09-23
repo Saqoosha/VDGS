@@ -160,6 +160,8 @@ say "checking the DVR viewers this deploy would replace"
 # Checked before any upload, so a refusal costs nothing and a rerun after the fix skips
 # whatever was already sent.
 python3 "$ROOT/tools/check_live_viewers.py" "$TMP/remote.json" "$SITE"
+# The deploy ships this checkout's Worker too - the routing to R2 - not only the site.
+bash "$ROOT/tools/check_worker_source.sh"
 
 say "captures to R2"
 # Uploaded before the catalog that names them: a list pointing at files that are not there
@@ -213,6 +215,9 @@ say "checking the DVR viewers again, just before the deploy"
 # Again because the uploads above can take many minutes, and a viewer published from
 # another checkout in that time would be reverted by the deploy all the same.
 python3 "$ROOT/tools/check_live_viewers.py" "$TMP/after.json" "$SITE"
+
+# Again: a change to worker/ merged during the uploads would otherwise be reverted.
+bash "$ROOT/tools/check_worker_source.sh"
 
 say "site and catalog"
 # The R2 keys go no further. wrangler authenticates as its own OAuth session and has no

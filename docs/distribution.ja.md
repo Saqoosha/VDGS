@@ -224,6 +224,23 @@ viewer は JS 1 本）、違えば**何も上げる前に**止まる。アップ
 全 viewer が 404 になり「live じゃない」と読んでしまう。直すのは `bash tools/pull-dvr-viewer.sh <name>`（live のページと
 それが名指す資産を写し取る）→ `make-catalog.sh` のやり直し。わざと変えるときは `VDGS_VIEWER_CHANGE=<name>`。
 
+**`publish-dvr-viewer.sh` も同じ置き換え方をする。** 変えたいのは `dvr/<name>/` だけなのに、
+deploy はこのチェックアウトのサイト丸ごと —— カタログ、トップページ、他の viewer —— を出す。
+サイトを別の時点で組んだチェックアウトからだと**カタログを巻き戻し**、
+手元に無いファイルは**live から消す**。2026-09-23 に別のセッションがこれを理由に実行を控えた。`tools/check_live_site.py` が
+サイト直下の全ファイル（`catalog.json` はバイト単位、ページはビーコンを除く）とトップが名指す資産を、
+`check_live_viewers.py` が今上げる `<name>` 以外の viewer —— R2 にデータがあるものと手元にフォルダが
+あるものの両方 —— を確かめる。**live に無いものが手元にあれば「増える」として止める。** 確認はビルドの
+**前**（止まっても手元の写しは元のまま）と、`.sog` を上げ終えた deploy の直前の 2 回。2 回目で止まったら、
+**データはもう上がっていて live のページがそれを読んでいる**ので、直してもう一度走らせる。live を読む部分は `tools/_live.py` に 1 つだけ置いてある。
+
+**deploy は Worker のコードも上げる。** `wrangler deploy` はサイトと一緒に `worker/`（`/scene/`・
+`/track/`・`/app/`・`/dvr/<name>/data/` を R2 に振り分けるルーティング）を出すので、古いか未マージの
+ブランチから上げると**ルーティングを巻き戻す** —— b422d88 より前なら全 viewer のデータが 404 になる。
+live の Worker がどのコミットから来たかは読み戻せないので、`tools/check_worker_source.sh` が
+**`origin/master` を正とし**、`worker/` が 1 バイトでも違えば（未コミット・未追跡を含む）両方の公開スクリプトを
+止める。わざと上げるときは `VDGS_WORKER_CHANGE=1`。
+
 **配られる HTML は上げたバイトと同じとは限らない。** Cloudflare Web Analytics が `</body>` の前に
 ビーコンを差し込む —— しかもリクエストの形で入ったり入らなかったりする（curl には無く、Python の
 urllib には有った）。比べる前にも写し取るときにも取り除く。取り除けば上げたバイトに戻ることは確認済み。
