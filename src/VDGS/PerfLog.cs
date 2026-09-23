@@ -57,8 +57,12 @@ namespace VDGS
         ///
         /// Written as a marker line on change rather than a seventh column, so the
         /// six-column format every parser already reads stays intact.
+        ///
+        /// <paramref name="lod"/> is optional: when a streamed SOG is on screen it is the
+        /// active-splat count per LOD level joined with '/', appended at the end of the
+        /// sample line so the header does not change.
         /// </summary>
-        internal void Tick(int splatCount, int sceneCount, string shown = null)
+        internal void Tick(int splatCount, int sceneCount, string shown = null, string lod = null)
         {
             if (shown != m_Shown)
             {
@@ -85,10 +89,13 @@ namespace VDGS
 
             try
             {
-                File.AppendAllText(m_Path, string.Format(
-                    "{0} {1,6:0.0} {2,7:0.00} {3,9:0.00} {4,7} {5,7}\n",
+                var line = string.Format(
+                    "{0} {1,6:0.0} {2,7:0.00} {3,9:0.00} {4,7} {5,7}",
                     DateTime.Now.ToString("HH:mm:ss"), fps, avgMs, m_Worst * 1000f,
-                    splatCount, sceneCount));
+                    splatCount, sceneCount);
+                if (!string.IsNullOrEmpty(lod))
+                    line += " lod=" + lod;
+                File.AppendAllText(m_Path, line + "\n");
             }
             catch { }
 

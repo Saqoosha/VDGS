@@ -223,6 +223,10 @@ namespace VDGS
         internal static readonly int SplatDrawArgs = Shader.PropertyToID("_SplatDrawArgs");
         internal static readonly int SplatChunkRadius = Shader.PropertyToID("_SplatChunkRadius");
         internal static readonly int SplatSortDistances = Shader.PropertyToID("_SplatSortDistances");
+        internal static readonly int SplatRun = Shader.PropertyToID("_SplatRun");
+        internal static readonly int RunInfo = Shader.PropertyToID("_RunInfo");
+        internal static readonly int SortCount = Shader.PropertyToID("_SortCount");
+        internal static readonly int SplatActiveCount = Shader.PropertyToID("_SplatActiveCount");
         internal static readonly int MatrixMV = Shader.PropertyToID("_MatrixMV");
         internal static readonly int MatrixObjectToWorld = Shader.PropertyToID("_MatrixObjectToWorld");
         internal static readonly int MatrixWorldToObject = Shader.PropertyToID("_MatrixWorldToObject");
@@ -340,6 +344,30 @@ namespace VDGS
         internal GraphicsBuffer m_GpuIndexBuffer;
         // The compute shader always binds a cutouts buffer even when the count is zero.
         private GraphicsBuffer m_GpuCutoutsDummy;
+
+        // Level of detail. Only bound, and only declared by the shader, under VDGS_LOD;
+        // a capture without levels runs a variant that has never heard of them.
+        private GraphicsBuffer m_GpuSplatRun;
+        private GraphicsBuffer m_GpuRunInfo;
+        private GraphicsBuffer m_GpuActiveCount;
+        // Splats in the key buffer: the selected set, or all of them without levels.
+        private int m_SortCount;
+        private bool m_NeedCompact;
+        private VDGS.Lod.LodSelector m_LodSelector;
+        private byte[] m_RunActive;
+        private uint[] m_RunInfoWords;
+        private int m_LodFrame = -1;
+
+        /// <summary>Apparent size (leaf extent / distance) at which a leaf draws its finest level.</summary>
+        public float LodDetail = 1f;
+        /// <summary>Splats the selection tries to stay under, coarsening the farthest leaves first.</summary>
+        public long LodBudget = 3000000;
+        /// <summary>Per-leaf spread of the level bands, so neighbours do not switch together.</summary>
+        public float LodBandJitter = 0f;
+
+        /// <summary>Active splats per level, or null for a capture without levels.</summary>
+        public long[] LodActivePerLevel => m_LodSelector?.ActivePerLevel;
+        public int LodLeaves => m_Data?.Lod?.Leaves.Length ?? 0;
 
         private GpuSorting m_Sorter;
         private GpuSorting.Args m_SorterArgs;
@@ -467,6 +495,103 @@ namespace VDGS
             });
 
             InitSortBuffers(m_SplatCount);
+            CreateLodResources();
+        }
+
+        private void CreateLodResources()
+        {
+            var lod = m_Data.Lod;
+            m_LodFrame = -1;
+            m_SortCount = m_SplatCount;
+            m_NeedCompact = false;
+            if (m_GpuActiveCount == null)
+                m_GpuActiveCount = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1, 4)
+                { name = "VDGS ActiveCount" };
+            if (lod == null)
+            {
+                // Nothing to bind and nothing to select: without VDGS_LOD the shader never
+                // names these buffers, so a capture with one level allocates neither.
+                m_LodSelector = null;
+                return;
+            }
+
+            int runs = lod.RunOffset.Length;
+            m_GpuSplatRun = new GraphicsBuffer(GraphicsBuffer.Target.Structured, m_SplatCount, 4) { name = "VDGS SplatRun" };
+            m_GpuSplatRun.SetData(lod.RunOfSplat);
+            m_RunActive = new byte[runs];
+            m_RunInfoWords = new uint[runs * 2];
+            for (int r = 0; r < runs; r++)
+                m_RunInfoWords[r * 2 + 1] = (uint)lod.RunShBase[r];
+            m_GpuRunInfo = new GraphicsBuffer(GraphicsBuffer.Target.Structured, runs * 2, 4) { name = "VDGS RunInfo" };
+            // Nothing is active until the first selection runs in SortPoints, which is the
+            // same frame the first sort happens - no frame draws with an empty table.
+            m_GpuRunInfo.SetData(m_RunInfoWords);
+            m_LodSelector = new VDGS.Lod.LodSelector(lod.Leaves, lod.LevelCount, lod.RunLeaf, lod.RunLevel, lod.RunCount);
+        }
+
+        private static ComputeShader s_KeywordShader;
+        private static UnityEngine.Rendering.LocalKeyword s_LodKeyword;
+
+        /// <summary>The VDGS_LOD variant selector, looked up once per compute shader.</summary>
+        private static UnityEngine.Rendering.LocalKeyword LodKeyword(ComputeShader cs)
+        {
+            if (s_KeywordShader != cs)
+            {
+                s_KeywordShader = cs;
+                s_LodKeyword = new UnityEngine.Rendering.LocalKeyword(cs, "VDGS_LOD");
+            }
+            return s_LodKeyword;
+        }
+
+        private void BindLod(CommandBuffer cmb, ComputeShader cs, int kernel)
+        {
+            cmb.SetComputeIntParam(cs, Props.SortCount, m_SortCount);
+            // Only a capture with levels touches the keyword, and it puts it back when its
+            // dispatches are recorded (see SortPoints and CalcViewData). A renderer without
+            // levels leaves the variant selector alone: switching it costs pipeline state,
+            // and it was measured at about 0.3 ms a frame on a 2.24M .ply.
+            if (m_LodSelector == null)
+                return;
+            // The keyword goes on the command buffer, not the shader object: keyword state
+            // is read when the buffer EXECUTES, so setting it here would hand every capture
+            // on screen whatever the last one asked for.
+            cmb.SetKeyword(cs, LodKeyword(cs), true);
+            cmb.SetComputeBufferParam(cs, kernel, Props.SplatRun, m_GpuSplatRun);
+            cmb.SetComputeBufferParam(cs, kernel, Props.RunInfo, m_GpuRunInfo);
+        }
+
+        /// <summary>
+        /// Re-pick levels right now, for the offline sweep harness. Time.frameCount does not
+        /// advance between manual Camera.Render() calls in batch mode, so the interval guard
+        /// below would freeze the selection at whatever the first frame chose.
+        /// </summary>
+        public void RefreshLod(Camera cam)
+        {
+            m_LodFrame = -1;
+            UpdateLod(cam);
+        }
+
+        private void UpdateLod(Camera cam)
+        {
+            if (m_LodSelector == null)
+                return;
+            if (Time.frameCount == m_LodFrame)
+                return;
+            if (m_LodFrame >= 0 && Time.frameCount - m_LodFrame < 10)
+                return;
+            m_LodFrame = Time.frameCount;
+
+            m_LodSelector.LodDetail = LodDetail;
+            m_LodSelector.Budget = LodBudget;
+            m_LodSelector.BandJitter = LodBandJitter;
+            var local = transform.InverseTransformPoint(cam.transform.position);
+            if (!m_LodSelector.Update(local.x, local.y, local.z, Mathf.Abs(transform.lossyScale.x), m_RunActive))
+                return;
+            for (int r = 0; r < m_RunActive.Length; r++)
+                m_RunInfoWords[r * 2] = m_RunActive[r];
+            m_GpuRunInfo.SetData(m_RunInfoWords);
+            m_SortCount = (int)m_LodSelector.ActiveSplats;
+            m_NeedCompact = true;
         }
 
         /// <summary>
@@ -551,6 +676,7 @@ namespace VDGS
             cs.GetKernelThreadGroupSizes((int)KernelIndices.SetIndices, out uint gsX, out _, out _);
             cs.Dispatch((int)KernelIndices.SetIndices, (m_GpuSortDistances.count + (int)gsX - 1) / (int)gsX, 1, 1);
 
+            m_SortCount = count;
             m_SorterArgs.inputKeys = m_GpuSortDistances;
             m_SorterArgs.inputValues = m_GpuSortKeys;
             m_SorterArgs.count = (uint)count;
@@ -559,6 +685,11 @@ namespace VDGS
         }
 
         private void SetDataOnCS(CommandBuffer cmb, KernelIndices kernel)
+        {
+            SetDataOnCS(cmb, (int)kernel);
+        }
+
+        private void SetDataOnCS(CommandBuffer cmb, int kernel)
         {
             var cs = ShaderBundle.SplatUtilities;
             int k = (int)kernel;
@@ -582,6 +713,7 @@ namespace VDGS
 
             cmb.SetComputeIntParam(cs, Props.SplatCutoutsCount, 0);
             cmb.SetComputeBufferParam(cs, k, Props.SplatCutouts, m_GpuCutoutsDummy);
+            BindLod(cmb, cs, k);
         }
 
         internal void SetDataOnMaterial(MaterialPropertyBlock mat)
@@ -611,9 +743,17 @@ namespace VDGS
             var screenPar = new Vector4(cam.pixelWidth, cam.pixelHeight, 0, 0);
             Vector4 camPos = cam.transform.position;
 
-            SetDataOnCS(cmb, KernelIndices.CalcViewData);
-
             var cs = ShaderBundle.SplatUtilities;
+            // A capture with levels runs the variant that reads the key buffer; everything
+            // else runs the one that never binds it - binding alone cost a 2.24M .ply about
+            // 1 ms a frame on the RTX 3060, with the branch never taken.
+            int kView = m_LodSelector != null
+                ? cs.FindKernel("CSCalcViewDataLod")
+                : (int)KernelIndices.CalcViewData;
+            SetDataOnCS(cmb, kView);
+            if (m_LodSelector != null)
+                cmb.SetComputeBufferParam(cs, kView, Props.SplatSortKeys, m_GpuSortKeys);
+
             cmb.SetComputeMatrixParam(cs, Props.MatrixMV, matView * matO2W);
             cmb.SetComputeMatrixParam(cs, Props.MatrixObjectToWorld, matO2W);
             cmb.SetComputeMatrixParam(cs, Props.MatrixWorldToObject, matW2O);
@@ -627,9 +767,11 @@ namespace VDGS
             cmb.SetComputeIntParam(cs, Props.SplatSHOrder, shOrder);
             cmb.SetComputeIntParam(cs, Props.SHOnly, m_SHOnly ? 1 : 0);
 
-            cs.GetKernelThreadGroupSizes((int)KernelIndices.CalcViewData, out uint gsX, out _, out _);
-            cmb.DispatchCompute(cs, (int)KernelIndices.CalcViewData,
-                (m_GpuView.count + (int)gsX - 1) / (int)gsX, 1, 1);
+            cs.GetKernelThreadGroupSizes(kView, out uint gsX, out _, out _);
+            cmb.DispatchCompute(cs, kView, (m_SortCount + (int)gsX - 1) / (int)gsX, 1, 1);
+
+            if (m_LodSelector != null)
+                cmb.SetKeyword(cs, LodKeyword(cs), false);
         }
 
         internal void SortPoints(CommandBuffer cmd, Camera cam, Matrix4x4 matrix)
@@ -642,6 +784,8 @@ namespace VDGS
             worldToCamMatrix.m21 *= -1;
             worldToCamMatrix.m22 *= -1;
 
+            UpdateLod(cam);
+
             var cs = ShaderBundle.SplatUtilities;
 
             // Kernel indices for these are looked up by name: the enum's 0/1/2 mirror the
@@ -649,6 +793,26 @@ namespace VDGS
             // moment upstream adds a kernel above them.
             int kReset = cs.FindKernel("CSResetVisibleCount");
             int kArgs = cs.FindKernel("CSPrepareDrawArgs");
+
+            // Gather the selected splats to the front of the key buffer. Only when the
+            // selection changed: the sort permutes that set every frame but never changes
+            // which splats are in it.
+            if (m_NeedCompact)
+            {
+                int kClear = cs.FindKernel("CSResetActiveCount");
+                int kPack = cs.FindKernel("CSCompactActive");
+                cmd.SetComputeBufferParam(cs, kClear, Props.SplatActiveCount, m_GpuActiveCount);
+                cmd.DispatchCompute(cs, kClear, 1, 1, 1);
+                cmd.SetComputeBufferParam(cs, kPack, Props.SplatActiveCount, m_GpuActiveCount);
+                cmd.SetComputeBufferParam(cs, kPack, Props.SplatSortKeys, m_GpuSortKeys);
+                cmd.SetComputeBufferParam(cs, kPack, Props.SplatRun, m_GpuSplatRun);
+                cmd.SetComputeBufferParam(cs, kPack, Props.RunInfo, m_GpuRunInfo);
+                cmd.SetKeyword(cs, LodKeyword(cs), true);
+                cmd.SetComputeIntParam(cs, Props.SplatCount, m_SplatCount);
+                cs.GetKernelThreadGroupSizes(kPack, out uint gsPack, out _, out _);
+                cmd.DispatchCompute(cs, kPack, (m_SplatCount + (int)gsPack - 1) / (int)gsPack, 1, 1);
+                m_NeedCompact = false;
+            }
 
             cmd.SetComputeBufferParam(cs, kReset, Props.SplatVisibleCount, m_GpuVisibleCount);
             cmd.DispatchCompute(cs, kReset, 1, 1, 1);
@@ -671,6 +835,7 @@ namespace VDGS
             cmd.SetComputeIntParam(cs, Props.SplatFormat, (int)distFormat);
             cmd.SetComputeMatrixParam(cs, Props.MatrixMV, worldToCamMatrix * matrix);
             cmd.SetComputeIntParam(cs, Props.SplatCount, m_SplatCount);
+            cmd.SetComputeIntParam(cs, Props.SortCount, m_SortCount);
             cmd.SetComputeIntParam(cs, Props.SplatChunkCount, m_GpuChunksValid ? m_GpuChunks.count : 0);
             cmd.SetComputeBufferParam(cs, k, Props.SplatVisibleCount, m_GpuVisibleCount);
             cmd.SetComputeIntParam(cs, Props.CullEnabled, m_FrustumCulling ? 1 : 0);
@@ -696,15 +861,22 @@ namespace VDGS
                 Mathf.Max(0f, m_CullMargin) * m_SplatScale * Mathf.Abs(transform.lossyScale.x));
             cmd.SetComputeFloatParam(cs, Props.CullCenterSlack, m_CullCenterSlack);
             cmd.SetComputeBufferParam(cs, k, Props.SplatChunkRadius, m_GpuChunkRadius);
+            BindLod(cmd, cs, k);
 
             cs.GetKernelThreadGroupSizes(k, out uint gsX, out _, out _);
-            cmd.DispatchCompute(cs, k, (m_GpuSortDistances.count + (int)gsX - 1) / (int)gsX, 1, 1);
+            cmd.DispatchCompute(cs, k, (m_SortCount + (int)gsX - 1) / (int)gsX, 1, 1);
 
+            // Only the compacted range is sorted; the buffers stay sized for every
+            // resident splat so a selection that grows needs no reallocation.
+            m_SorterArgs.count = (uint)m_SortCount;
             m_Sorter.Dispatch(cmd, m_SorterArgs);
 
             cmd.SetComputeBufferParam(cs, kArgs, Props.SplatVisibleCount, m_GpuVisibleCount);
             cmd.SetComputeBufferParam(cs, kArgs, Props.SplatDrawArgs, m_GpuDrawArgs);
             cmd.DispatchCompute(cs, kArgs, 1, 1, 1);
+
+            if (m_LodSelector != null)
+                cmd.SetKeyword(cs, LodKeyword(cs), false);
         }
 
         private static void DisposeBuffer(ref GraphicsBuffer buf)
@@ -731,6 +903,10 @@ namespace VDGS
             DisposeBuffer(ref m_GpuSortDistances);
             DisposeBuffer(ref m_GpuSortKeys);
             DisposeBuffer(ref m_GpuCutoutsDummy);
+            DisposeBuffer(ref m_GpuSplatRun);
+            DisposeBuffer(ref m_GpuRunInfo);
+            DisposeBuffer(ref m_GpuActiveCount);
+            m_LodSelector = null;
             m_SorterArgs.resources.Dispose();
 
             m_SplatCount = 0;

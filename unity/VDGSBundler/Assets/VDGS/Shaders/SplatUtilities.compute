@@ -4,6 +4,7 @@
 #pragma kernel CSSetIndices
 #pragma kernel CSCalcDistances
 #pragma kernel CSCalcViewData
+#pragma kernel CSCalcViewDataLod
 #pragma kernel CSUpdateEditData
 #pragma kernel CSInitEditData
 #pragma kernel CSClearBuffer
@@ -19,6 +20,11 @@
 #pragma kernel CSCalcChunkRadius
 #pragma kernel CSResetVisibleCount
 #pragma kernel CSPrepareDrawArgs
+#pragma kernel CSResetActiveCount
+#pragma kernel CSCompactActive
+
+// One variant with the level-of-detail buffers, one without - see GaussianSplatting.hlsl.
+#pragma multi_compile _ VDGS_LOD
 
 // DeviceRadixSort
 #pragma multi_compile __ KEY_UINT KEY_INT KEY_FLOAT
@@ -75,6 +81,12 @@ float _CullCenterSlack;
 // 50 KB for three million - and stays in cache.
 RWStructuredBuffer<uint> _SplatChunkRadius;
 RWStructuredBuffer<uint> _SplatVisibleCount;
+// Splats the sort actually has to order: the level-of-detail selection's active set, or
+// every resident splat when the capture has no levels. A parked key still costs a full
+// pass of the radix sort, so the resident-but-unselected majority has to leave the buffer
+// rather than sit at the end of it.
+RWStructuredBuffer<uint> _SplatActiveCount;
+uint _SortCount;
 RWStructuredBuffer<uint> _SplatDrawArgs;
 uint _SplatCount;
 
@@ -100,7 +112,7 @@ void CSSetIndices (uint3 id : SV_DispatchThreadID)
 void CSCalcDistances (uint3 id : SV_DispatchThreadID)
 {
     uint idx = id.x;
-    if (idx >= _SplatCount)
+    if (idx >= _SortCount)
         return;
 
     uint origIdx = _SplatSortKeys[idx];
@@ -165,6 +177,30 @@ void CSCalcChunkRadius (uint3 id : SV_DispatchThreadID)
     // Non-negative floats order the same as their bit patterns, so an integer max is a
     // float max. Run over idx in order, so the scale reads here are sequential.
     InterlockedMax(_SplatChunkRadius[idx / kChunkSize], asuint(r));
+}
+
+[numthreads(1,1,1)]
+void CSResetActiveCount (uint3 id : SV_DispatchThreadID)
+{
+    _SplatActiveCount[0] = 0;
+}
+
+/// Gather the selected splats into the front of the key buffer, so the distance pass and
+/// the sort only see them. Runs when the selection changes, not every frame: the keys the
+/// sort permutes are the same set until a leaf changes level.
+[numthreads(GROUP_SIZE,1,1)]
+void CSCompactActive (uint3 id : SV_DispatchThreadID)
+{
+#ifdef VDGS_LOD
+    uint idx = id.x;
+    if (idx >= _SplatCount)
+        return;
+    if (SplatRunInactive(idx))
+        return;
+    uint slot;
+    InterlockedAdd(_SplatActiveCount[0], 1, slot);
+    _SplatSortKeys[slot] = idx;
+#endif
 }
 
 [numthreads(1,1,1)]
@@ -302,13 +338,8 @@ bool IsSplatCut(float3 pos)
     return finalCut;
 }
 
-[numthreads(GROUP_SIZE,1,1)]
-void CSCalcViewData (uint3 id : SV_DispatchThreadID)
+void CalcViewDataFor(uint idx)
 {
-    uint idx = id.x;
-    if (idx >= _SplatCount)
-        return;
-
     SplatData splat = LoadSplatData(idx);
     SplatViewData view = (SplatViewData)0;
     
@@ -365,6 +396,28 @@ void CSCalcViewData (uint3 id : SV_DispatchThreadID)
     }
     
     _SplatViewData[idx] = view;
+}
+
+/// Without levels of detail the thread index IS the splat, and every splat is visited.
+[numthreads(GROUP_SIZE,1,1)]
+void CSCalcViewData (uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= _SplatCount)
+        return;
+    CalcViewDataFor(id.x);
+}
+
+/// With levels, only the selected splats, read through the key buffer.
+///
+/// A separate kernel rather than a branch inside one: this pass is 87% of the frame, and
+/// merely binding the sort's key buffer to it cost a 2.24M .ply about 1 ms a frame on the
+/// RTX 3060 even with the branch never taken.
+[numthreads(GROUP_SIZE,1,1)]
+void CSCalcViewDataLod (uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= _SortCount)
+        return;
+    CalcViewDataFor(_SplatSortKeys[id.x]);
 }
 
 

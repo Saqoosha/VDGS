@@ -47,6 +47,7 @@ namespace VDGS
         internal Action<string, bool> SetCollision;            // splat, on
         internal Action<string, string> SetCollisionView;      // splat, off|solid|wire
         internal Action<string, string, float?, bool?> SetOrientation;  // splat, up, turn, mirror
+        internal Action<string, float?, long?> SetLod;                  // splat, lodDetail, lodBudget
 
         internal string Url { get; private set; }
         internal string UiRoot { get; set; }
@@ -248,7 +249,8 @@ namespace VDGS
                     // missing value must leave the others alone rather than resetting them.
                     var req = JsonConvert.DeserializeObject<Dictionary<string, object>>(body);
                     string splat = null, up = null;
-                    float? scale = null, y = null, x = null, z = null, turn = null;
+                    float? scale = null, y = null, x = null, z = null, turn = null, lodDetail = null;
+                    long? lodBudget = null;
                     bool? mirror = null;
                     if (req != null)
                     {
@@ -260,6 +262,8 @@ namespace VDGS
                         if (req.TryGetValue("turn", out var tv) && tv != null) turn = Convert.ToSingle(tv);
                         if (req.TryGetValue("up", out var uv) && uv != null) up = uv.ToString();
                         if (req.TryGetValue("mirror", out var mv) && mv != null) mirror = Convert.ToBoolean(mv);
+                        if (req.TryGetValue("lodDetail", out var ld) && ld != null) lodDetail = Convert.ToSingle(ld);
+                        if (req.TryGetValue("lodBudget", out var lb) && lb != null) lodBudget = Convert.ToInt64(lb);
                     }
 
                     // Reject rather than store: Compose's own default arm stays quiet about
@@ -274,6 +278,7 @@ namespace VDGS
 
                     var sName = splat; var sScale = scale; var sY = y; var sX = x; var sZ = z;
                     var sUp = up; var sTurn = turn; var sMirror = mirror;
+                    var sLodDetail = lodDetail; var sLodBudget = lodBudget;
                     QueueOnMain(() =>
                     {
                         // An orientation-only request (e.g. just `up`) must not also run
@@ -285,6 +290,8 @@ namespace VDGS
                             SetTransform?.Invoke(sName, sScale, sY, sX, sZ);
                         if (sUp != null || sTurn.HasValue || sMirror.HasValue)
                             SetOrientation?.Invoke(sName, sUp, sTurn, sMirror);
+                        if (sLodDetail.HasValue || sLodBudget.HasValue)
+                            SetLod?.Invoke(sName, sLodDetail, sLodBudget);
                     });
                     Respond(ctx, 200, "{\"ok\":true}");
                     return;

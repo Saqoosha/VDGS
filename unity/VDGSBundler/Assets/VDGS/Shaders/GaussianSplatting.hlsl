@@ -316,6 +316,28 @@ SplatBufferDataType _SplatSH;
 Texture2D _SplatColor;
 uint _SplatFormat;
 
+// Level of detail, for captures that carry several levels of the same regions (streamed
+// SOG). _SplatRun holds each splat's leaf run; _RunInfo holds two words per run - [run*2]
+// is 1 when that run's level is the one selected for its leaf, [run*2+1] is the first
+// palette row of the chunk the run came from, because every chunk brings its own
+// 65,536-entry palette and the per-splat index in _SplatOther is only 16 bits.
+//
+// Behind a keyword rather than a runtime flag. Merely NAMING a buffer makes the kernel
+// count as using it, so a capture without levels had to bind both dummies or Unity
+// dropped the dispatch and the scene drew nothing - and binding them cost a 2.24M .ply
+// about 0.7 ms a frame. Without VDGS_LOD the buffers do not exist at all.
+#ifdef VDGS_LOD
+StructuredBuffer<uint> _SplatRun;
+StructuredBuffer<uint> _RunInfo;
+
+bool SplatRunInactive(uint idx)
+{
+    return _RunInfo[_SplatRun[idx] * 2] == 0;
+}
+#else
+bool SplatRunInactive(uint idx) { return false; }
+#endif
+
 // Match GaussianSplatAsset.VectorFormat
 #define VECTOR_FMT_32F 0
 #define VECTOR_FMT_16 1
@@ -510,7 +532,14 @@ SplatData LoadSplatData(uint idx)
 
     uint shIndex = idx;
     if (shFormat > VECTOR_FMT_6)
+    {
         shIndex = LoadUShort(_SplatOther, otherAddr + otherStride - 2);
+#ifdef VDGS_LOD
+        // Each chunk's palette is concatenated after the last, and the stored index is
+        // relative to its own chunk.
+        shIndex += _RunInfo[_SplatRun[idx] * 2 + 1];
+#endif
+    }
 
     // Captures made by handheld LiDAR scanners often carry no spherical harmonics at
     // all - _SHOrder is then 0 and every band below is multiplied out anyway, so read

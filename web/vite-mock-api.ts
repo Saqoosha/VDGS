@@ -26,6 +26,9 @@ function scene(over: Partial<Scene> = {}): Scene {
     blackout: false,
     collision: true,
     collisionView: 'off',
+    lodDetail: 1,
+    lodBudget: 3_000_000,
+    lod: null,
     ...over,
   }
 }

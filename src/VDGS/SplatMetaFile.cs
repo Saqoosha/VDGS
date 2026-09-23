@@ -1,7 +1,10 @@
 using System;
 using System.IO;
+using System.IO.Compression;
 using System.Text;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using VDGS.Sog;
 
 namespace VDGS
 {
@@ -35,7 +38,117 @@ namespace VDGS
         {
             if (path.EndsWith(".ply", StringComparison.OrdinalIgnoreCase))
                 return ReadPly(path);
-            return ReadConverted(path);
+            if (path.EndsWith(".sog", StringComparison.OrdinalIgnoreCase))
+                return ReadSogZip(path);
+            return ReadDirectory(path);
+        }
+
+        /// <summary>
+        /// Classifies a directory's meta.json / lod-meta.json the same way Discover does.
+        /// Returns "ssog", "sog", "converted", or null when the folder is not a capture.
+        /// </summary>
+        internal static string ClassifyDirectory(string dir, out string detail)
+        {
+            detail = null;
+            var lodMeta = Path.Combine(dir, "lod-meta.json");
+            if (File.Exists(lodMeta))
+                return "ssog";
+
+            var metaPath = Path.Combine(dir, "meta.json");
+            if (!File.Exists(metaPath))
+                return null;
+
+            try
+            {
+                var root = JObject.Parse(File.ReadAllText(metaPath));
+                if (root["formatVersion"] != null)
+                    return "converted";
+                if (root.Value<int?>("version") == 2 && root["means"] != null)
+                    return "sog";
+                detail = "unrecognised meta.json";
+                return null;
+            }
+            catch (Exception e)
+            {
+                detail = "unreadable meta.json (" + e.Message + ")";
+                return null;
+            }
+        }
+
+        private static SplatMetaInfo ReadDirectory(string dir)
+        {
+            var kind = ClassifyDirectory(dir, out _);
+            if (kind == "ssog")
+                return ReadSsog(dir);
+            if (kind == "sog")
+                return ReadSogDirectory(dir);
+            return ReadConverted(dir);
+        }
+
+        private static SplatMetaInfo ReadSsog(string dir)
+        {
+            var info = new SplatMetaInfo { Kind = "ssog" };
+            var lodMeta = Path.Combine(dir, "lod-meta.json");
+            try
+            {
+                var root = JObject.Parse(File.ReadAllText(lodMeta));
+                info.Splats = root.Value<int?>("count") ?? 0;
+            }
+            catch { }
+            info.Bytes = SumBytes(dir, recursive: true);
+            return info;
+        }
+
+        private static SplatMetaInfo ReadSogDirectory(string dir)
+        {
+            var info = new SplatMetaInfo { Kind = "sog" };
+            var metaPath = Path.Combine(dir, "meta.json");
+            try
+            {
+                var root = JObject.Parse(File.ReadAllText(metaPath));
+                info.Splats = root.Value<int?>("count") ?? 0;
+            }
+            catch { }
+            info.Bytes = SumBytes(dir, recursive: false);
+            return info;
+        }
+
+        private static SplatMetaInfo ReadSogZip(string path)
+        {
+            var info = new SplatMetaInfo
+            {
+                Kind = "sog",
+                Bytes = File.Exists(path) ? new FileInfo(path).Length : 0,
+            };
+            try
+            {
+                using (var fs = File.OpenRead(path))
+                using (var zip = new ZipArchive(fs, ZipArchiveMode.Read, leaveOpen: false))
+                {
+                    var entry = zip.GetEntry("meta.json");
+                    if (entry == null)
+                    {
+                        foreach (var e in zip.Entries)
+                        {
+                            if (string.Equals(SogSource.ZipEntryName(e.FullName), "meta.json",
+                                              StringComparison.Ordinal))
+                            {
+                                entry = e;
+                                break;
+                            }
+                        }
+                    }
+                    if (entry == null) return info;
+                    using (var s = entry.Open())
+                    {
+                        var json = SogSource.ReadCapped(s, 1024 * 1024, "meta.json");
+                        var root = JObject.Parse(Encoding.UTF8.GetString(json));
+                        info.Splats = root.Value<int?>("count") ?? 0;
+                    }
+                }
+            }
+            catch { }
+            return info;
         }
 
         private static SplatMetaInfo ReadConverted(string dir)
@@ -55,18 +168,26 @@ namespace VDGS
                 }
             }
 
-            long bytes = 0;
-            if (Directory.Exists(dir))
-            {
-                foreach (var file in Directory.GetFiles(dir))
-                {
-                    if (string.Equals(Path.GetFileName(file), "placement.json", StringComparison.OrdinalIgnoreCase))
-                        continue;
-                    bytes += new FileInfo(file).Length;
-                }
-            }
-            info.Bytes = bytes;
+            info.Bytes = SumBytes(dir, recursive: false);
             return info;
+        }
+
+        private static long SumBytes(string dir, bool recursive)
+        {
+            long bytes = 0;
+            if (!Directory.Exists(dir)) return 0;
+            foreach (var file in Directory.GetFiles(dir))
+            {
+                if (string.Equals(Path.GetFileName(file), "placement.json", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                bytes += new FileInfo(file).Length;
+            }
+            if (recursive)
+            {
+                foreach (var sub in Directory.GetDirectories(dir))
+                    bytes += SumBytes(sub, true);
+            }
+            return bytes;
         }
 
         private static SplatMetaInfo ReadPly(string path)

@@ -465,6 +465,36 @@ SuperSplat は skybox を運べないので、`tools/sky_to_splats.py` で空を
 `tools/vd_record.py` で録り、`tools/vd_path_to_supersplat.py` でキャプチャ座標に戻す。
 **Python の `websockets` は `ping_interval=None` で繋ぐ**（既定だと 51 秒ごとに 11 秒途切れる）。
 
+## Streamed SOG と LOD
+
+**`<game>/vdgs/<name>/lod-meta.json`（SuperSplat の Streamed SOG）を置けば LOD 付きで飛べる。**
+`python3 tools/fetch_ssog.py <hash> <dir>` が落とす。`<name>.sog` と SOG の `meta.json` を持つ
+ディレクトリも読める（LOD 無し）。発見の順は `lod-meta.json` → `meta.json`（`formatVersion` なら
+変換済み、`version: 2` と `means` なら SOG）→ `.sog` → `.ply`。鏡映の規則は `.ply` と同じ。
+**全体は [docs/ssog.ja.md](docs/ssog.ja.md)** — ディスク上の形、復号の経路、段の選択、
+GPU 側、踏むと高くつく 5 つ。数字は docs/performance.ja.md §3。設計時の検討は
+docs/superpowers/specs/2026-09-17-ssog-lod-design.md にあるが、距離帯の節は採用しなかった案。
+
+**全段を常駐させ、葉ごとに 1 段だけ描く。** 飛行中の `SetData` を避けるため。非選択の splat は
+`CSCompactActive` でソート鍵バッファから外し、距離パスもソートも view パスも `_SortCount` 本
+だけ走る。RTX 3060 で LOD 無し 23.1 ms → LOD 既定 10.9 ms（17.3M 常駐、2.98M 描画）。
+**ただし level 2 だけの ply（2.24M）は 9.3 ms** — 常駐の費用がゼロになるわけではない。
+段は `placement.json` の `lodDetail`（無単位の見かけの大きさ、既定 1）と `lodBudget`
+（既定 3M）で決まり、Tweak のダイアルで動かせる。
+
+- **WebP は純 C# で解く**（`src/VDGS/Vp8l/`）。dwebp とバイト一致を xunit で見ている
+- **SH は常に `Cluster64k`。** チャンクごとにパレットが最大 65,536 本あり splat の索引は 16 bit
+  なので、run ごとの `shBase` をシェーダーで足す（`_RunInfo[run*2+1]`）
+- **パレットがちょうど 65,536 本なのが普通。** 「範囲外ラベル用のゼロ行」を上限に数えると
+  実データが全部弾かれる（fixture は小さくて踏めなかった）
+- **LOD の有無はシェーダーキーワードで分ける**（`VDGS_LOD`）。無いときは `_SplatRun` /
+  `_RunInfo` を宣言すらしないので、ダミーバッファを splat 番号で引く事故が起きない
+- **スポーンでゲームが 16 秒止まる（未解決）。** RTX 3060 機のゲーム内で 17.3M が decode 7.6 秒・
+  pack 8.3 秒。M1 Max のエディタは 39〜67 秒。**飛ぶ前に出しておく**
+- **LOD の判断に Mac エディタの数字を使わない。** 全葉 level 0 が M1 Max で 241 ms、RTX 3060 で
+  23 ms。17.3M 常駐でユニファイドメモリが崩れる
+- **既存シーンの描画は 1 ピクセルも変わらない。** HEAD のシェーダーと RenderCompare で差 0
+
 ## プラグインの構成
 
 ```
@@ -472,7 +502,13 @@ src/VDGS/
   Plugin.cs        BepInEx エントリ、シーン監視、キー操作
   Probe.cs         ランタイム環境の実測ダンプ
   ShaderBundle.cs  AssetBundle からシェーダーを取得
-  SplatData.cs     meta.json + 5バイナリのローダ
+  SplatData.cs     meta.json + 5バイナリのローダ、LodInfo
+  PlyLoader.cs     .ply を実行時に常駐形式へ（詰めるのは SplatWriter）
+  SplatWriter.cs   1 splat を pos/other/color に詰める（PlyLoader と SogLoader が共用）
+  SogLoader.cs     .sog / SOG ディレクトリ / Streamed SOG -> SplatData + LodInfo
+  Sog/             SOG v2 のチャンク復号と lod-meta.json（UnityEngine 非依存）
+  Vp8l/            ロスレス WebP デコーダ（UnityEngine 非依存）
+  Lod/             LodSelector: 見かけの大きさの帯 + 予算 + ヒステリシスで葉ごとの段を選ぶ
   SplatRenderer.cs 描画本体（CommandBuffer + compute sort）
   GpuSorting.cs    8bit radix sort（upstream からほぼ無改変）
   SplatScene.cs    1つの splat シーンの生成・破棄と placement.json の読み込み

@@ -284,35 +284,62 @@ Sorting measures 6%, so fixing it cannot return much.
 
 ---
 
-## 4. LOD — needs retraining
+## 4. LOD — implemented through Streamed SOG
 
-Reduces distant splats. **Near-field quality is preserved**, so it is close to lossless in
-the sense that matters, but **none of it can be applied to an existing .ply** — they all
-change the structure of training itself.
+**No retraining was needed.** A SuperSplat Streamed SOG (`lod-meta.json`) already holds
+splat-transform's decimated levels split over the leaves of a spatial tree. The plugin keeps
+every level resident and draws one level per leaf. How to drop one in and the traps are in
+CLAUDE.md ("Streamed SOG と LOD"); the design is
+docs/superpowers/specs/2026-09-17-ssog-lod-design.md.
 
-- [Hierarchical 3D Gaussians](https://repo-sam.inria.fr/fungraph/hierarchical-3d-gaussians/)
-  (INRIA, SIGGRAPH 2024) — trains chunks independently and consolidates into a hierarchy,
-  optimising the gaussians merged into interior nodes; includes level selection and smooth
-  transitions
-- [Octree-GS](https://city-super.github.io/octree-gs/) (TPAMI 2025) — anchor gaussians per
-  octree level, accumulated from coarse to fine per view, arranged by a grow-and-prune and
-  progressive training scheme
-- [LODGE](https://arxiv.org/abs/2505.23158) (NeurIPS 2025) — depth-aware smoothing,
-  importance pruning and fine-tuning per level, plus dynamic loading of spatial chunks to
-  cut GPU memory; opacity blending hides the chunk seams
-- [HiGS](https://arxiv.org/html/2606.00352v1) — a hierarchical rendering architecture
+Selection is apparent-size bands + a splat budget + hysteresis (`LodSelector`). Unselected splats
+are compacted out of the sort-key buffer entirely (`CSCompactActive`), so the distance pass, the
+sort and the view pass all run over `_SortCount`, and **an unselected splat does not pay the
+per-splat fixed cost that is 87% of the frame.**
 
-### Inside one room
+### Measured (RTX 3060, editor under D3D12, 1024², camera inside the scene, 2026-09-17)
 
-**Probably limited, unverified.** LOD pays where the distance range is large — metres to
-kilometres in a city. drjohnson spans at most about 40 units and a tinywhoop flies a
-fraction of that; the far wall still covers a fair number of pixels.
+Benchmark: https://superspl.at/scene/7a7bfaea (17,281,128 splats, 5 levels, 2,324 leaves).
+`VDGS_BENCH_INSIDE=1 VDGS_BENCH_CAM=1.4,-1.7,0,0 bash tools/bench-win.sh 7a7bfaea,7a7bfaea-l2`.
 
-That said, Octree-GS's premise — that too many primitives inside the frustum is the
-bottleneck — matches what was measured here. **The prerequisite it rests on, drawing only
-what is inside the frustum, came first** (see 2.1).
+| Setup | Resident | Drawn | Mean |
+|---|---|---|---|
+| Empty | — | 0 | 2.6–3.2 ms |
+| Level 2 alone as a .ply | 2.24M | 2.24M | 9.3 ms |
+| ssog, LOD default | 17.3M | 2.98M | **10.9 ms** |
+| ssog, every leaf at level 0 (no LOD) | 17.3M | 8.89M | 23.1 ms |
 
----
+**LOD takes 23.1 ms down to 10.9.** Two changes got it there:
+
+- **Compact the selected splats to the front of the key buffer** and run the distance pass and
+  the sort over that count alone: 15.4 → 11.2 ms. The compaction only runs when the selection
+  changes, since sorting permutes that set without changing it.
+- **Choose levels by apparent size** (below), which also lowered the drawn count to 2.98M.
+
+**A .ply without levels is 0.85 ms (about 9%) slower than master, unexplained.** Splitting it with
+`-vdgsSortNth` puts 0.5 ms in the sort path and 0.3 ms in the view pass. Two hypotheses are dead:
+not binding the LOD buffers (**the scene stops drawing entirely** — `LoadSplatData` naming them
+makes the kernel count as using them, and Unity drops the dispatch), and cutting the number of
+`SetKeyword` calls (no change). The next step needs per-pass timing, not another guess.
+
+**Do not judge on the Mac editor (M1 Max).** The same default run wobbled between 27 and 72 ms
+means, and every-leaf-level-0 collapsed to 241 ms (23 ms on the RTX 3060) — presumably unified
+memory under 17.3M resident splats.
+
+### Load time (unsolved)
+
+| Machine | Where | read | decode | pack | total |
+|---|---|---|---|---|---|
+| RTX 3060 box | **in game** (`/api/load`) | 0.2 s | 7.6 s | 8.3 s | **16.1 s** |
+| RTX 3060 box | editor, Debug | 0.3 s | 6.8 s | 9.4 s | 16.6 s |
+| M1 Max | Debug (default) | 0.7 s | 33 s | 33 s | 67 s |
+| M1 Max | Release (`-releaseCodeOptimization`) | 0.6 s | 17 s | 21 s | 39 s |
+
+**The game stalls for 16 s.** On Windows that is the editor's figure again; Release code does not
+shrink it. The VP8L decoder alone does one 748² × 7-image chunk in 0.6 s on
+.NET 8, so Mono is far slower. Raising the thread pool minimum on the Mac left it at 61 s, so it
+is not thread starvation. The suspect in pack is `PackRotation`'s per-splat `new float[4]`,
+moved unchanged from PlyLoader.
 
 ## 5. Reducing splat count (costs quality; out of scope)
 
@@ -341,7 +368,7 @@ is 1.92M at 8.24 ms; drjohnson is 3.18M at 8.80 ms on High; in-game, 3M is rough
 | 2 | the High format tier | most faithful | 37% against Float32 | **default** |
 | 3 | opacity-aware quad shrinking | lossless | small; pixel work is 6% | no |
 | 4 | sorting less often | more popping | 6% ceiling | no |
-| 5 | LOD | far field only | probably small in one room | needs retraining |
+| 5 | LOD (Streamed SOG) | far field only | 23.1 → 10.9 ms on the RTX 3060 (2.98M drawn of 17.3M resident) | **done** (sorting the resident rest and load time unsolved) |
 | 6 | pruning | lossy | linear in what is cut | out of scope |
 
 ## How to measure

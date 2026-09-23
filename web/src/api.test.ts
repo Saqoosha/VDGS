@@ -64,6 +64,14 @@ describe('api posts', () => {
     const body = JSON.parse(String(fetch.mock.calls[0][1]?.body)) as Record<string, unknown>
     expect(body).toEqual({ splat: 'a', up: 'y', turn: 90, mirror: true })
   })
+
+  it('setLod posts lodDetail and lodBudget to /api/transform', async () => {
+    const fetch = mockFetch()
+    await api.setLod('a', { lodDetail: 12, lodBudget: 2_000_000 })
+    expect(fetch.mock.calls[0][0]).toBe('/api/transform')
+    const body = JSON.parse(String(fetch.mock.calls[0][1]?.body)) as Record<string, unknown>
+    expect(body).toEqual({ splat: 'a', lodDetail: 12, lodBudget: 2_000_000 })
+  })
 })
 
 describe('api transport', () => {

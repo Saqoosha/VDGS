@@ -50,9 +50,19 @@ curl -s "https://playcanvas.com/api/splats/explore?limit=100&skip=0&features=dow
 curl -s "https://superspl.at/s?id=<hash>" | grep -o 'https://[a-z0-9]*\.cloudfront\.net/[^"]*meta\.json'
 ```
 
-`splat-transform` が `lod-meta.json` を http URL のまま読める。**大きいシーンは
-Streamed SOG（`format: "ssog"`）で、空間ツリー＋LOD 段（1 段ごとに splat 数が半分）**。
-`-L` で 1 段だけ抜けば、チャンク常駐を実装しなくても飛べる大きさになる：
+**大きいシーンは Streamed SOG（`format: "ssog"`）で、空間ツリー＋LOD 段（1 段ごとに splat 数が
+半分）**。プラグインはそのまま LOD 付きで読む：
+
+```bash
+python3 tools/fetch_ssog.py <hash> <game>/vdgs/<name>     # lod-meta.json と全チャンク
+```
+
+`<name>.sog`（zip）と、SOG の `meta.json` を持つディレクトリも同じく読める（LOD は無し）。
+3 つとも `.ply` と同じく読み込み時に Y を鏡映する（`placement.json` の `mirrorY`）。
+**初回スポーンは遅い** — docs/performance.ja.md §3。
+
+`splat-transform` も `lod-meta.json` を http URL のまま読めて、`-L` で 1 段だけ抜けば普通の
+`.ply` になる：
 
 ```bash
 npx @playcanvas/splat-transform -L 4 \

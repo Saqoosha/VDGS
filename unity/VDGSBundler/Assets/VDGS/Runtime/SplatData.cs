@@ -72,6 +72,9 @@ namespace VDGS
 
         public bool HasChunks => ChunkData != null && ChunkData.Length > 0;
 
+        /// <summary>Level-of-detail table, or null for a capture that has one level.</summary>
+        public LodInfo Lod { get; private set; }
+
         /// <summary>
         /// Build a scene from buffers produced in memory rather than read from disk.
         ///
@@ -83,7 +86,7 @@ namespace VDGS
             string name, int count, Vector3 boundsMin, Vector3 boundsMax,
             VectorFormat pos, VectorFormat scale, ColorFormat color, SHFormat sh,
             byte[] posData, byte[] otherData, byte[] colorData, byte[] shData, byte[] chunkData,
-            int shOrder = 3)
+            int shOrder = 3, LodInfo lod = null)
         {
             return new SplatData
             {
@@ -101,6 +104,7 @@ namespace VDGS
                 ShData = shData,
                 ChunkData = chunkData,
                 ShOrder = shOrder,
+                Lod = lod,
             };
         }
 
@@ -298,5 +302,23 @@ namespace VDGS
             }
             return true;
         }
+    }
+
+    /// <summary>
+    /// Several levels of the same regions, all resident at once (streamed SOG). A leaf is a
+    /// box of space; a run is one leaf at one level, a contiguous range of splats. The
+    /// renderer draws at most one run per leaf and compacts the rest out of the sort.
+    /// </summary>
+    public sealed class LodInfo
+    {
+        public VDGS.Lod.LodBox[] Leaves;
+        public int LevelCount;
+        // Per run, in splat order across the whole capture.
+        public int[] RunOffset, RunCount, RunLeaf, RunLevel;
+        // First palette row of the chunk the run came from: each chunk carries its own
+        // palette and a splat's SH index is only 16 bits, relative to that chunk.
+        public int[] RunShBase;
+        // Length SplatCount: the run each splat belongs to.
+        public uint[] RunOfSplat;
     }
 }
