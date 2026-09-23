@@ -114,6 +114,8 @@ export type CatalogEntry = {
    * `get`; optional because older/partial fixtures do not carry it.
    */
   installAs?: string | null
+  /** The track this entry installs, as displayed - what a track row claims it by. */
+  track?: string | null
 }
 
 export type CatalogState = {
