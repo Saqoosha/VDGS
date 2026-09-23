@@ -446,8 +446,10 @@ Unity は左手系 Y-up なので、届いたキャプチャはそのままだ�
 
 - **置き場所**：変換済みフォルダなら `<dir>/sky.jpg`（フォルダごと配布・更新・削除されるため）、
   `.ply` なら隣の `<name>.sky.jpg`。無ければ従来どおり黒
-- **`blackout: true` のときしか使われない。** `WorldSky.Want` は blackout の分岐の中で呼ばれる。
-  外れていると空は黙って無視され、ゲームの空が出る
+- **空は blackout の一部として出る。** `blackout` のキーが無ければ、空ファイルがあるときだけ自動で on
+  （`SplatScene.BlackoutFor`）。明示の `false` なら空も出ない。キーを省けるようにしたのは、
+  公開済みの初版の placement にこのキーが無く、companion は更新時に利用者の placement を残すから ——
+  後の revision で空を足しても、初版の利用者には届かなくなる
 - **パノラマは ply のローカル座標で作る**（`sky_pano.py --frame` に ply を作ったのと同じ行列）。
   mod は capture の `worldToLocalMatrix` を渡すだけなので、Tweak の `turn` に空が追従する。
   別のフレームで作った ply（別の GPS フィット）と組むと、そのぶん太陽がずれる
