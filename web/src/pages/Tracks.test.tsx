@@ -134,6 +134,16 @@ describe('the merged track table', () => {
     expect(vi.mocked(send)).toHaveBeenCalledWith('replace', 'jdl-2026-r6')
   })
 
+  it('offers no Replace when the catalog cut is one of several captures the track is bound to', () => {
+    render(<Tracks state={state({
+      tracks: [track({ track: 'VDGS JDL 2026 R6', capture: 'JDL-2026-R6 + extra',
+        captures: ['JDL-2026-R6', 'extra'] })],
+      catalog: { url: 'u', error: null, entries: [{ ...r6, installed: true }] },
+    })} busy={false} {...noop} />)
+    expect(screen.queryByRole('button', { name: /replace/i })).toBeNull()
+    expect(screen.getAllByText('VDGS JDL 2026 R6')).toHaveLength(1)
+  })
+
   it('offers no Replace when the track is bound to the catalog cut itself', () => {
     render(<Tracks state={state({
       tracks: [track({ track: 'VDGS JDL 2026 R6', capture: 'JDL-2026-R6' })],

@@ -50,6 +50,8 @@ export type Capture = {
 export type TrackEntry = {
   track: string
   capture: string | null
+  /** The bound capture names one by one; `capture` is them joined for display. */
+  captures?: string[]
   splats: number
   bytes?: number
   collision: boolean

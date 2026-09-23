@@ -15,6 +15,10 @@ use crate::tracks;
 pub struct TrackEntry {
     pub track: String,
     pub capture: Option<String>,
+    /// The bound capture names one by one; `capture` is them joined for display. The row
+    /// merge matches a catalog entry against each, since a track bound to the catalog cut
+    /// and to another capture reads "x + y" and matches neither as a whole.
+    pub captures: Vec<String>,
     pub splats: u64,
     pub bytes: u64,
     pub collision: bool,
@@ -320,6 +324,7 @@ fn build_tracks(
             } else {
                 Some(names.join(" + "))
             },
+            captures: names.to_vec(),
             splats,
             bytes,
             collision,

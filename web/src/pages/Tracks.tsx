@@ -54,11 +54,13 @@ function rowName(row: Row): string {
  * fetch and the row gets no action at all rather than a button that does nothing.
  */
 function resolveCatalogId(
-  capture: string | null,
+  captures: string[],
   catalog: CatalogState | null,
 ): string | undefined {
-  if (!capture || !catalog) return undefined;
-  return catalog.entries.find((e) => e.installAs === capture)?.id;
+  if (!captures.length || !catalog) return undefined;
+  return catalog.entries.find(
+    (e) => !!e.installAs && captures.includes(e.installAs),
+  )?.id;
 }
 
 /**
@@ -164,7 +166,10 @@ export default function Tracks({
   }, []);
 
   const trackRows: Row[] = tracks.map((t) => {
-    const byCapture = resolveCatalogId(t.capture, catalog);
+    // `captures` is one name per bound capture; `capture` joins them for display and
+    // is the fallback for a host that does not send the list.
+    const captures = t.captures ?? (t.capture ? [t.capture] : []);
+    const byCapture = resolveCatalogId(captures, catalog);
     const byTrack = byCapture ? undefined : resolveByTrack(t.track, catalog);
     const catalogId = byCapture ?? byTrack;
     return {
