@@ -364,7 +364,7 @@ namespace VDGS
                 if (m_Renderer.UploadError != null)
                 {
                     report.AppendLine(Name + ": upload failed - " + m_Renderer.UploadError);
-                    m_Decor = null;
+                    Despawn(); // so Show or the next track poll can start a fresh load
                     return true;
                 }
                 report.AppendLine(Name + ": uploaded in "
