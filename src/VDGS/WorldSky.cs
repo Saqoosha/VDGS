@@ -23,10 +23,12 @@ namespace VDGS
     /// cameras keep the clear mode they shipped with. Blackout then leaves the sky alone
     /// whenever a sky is up - see its Apply.
     ///
-    /// The panorama is stored in the CAPTURE's frame, so the material's transform is just
-    /// the capture object's worldToLocal. That is what makes a live tweak of `turn` carry
-    /// the sky with it instead of leaving the sun behind, and it is why nothing here
-    /// re-derives the placement's rotation.
+    /// The panorama is stored in the frame of the capture's FILE, so the material's
+    /// transform is the capture object's worldToLocal - which is what makes a live tweak
+    /// of `turn` carry the sky with it instead of leaving the sun behind - plus the one
+    /// thing the transform does not hold: a .ply read with mirrorY is flipped in Y as it
+    /// loads, so its splats sit in a mirror of the file's frame and the sky has to be
+    /// looked up through the same mirror or it hangs upside down over them.
     ///
     /// World state like blackout's, and for the same reason: several captures can be up,
     /// so wanters are counted by name and the last one out puts the game's sky back. The
@@ -45,10 +47,13 @@ namespace VDGS
         {
             public Material Material;
             public Transform Follow;   // the capture the panorama's frame belongs to
+            public bool MirrorY;       // the capture was flipped in Y as it loaded
         }
 
         private static readonly Dictionary<string, Sky> s_Wanters =
             new Dictionary<string, Sky>(StringComparer.OrdinalIgnoreCase);
+        // Keyed by path, size and write time: a sky.jpg replaced while the game runs is a
+        // different file, and keying by path alone would keep drawing the old one.
         private static readonly Dictionary<string, Texture2D> s_Textures =
             new Dictionary<string, Texture2D>(StringComparer.OrdinalIgnoreCase);
 
@@ -81,8 +86,20 @@ namespace VDGS
         /// Returns false with a reason in the log when it cannot, which is not an error:
         /// a capture with no sky file simply keeps the blackout's black.
         /// </summary>
-        internal static bool Want(string name, string captureDir, Transform follow, StringBuilder log)
+        internal static bool Want(string name, string captureDir, Transform follow, bool mirrorY,
+                                  StringBuilder log)
         {
+            // Asked again for a capture that already has one (blackout switched on twice):
+            // keep its material. Building another would leak the first, which nothing
+            // else holds a reference to.
+            if (s_Wanters.TryGetValue(name, out var existing))
+            {
+                existing.Follow = follow;
+                existing.MirrorY = mirrorY;
+                Apply(log);
+                return true;
+            }
+
             var path = PathFor(captureDir);
             if (!File.Exists(path))
             {
@@ -105,7 +122,7 @@ namespace VDGS
 
             var mat = new Material(shader);
             mat.SetTexture("_Pano", tex);
-            s_Wanters[name] = new Sky { Material = mat, Follow = follow };
+            s_Wanters[name] = new Sky { Material = mat, Follow = follow, MirrorY = mirrorY };
             Apply(log);
             return true;
         }
@@ -115,6 +132,11 @@ namespace VDGS
         {
             if (!s_Wanters.TryGetValue(name, out var sky)) return;
             s_Wanters.Remove(name);
+            // Out of RenderSettings before it is destroyed: once it is no longer a wanter's,
+            // Apply would take a material still sitting there for the scene's own sky and
+            // Restore would later hand back a destroyed one.
+            if (s_Held && RenderSettings.skybox == sky.Material) RenderSettings.skybox = s_Original;
+            if (s_Current == sky) s_Current = null;
             if (sky.Material != null) UnityEngine.Object.Destroy(sky.Material);
             if (s_Wanters.Count == 0) Restore(log);
             else Apply(log);
@@ -149,7 +171,12 @@ namespace VDGS
             foreach (var kv in s_Wanters) { pick = kv.Value; break; }
             if (pick == null) return;
 
-            if (!s_Held)
+            // Whatever is in RenderSettings now and is not one of ours is the scene's own
+            // sky, and that is what Restore has to put back. Taking it once, on the first
+            // Apply, is wrong after a scene load: RenderSettings is per scene, the new one
+            // brings its own sky, and restoring the old scene's material hands back the
+            // wrong sky - or a destroyed one.
+            if (!IsOurs(RenderSettings.skybox))
             {
                 s_Original = RenderSettings.skybox;
                 s_Held = true;
@@ -158,14 +185,34 @@ namespace VDGS
             s_Current = pick;
             RenderSettings.skybox = pick.Material;
             Track();
-            if (changed) log?.AppendLine("sky: on (" + s_Wanters.Count + " capture(s) asking)");
+            if (changed)
+            {
+                log?.AppendLine("sky: on (" + s_Wanters.Count + " capture(s) asking)");
+                // Blackout decides what the cameras clear to by asking whether a sky is
+                // up, and it only asks when it applies. Another capture's blackout may have
+                // cleared them to black already; hand them back now rather than on the
+                // next once-a-second sweep, which only runs in flyable scenes.
+                WorldBlackout.Sweep(log);
+            }
         }
 
-        // The panorama is in the capture's frame; the shader needs world -> that frame.
+        private static bool IsOurs(Material m)
+        {
+            if (m == null) return false;
+            foreach (var kv in s_Wanters)
+                if (kv.Value.Material == m) return true;
+            return false;
+        }
+
+        private static readonly Matrix4x4 kFlipY = Matrix4x4.Scale(new Vector3(1, -1, 1));
+
+        // The panorama is in the capture file's frame; the shader needs world -> that frame.
         private static void Track()
         {
             if (s_Current == null || s_Current.Follow == null) return;
-            s_Current.Material.SetMatrix("_SkyToPano", s_Current.Follow.worldToLocalMatrix);
+            var m = s_Current.Follow.worldToLocalMatrix;
+            if (s_Current.MirrorY) m = kFlipY * m;
+            s_Current.Material.SetMatrix("_SkyToPano", m);
         }
 
         private static void Restore(StringBuilder log)
@@ -176,11 +223,24 @@ namespace VDGS
             s_Held = false;
             s_Current = null;
             log?.AppendLine("sky: off - the game's own is back");
+            // Another capture may still want blackout, and with no sky up that means black.
+            WorldBlackout.Sweep(log);
         }
 
         private static Texture2D Texture(string path, StringBuilder log)
         {
-            if (s_Textures.TryGetValue(path, out var cached) && cached != null) return cached;
+            string key;
+            try
+            {
+                var info = new FileInfo(path);
+                key = path + "|" + info.Length + "|" + info.LastWriteTimeUtc.Ticks;
+            }
+            catch (Exception e)
+            {
+                log?.AppendLine("sky: cannot read " + path + " - " + e.Message);
+                return null;
+            }
+            if (s_Textures.TryGetValue(key, out var cached) && cached != null) return cached;
 
             byte[] bytes;
             try { bytes = File.ReadAllBytes(path); }
@@ -207,7 +267,7 @@ namespace VDGS
             // detail a block compressor can hurt. 2048x1024 goes 6 MB -> 1.4 MB with mips.
             tex.Compress(true);
             tex.Apply(true, true);
-            s_Textures[path] = tex;
+            s_Textures[key] = tex;
             log?.AppendLine("sky: loaded " + Path.GetFileName(path) + " " + tex.width + "x" + tex.height
                             + " " + tex.format);
             return tex;

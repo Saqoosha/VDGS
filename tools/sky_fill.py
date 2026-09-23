@@ -89,51 +89,69 @@ def main():
     # streak per column, because neighbouring columns end on different pixels.
     seen_rows = [np.nonzero(have[:, c])[0] for c in range(W)]
     rows = np.arange(H)
+    empty = np.array([r.size == 0 for r in seen_rows])
+    if empty.all():
+        raise SystemExit("no sky was seen in any direction")
 
-    def ring_blur(v, k):
+    def ring_fill(v):
+        """Fill the entries of empty columns by linear interpolation around the ring."""
+        v = np.array(v, np.float64)
+        known = np.nonzero(~empty)[0]
+        x = np.concatenate([known - W, known, known + W])
+        if v.ndim == 1:
+            return np.interp(np.arange(W), x, np.tile(v[known], 3))
+        return np.stack([np.interp(np.arange(W), x, np.tile(v[known, i], 3))
+                         for i in range(v.shape[1])], 1)
+
+    def ring_blur(v, k=31):
         pad = np.concatenate([v[-k:], v, v[:k]])
         ker = np.ones(2 * k + 1) / (2 * k + 1)
         if pad.ndim == 1:
             return np.convolve(pad, ker, "same")[k:-k]
         return np.stack([np.convolve(pad[:, i], ker, "same")[k:-k] for i in range(pad.shape[1])], 1)
 
-    # Where the band ends is a ragged line - one column reaches two degrees higher than
-    # its neighbour - and a fade measured from a ragged line is a fade in vertical
-    # stripes. The EDGE is smoothed, not just the colour on it.
-    top_c = ring_blur(np.array([r[0] if r.size else 0.0 for r in seen_rows]), 31)
-    bot_c = ring_blur(np.array([r[-1] if r.size else H - 1.0 for r in seen_rows]), 31)
+    # Where the band ends, per column. A direction the drone never faced has no band
+    # at all; its edges and rim colours are interpolated from the columns either side,
+    # so it gets a sky like theirs instead of staying black and - through the blur
+    # below - darkening them too.
+    ti_raw = np.array([r[0] if r.size else 0 for r in seen_rows], np.float64)
+    bi_raw = np.array([r[-1] if r.size else H - 1 for r in seen_rows], np.float64)
+    ti_f, bi_f = ring_fill(ti_raw), ring_fill(bi_raw)
+    ti, bi = np.round(ti_f).astype(int), np.round(bi_f).astype(int)
 
+    # The edge is a ragged line - one column reaches two degrees higher than its
+    # neighbour - and a fade measured from a ragged line is a fade in vertical stripes.
+    # The EDGE is smoothed, not just the colour on it.
+    top_c, bot_c = ring_blur(ti_f), ring_blur(bi_f)
     d = np.maximum(top_c[None, :] - rows[:, None], 0) + np.maximum(rows[:, None] - bot_c[None, :], 0)
     dist = (d * (180.0 / H)).astype(np.float32)   # degrees outside the seen band
     t = np.clip(dist / max(a.blend, 1e-6), 0, 1)[..., None]
 
-    # Near the seam the fit is nudged onto the real rim so the two agree there exactly:
-    # the offset is the rim's own residual, faded out over the same band.
+    # Rim colours, read only where there is a rim, then filled and smoothed the same way.
     # A rim read column by column jitters, and an offset that jitters draws vertical
-    # lines across the whole cap. Smooth both rims around the horizon before using them.
-    def smooth_ring(v, k=31):
-        pad = np.concatenate([v[-k:], v, v[:k]])
-        ker = np.ones(2 * k + 1) / (2 * k + 1)
-        return np.stack([np.convolve(pad[:, i], ker, "same")[k:-k] for i in range(3)], 1)
-
-    ti = np.array([r[0] if r.size else 0 for r in seen_rows])
-    bi = np.array([r[-1] if r.size else H - 1 for r in seen_rows])
-    top_rim = smooth_ring(np.stack([rgb[ti[c], c] for c in range(W)]))
-    bot_rim = smooth_ring(np.stack([rgb[bi[c], c] for c in range(W)]))
+    # lines across the whole cap.
+    top_rim = ring_blur(ring_fill(np.stack([rgb[ti[c], c] for c in range(W)])))
+    bot_rim = ring_blur(ring_fill(np.stack([rgb[bi[c], c] for c in range(W)])))
     top_fit = np.stack([fit[ti[c], c] for c in range(W)])
 
     out = np.array(rgb, np.float32)
     up = (~have) & (rows[:, None] < ti[None, :])
     down = (~have) & (rows[:, None] > bi[None, :])
+    # Unseen inside the band: a gap between frames, or a whole unseen column. The fit is
+    # the smooth sky those neighbours imply, which is all there is to say about it.
+    hole = (~have) & ~up & ~down
 
     # Above: the fit, lifted onto the real rim and let go over the seam.
     off = (top_rim - top_fit)[None, :, :]
     out[up] = (fit + off * (1 - t))[up]
+    out[hole] = fit[hole]
 
     # Below: the rim, darkening. No fit - see the header.
     fade = np.clip(dist / max(a.floor_fade, 1e-6), 0, 1)[..., None]
     k = 1.0 + (a.floor - 1.0) * fade
     out[down] = (bot_rim[None, :, :] * k)[down]
+    print(f"filled: {up.sum()} above, {hole.sum()} inside the band "
+          f"({int(empty.sum())} unseen column(s)), {down.sum()} below")
 
     lo, hi = float(rgb[have].min()), float(rgb[have].max())
     print(f"fill range {out.min():.0f}..{out.max():.0f}; the photographed sky spans {lo:.0f}..{hi:.0f}")

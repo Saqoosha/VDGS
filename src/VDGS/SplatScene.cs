@@ -273,7 +273,7 @@ namespace VDGS
             {
                 // Sky first: blackout asks whether one is up before it decides what to do
                 // with the cameras, and a capture that has a sky wants its own, not black.
-                WorldSky.Want(Name, m_Dir, m_Go.transform, report);
+                WorldSky.Want(Name, m_Dir, m_Go.transform, MirrorFor(placement), report);
                 WorldBlackout.Want(Name, report);
             }
 
@@ -441,7 +441,7 @@ namespace VDGS
             }
             if (on)
             {
-                WorldSky.Want(Name, m_Dir, m_Go.transform, log);
+                WorldSky.Want(Name, m_Dir, m_Go.transform, MirrorFor(p), log);
                 WorldBlackout.Want(Name, log);
             }
             else
