@@ -186,9 +186,7 @@ namespace VDGS
 
             // Decoding is 97% of the load - 3.15 s of the 3.25 s a 2.17M capture takes on
             // the RTX 3060 host - and every splat is independent, writing to its own
-            // disjoint slice of each buffer. Splitting it across cores is a much smaller
-            // change than moving the whole load off the main thread, and it attacks the
-            // part that actually costs.
+            // disjoint slice of each buffer.
             // Environment, not SystemInfo: this runs off the main thread.
             int workers = Math.Max(1, Math.Min(Environment.ProcessorCount, 16));
             int perWorker = (count + workers - 1) / workers;

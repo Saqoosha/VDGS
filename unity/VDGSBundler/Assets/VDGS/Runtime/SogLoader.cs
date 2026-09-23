@@ -33,7 +33,8 @@ namespace VDGS
             }
             catch (Exception e)
             {
-                error = "sog load failed: " + e.Message;
+                // Unwrapped: the Parallel.For passes throw AggregateException, whose message says nothing.
+                error = "sog load failed: " + (e is AggregateException ? e.GetBaseException() : e).Message;
                 return null;
             }
         }

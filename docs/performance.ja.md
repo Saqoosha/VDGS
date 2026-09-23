@@ -373,7 +373,7 @@ Unity がディスパッチを捨てる）、`SetKeyword` の回数を減らす�
 
 ### 読み込み時間
 
-**2026-09-24：16.1 秒 → 4.1 秒、しかもゲームは止まらない。** 効いた順：
+**2026-09-24：16.1 秒 → 4.1 秒、しかもゲームは止まらない。** 入れた変更（効きがいちばん大きいのは 2）：
 
 1. **SH パレットの書き出しを並列化**（pack 3.0 → 1.4 s）。チャンクごとに 1 スレッドで、姫路で約 1 億回の `FloatToHalf` だった
 2. **splat ごとの `new float[4]` を消す**（`PackRotation` と `UnpackQuat`）
@@ -397,10 +397,10 @@ Unity がディスパッチを捨てる）、`SetKeyword` の回数を減らす�
 | M1 Max | Release（`-releaseCodeOptimization`） | 0.6 s | 17 s | 21 s | 39 s |
 
 **原因は splat ごとの `new float[4]` だった**（`PackRotation` と `UnpackQuat`、各 1,730 万回）。
-Mono の GC は全スレッドを止めるので、16 スレッドで並列にしても確保のたびに揃って待つ。
+確保が GC を頻発させ、Mono の GC はそのたびに全スレッドを止めるので、16 スレッドの並列が効かない。
 スレッドプールの最小数を上げても変わらなかったのはこのため（スレッド不足ではない）。スカラーに
 書き直した出力はビット単位で同じ（`PackRotation` は新旧を 2,000 万個で照合、`UnpackQuat` は
-splat-transform の復号と照合する既存テスト）。
+全タグを旧実装と照合する `UnpackQuatMatchesTheTableForEveryTag`）。
 
 ---
 

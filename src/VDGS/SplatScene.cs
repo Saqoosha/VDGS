@@ -24,9 +24,11 @@ namespace VDGS
 
         internal string Name { get; }
         internal bool Spawned => m_Go != null;
+        /// <summary>On screen: spawned and fully uploaded. What /api/status calls "shown".</summary>
+        internal bool Shown => m_Go != null && !Loading && m_Renderer != null && m_Renderer.UploadError == null;
 
-        // Decoding runs on a worker so the game keeps drawing; only the GPU upload is left
-        // on the main thread. One object per load, so a load that Despawn abandoned cannot
+        // Decoding runs on a worker so the game keeps drawing; GPU work and Unity object
+        // setup stay on the main thread. One object per load, so a load that Despawn abandoned cannot
         // write into the next one's state while it winds down.
         private sealed class LoadJob
         {
@@ -38,6 +40,9 @@ namespace VDGS
             public SplatCollision.Prepared Collision;
         }
         private LoadJob m_Load;
+        // Kept so an A -> B -> A track switch picks the load back up instead of starting a
+        // second multi-GB decode of the same capture while the first is still running.
+        private LoadJob m_Abandoned;
 
         private bool Uploading => m_Renderer != null && m_Renderer.Uploading;
         private float m_UploadStarted;
@@ -306,6 +311,15 @@ namespace VDGS
             var mirror = MirrorFor(startPlacement);
             bool wantCollision = startPlacement.collision;
 
+            var abandoned = m_Abandoned;
+            m_Abandoned = null;
+            if (abandoned != null && abandoned.Mirror == mirror && !abandoned.Task.IsFaulted)
+            {
+                m_Load = abandoned;
+                report.AppendLine(Name + ": loading (picked up the load already under way)");
+                return true;
+            }
+
             // Converted captures ignore the flag - SplatData.Load reads packed buffers,
             // and mirroring them would mean decoding every format rather than flipping a
             // sign while parsing text.
@@ -340,12 +354,22 @@ namespace VDGS
         /// </summary>
         internal bool PollLoad(StringBuilder report)
         {
+            // Only while it runs: a finished one would pin a hidden capture's data in memory.
+            if (m_Abandoned != null && m_Abandoned.Task.IsCompleted) m_Abandoned = null;
+
             if (m_ReportUpload && !Uploading)
             {
                 m_ReportUpload = false;
                 if (m_Go == null) return false;
+                if (m_Renderer.UploadError != null)
+                {
+                    report.AppendLine(Name + ": upload failed - " + m_Renderer.UploadError);
+                    m_Decor = null;
+                    return true;
+                }
                 report.AppendLine(Name + ": uploaded in "
                                   + (Time.realtimeSinceStartup - m_UploadStarted).ToString("0.0") + " s");
+                if (m_Decor != null) Decorate(report);
                 return true;
             }
 
@@ -402,12 +426,35 @@ namespace VDGS
             m_Renderer.LodBudget = placement.lodBudget;
             m_Renderer.SetData(data, spread: true);
 
+            // The rest waits for the upload: blacking out the world or adding walls while
+            // nothing is drawn yet showed an empty black scene for a second.
+            m_Decor = new Decor { BoundsMin = data.BoundsMin, BoundsMax = data.BoundsMax,
+                                  Mirror = mirror, Collision = collision };
+        }
+
+        private sealed class Decor
+        {
+            public Vector3 BoundsMin, BoundsMax;
+            public bool Mirror;
+            public SplatCollision.Prepared Collision;
+        }
+        private Decor m_Decor;
+
+        /// <summary>Backdrop, sky, blackout and collision, once the capture is drawable.</summary>
+        private void Decorate(StringBuilder report)
+        {
+            var d = m_Decor;
+            m_Decor = null;
+            var placement = LoadPlacement();
+            var mirror = d.Mirror;
+            var collision = d.Collision;
+
             // A rotated capture cannot wear the backdrop - see IsUpright. Leaving the
             // capture's holes open to the game's terrain and horizon is the better failure:
             // a box whose faces are in the wrong place hides more of the capture than the
             // terrain ever did.
             if (placement.backdrop && IsUpright(placement))
-                SplatBackdrop.Attach(m_Go.transform, data.BoundsMin, data.BoundsMax,
+                SplatBackdrop.Attach(m_Go.transform, d.BoundsMin, d.BoundsMax,
                                      kBackdropMargin, kBackdropGroundY, report);
             else if (placement.backdrop)
                 report.AppendLine(Name + ": backdrop off - up=" + (placement.up ?? "(rotation)")
@@ -448,8 +495,10 @@ namespace VDGS
 
         internal void Despawn()
         {
+            if (m_Load != null) m_Abandoned = m_Load;
             m_Load = null; // a load still running finishes into nothing
             m_ReportUpload = false;
+            m_Decor = null;
             if (m_Go == null)
                 return;
             UnityEngine.Object.Destroy(m_Go);

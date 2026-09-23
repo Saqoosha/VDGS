@@ -145,7 +145,7 @@ namespace VDGS
                     { "colorFormat", s.ColorFormat },
                     { "shFormat", s.ShFormat },
                     { "bytes", s.Bytes },
-                    { "shown", s.Spawned },
+                    { "shown", s.Shown },
                     { "loading", s.Loading },
                     { "scale", status.Scale },
                     { "y", status.YOffset },
@@ -172,7 +172,7 @@ namespace VDGS
                           }
                         : null },
                 });
-                if (s.Spawned) loaded.Add(s.Name);
+                if (s.Shown) loaded.Add(s.Name);
             }
 
             return new System.Collections.Generic.Dictionary<string, object>
@@ -558,7 +558,11 @@ namespace VDGS
                 s.PollLoad(log);
             if (log.Length > 0)
             {
-                try { File.AppendAllText(Probe.LogPath, log.ToString()); } catch { }
+                // Both: a bound track's spawn is requested from the track log, and its
+                // outcome belongs next to the "track changed" line that asked for it.
+                var text = log.ToString();
+                try { File.AppendAllText(Probe.LogPath, text); } catch { }
+                try { File.AppendAllText(m_TrackLogPath, text); } catch { }
             }
         }
 

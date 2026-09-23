@@ -64,21 +64,6 @@ namespace VDGS
         }
 
         /// <summary>
-        /// Adds the collider under <paramref name="parent"/>, or reports why not.
-        ///
-        /// Returns false when there is no collision.bin, which is the normal case for a
-        /// capture nobody has generated one for - not an error.
-        ///
-        /// <paramref name="mirrorY"/> is decided by the caller, not here. SplatScene reads
-        /// it from placement.json (the same value it hands to PlyLoader) and passes it in,
-        /// so the splats and the collision shell are always mirrored together - two
-        /// independently-decided flags that happen to agree today would silently stop
-        /// agreeing the moment either becomes settable. Left null, the mesh mirrors by the
-        /// old per-extension rule; the only caller that relies on that is the Mac-only
-        /// SplatCollisionProbe editor tool, which tests the collider directly and has no
-        /// placement.json to read.
-        /// </summary>
-        /// <summary>
         /// The file read, parse and mirror, done ahead - off the main thread - so Attach only
         /// builds the Mesh. For a 2.2M-triangle shell this was about a second of stall.
         /// </summary>
@@ -109,6 +94,21 @@ namespace VDGS
             return p;
         }
 
+        /// <summary>
+        /// Adds the collider under <paramref name="parent"/>, or reports why not.
+        ///
+        /// Returns false when there is no collision.bin, which is the normal case for a
+        /// capture nobody has generated one for - not an error.
+        ///
+        /// <paramref name="mirrorY"/> is decided by the caller, not here. SplatScene reads
+        /// it from placement.json (the same value it hands to PlyLoader) and passes it in,
+        /// so the splats and the collision shell are always mirrored together - two
+        /// independently-decided flags that happen to agree today would silently stop
+        /// agreeing the moment either becomes settable. Left null, the mesh mirrors by the
+        /// old per-extension rule; the only caller that relies on that is the Mac-only
+        /// SplatCollisionProbe editor tool, which tests the collider directly and has no
+        /// placement.json to read.
+        /// </summary>
         internal static bool Attach(Transform parent, string dir, StringBuilder log, bool? mirrorY = null,
                                     Prepared prepared = null)
         {

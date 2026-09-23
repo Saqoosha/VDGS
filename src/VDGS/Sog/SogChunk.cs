@@ -245,7 +245,7 @@ namespace VDGS.Sog
         }
 
         /// <summary>Writes x y z w into rot[off..off+3].</summary>
-        private static void UnpackQuat(byte px, byte py, byte pz, byte tag, float[] rot, int off)
+        internal static void UnpackQuat(byte px, byte py, byte pz, byte tag, float[] rot, int off)
         {
             if (tag < 252 || tag > 255)
             {

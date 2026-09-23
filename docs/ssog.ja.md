@@ -229,7 +229,7 @@ RTX 3060 で 23 ms。17.3M 常駐でユニファイドメモリが崩れる。
 ## 未解決
 
 - **色テクスチャのアップロードで 1 回約 120 ms 引っかかる。** 復号・詰め直し・コリジョンの読み込みは
-  裏スレッド、ほかのバッファは 1 フレーム 4 ms ずつ送る（`SplatRenderer.SetData(data, spread: true)`）。
+  裏スレッド、大きいバッファ（pos/other/SH/SplatRun）は 1 フレーム約 4 ms ずつ送る（`SplatRenderer.SetData(data, spread: true)`）。
   `Texture2D.SetPixelData` はミップ丸ごとしか受けないので、ここだけ割れない
 - **段の無い `.ply` が master より 0.85 ms（約 9%）遅い。** `-vdgsSortNth` で切ると
   ソート側 0.5 ms・view パス 0.3 ms。仮説 2 つは否定済み（LOD バッファを bind しない →

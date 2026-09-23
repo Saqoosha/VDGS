@@ -383,7 +383,8 @@ namespace VDGS
 
         internal bool HasValidData => m_Data != null && m_Data.SplatCount > 0;
         internal bool HasValidRenderSetup =>
-            m_GpuPosData != null && m_GpuOtherData != null && m_GpuChunks != null && m_Upload.Count == 0;
+            m_GpuPosData != null && m_GpuOtherData != null && m_GpuChunks != null && m_Upload.Count == 0
+            && m_UploadError == null;
 
         private static bool ResourcesReady =>
             ShaderBundle.Loaded && SystemInfo.supportsComputeShaders;
@@ -422,6 +423,9 @@ namespace VDGS
         private const double kUploadMsPerFrame = 4.0;
 
         internal bool Uploading => m_Upload.Count > 0;
+        /// <summary>Set when an upload step threw; the capture then never draws.</summary>
+        internal string UploadError => m_UploadError;
+        private string m_UploadError;
         internal float UploadProgress => m_UploadTotal == 0 ? 1f : (float)((double)m_UploadDone / m_UploadTotal);
 
         private void QueueStep(long bytes, Action run)
@@ -458,7 +462,15 @@ namespace VDGS
             do
             {
                 var step = m_Upload.Dequeue();
-                step.Run();
+                try { step.Run(); }
+                catch (Exception e)
+                {
+                    // Draining on would mark half-written buffers drawable.
+                    m_UploadError = e.GetType().Name + ": " + e.Message;
+                    m_Upload.Clear();
+                    Debug.LogException(e);
+                    return;
+                }
                 m_UploadDone += step.Bytes;
             } while (m_Upload.Count > 0 && sw.Elapsed.TotalMilliseconds < kUploadMsPerFrame);
         }
@@ -513,6 +525,7 @@ namespace VDGS
             m_SplatCount = m_Data.SplatCount;
             m_Upload.Clear();
             m_UploadTotal = m_UploadDone = 0;
+            m_UploadError = null;
 
             m_GpuPosData = RawBuffer(m_Data.PosData, "VDGS PosData");
             m_GpuOtherData = RawBuffer(m_Data.OtherData, "VDGS OtherData");
@@ -524,7 +537,7 @@ namespace VDGS
             var tex = new Texture2D(texWidth, texHeight, ColorFormatToTexture(m_Data.ColorFmt), false)
             { name = "VDGS ColorData" };
             m_GpuColorData = tex;
-            // Whole-mip only: the one step that cannot be sliced (~100 ms for 17.3M).
+            // Whole-mip only: the one step that cannot be sliced.
             QueueStep(m_Data.ColorData.Length, () =>
             {
                 tex.SetPixelData(m_Data.ColorData, 0);
@@ -570,7 +583,7 @@ namespace VDGS
                 QueueSlices(m_GpuSplatRun, m_Data.Lod.RunOfSplat);
             }
 
-            // Last: BuildChunkRadii in here reads other.bin on the GPU, so it must follow it.
+            // Last: InitSortBuffers -> BuildChunkRadii reads other.bin on the GPU.
             QueueStep(0, () =>
             {
                 InitSortBuffers(m_SplatCount);
@@ -673,15 +686,14 @@ namespace VDGS
         }
 
         /// <summary>
-        /// Raw buffers are addressed as uint by the shaders. GraphicsBuffer.SetData cannot
-        /// take a byte[] for a 4-byte-stride buffer, so reinterpret the bytes as uint first.
+        /// Raw buffers are addressed as uint by the shaders.
         /// </summary>
         private GraphicsBuffer RawBuffer(byte[] bytes, string name)
         {
             int uintCount = bytes.Length / 4;
             var buf = new GraphicsBuffer(GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopySource,
                 uintCount, 4) { name = name };
-            // Straight from byte[]: copying into a uint[] first cost an 880 MB allocation.
+            // Straight from byte[]: no uint[] copy of the whole capture.
             QueueSlices(buf, bytes, uintCount * 4);
             return buf;
         }
