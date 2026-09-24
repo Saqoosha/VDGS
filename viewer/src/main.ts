@@ -164,7 +164,7 @@ async function loadPoses(name: string) {
 }
 fetch(DATA + 'scan_cameras.json').then(r => r.json()).then(j => { scan = j.cameras; gates = j.gates })
 fetch(DATA + 'dvr_pinhole.mp4.json').then(r => r.json()).then(j => { DVR.fx = j.fx; DVR.w = j.width; DVR.h = j.height; DVR.t0 = j.t0; DVR.fps = j.fps })
-loadPoses('poses60_refined15.json')
+loadPoses((document.getElementById('poseset') as HTMLSelectElement).value)   // the selected option in index.html
 
 // --- ui
 const ui = { follow: $<HTMLInputElement>('follow'), compare: $<HTMLInputElement>('compare'), wipe: $<HTMLInputElement>('wipe'),
@@ -372,7 +372,7 @@ function frustum(pos: number[], quat: number[], hfovDeg: number, aspect: number,
   const corners = [[-x, -y, len], [x, -y, len], [x, y, len], [-x, y, len]].map(c => r.transformVector(new pc.Vec3(c[0], c[1], c[2]), new pc.Vec3()).add(o))
   for (let k = 0; k < 4; k++) { out.push(o, corners[k], corners[k], corners[(k + 1) % 4]); cols.push(col, col, col, col) }
 }
-const SRC_NAME: Record<string, string> = { kept: 'colmap', lk: 'lk', interp: 'interp', refined: 'refined', ground: 'ground', manual: 'manual', cpr: 'cpr', 'cpr-rot': 'cpr (rotation only)', 'cpr-fill': 'cpr (filled)' }
+const SRC_NAME: Record<string, string> = { kept: 'colmap', lk: 'lk', interp: 'interp', refined: 'refined', ground: 'ground', manual: 'manual', cpr: 'cpr', 'cpr-rot': 'cpr rot', 'cpr-fill': 'cpr fill' }
 let lastPoses = poses
 app.on('update', () => {
   const i = Math.max(0, Math.min(poses.length - 1, frameOf(video.currentTime)))
