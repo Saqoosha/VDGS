@@ -46,10 +46,11 @@ def deviation(i, a, b):                              # degrees off the predictio
     step = (R[a].inv() * R[b]).as_rotvec() / (b - a)
     pred = R[a] * Rot.from_rotvec(step * (i - a)); return np.degrees((pred.inv() * R[i]).magnitude()), np.degrees(np.linalg.norm(step * abs(i - a)))
 def agrees(i, pairs): return all(dev < ROT_OUT + 0.5 * span for dev, span in (deviation(i, a, b) for a, b in pairs))
-ok, undecided = set(), []
+ok, undecided, failed = set(), [], set()
 for k, i in enumerate(idx):
     pairs = [(idx[k-d], idx[k+d]) for d in (1, 2) if k - d >= 0 and k + d < len(idx) and i - idx[k-d] <= DENSE and idx[k+d] - i <= DENSE]
-    (ok.add(i) if len(pairs) == 2 and agrees(i, pairs) else undecided.append(i))
+    if len(pairs) == 2 and agrees(i, pairs): ok.add(i)
+    else: undecided.append(i); (failed.add(i) if len(pairs) == 2 else None)
 for _ in range(len(undecided)):                      # each pass decides the frames next to kept ones
     changed, kept_r = False, sorted(ok)
     for i in list(undecided):
@@ -61,7 +62,8 @@ for _ in range(len(undecided)):                      # each pass decides the fra
         if agrees(i, pairs): ok.add(i)
     if not changed: break
 kept_r = sorted(ok)
-for i in undecided:
+for i in undecided:                                  # never a frame the dense test failed
+    if i in failed: continue
     p = bisect.bisect_left(kept_r, i)
     if not ((p and i - kept_r[p - 1] <= GAP) or (p < len(kept_r) and kept_r[p] - i <= GAP)): ok.add(i)
 rot_ok = sorted(ok)
