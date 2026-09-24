@@ -140,7 +140,11 @@ namespace VDGS
         private void OnPreCullCamera(Camera cam)
         {
             if (!GatherSplatsForCamera(cam))
+            {
+                // Empty, not stale: cameras would replay a disposed capture's commands.
+                m_CommandBuffer?.Clear();
                 return;
+            }
 
             if (m_CommandBuffer == null)
                 m_CommandBuffer = new CommandBuffer { name = "VDGS RenderGaussianSplats" };
