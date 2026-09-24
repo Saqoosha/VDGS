@@ -1,13 +1,15 @@
 """GS-CPR step 1 (gsenv): render RGB + expected depth of the 3DGS at candidate poses around each frame's
 start pose. Candidates are the start pose rotated about the camera's y axis (yaw) and x axis (pitch).
 usage: cpr_render.py scene.ply dvr_pinhole.mp4.json poses.json frames.txt out_dir
-env: YAWS (deg, comma list, default 0,-25,25,-50,50), PITCHES (default 0), W (render width, default 512)"""
+env: YAWS (deg, comma list, default 0,-25,25; +-50 won 9 of 408 frames), PITCHES (default 0), W (render width, default 512)
+Splats under opacity 0.1 are dropped and SH is cut to degree 1, as in refine_batch.py. Each npz holds rgb, depth,
+alpha, w2c and K per candidate; frames without a start pose get none. The caller writes DONE when this exits."""
 import json, sys, os, math, numpy as np, torch
 from plyfile import PlyData
 from gsplat import rasterization
 dev = "cuda"
 ply, camj, poses_json, frames_txt, out_dir = sys.argv[1:6]
-YAWS = [float(x) for x in os.environ.get("YAWS", "0,-25,25,-50,50").split(",")]
+YAWS = [float(x) for x in os.environ.get("YAWS", "0,-25,25").split(",")]
 PITCHES = [float(x) for x in os.environ.get("PITCHES", "0").split(",")]
 RW = int(os.environ.get("W", 512)); SH = 1
 os.makedirs(out_dir, exist_ok=True)

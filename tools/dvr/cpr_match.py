@@ -1,6 +1,8 @@
 """GS-CPR step 2 (mastenv): match each DVR frame against its candidate renders with MASt3R, lift the render
 side to 3D with the rendered depth, and solve PnP-RANSAC in the full-res pinhole camera. The candidate with
-the most inliers wins. Writes one JSON line per frame: {i, quat (c2w xyzw), pos, inliers, cand, n_match}.
+the most inliers wins. Writes one JSON line per rendered frame: {i, quat (c2w xyzw), pos, inliers, cand, n_match (after
+the alpha/depth/OSD filter), near (share of inliers within 15 m, which sets cpr_fuse.py's position sigma)}, or
+{i, inliers: 0} when no candidate solves.
 usage: cpr_match.py dvr_pinhole.mp4 render_dir frames.txt out.jsonl"""
 import json, sys, os, time, numpy as np, torch, cv2
 sys.path.insert(0, os.path.expanduser("~/mast3r"))

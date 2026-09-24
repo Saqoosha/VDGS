@@ -10,7 +10,7 @@ Frames before take-off and frames outside the CPR span keep the start pose.
 usage: cpr_fuse.py start_poses.json cpr.jsonl out_poses.json   env: ROT_SIGMA (frames, default 1, 0 = off)"""
 import json, sys, os, numpy as np
 from scipy.spatial.transform import Rotation as Rot, Slerp
-MIN_INL, TAKEOFF, Q_ACC, ROT_OUT = 100, 116, 40.0, 10.0
+MIN_INL, TAKEOFF, Q_ACC, ROT_OUT = 100, 116, 40.0, 10.0   # TAKEOFF is hdz_0067's; Q_ACC as interp60.py
 ROT_SIGMA = float(os.environ.get("ROT_SIGMA", 1))
 S = json.load(open(sys.argv[1])); N = len(S["poses"])
 C = {r["i"]: r for r in map(json.loads, open(sys.argv[2])) if r.get("inliers", 0) >= MIN_INL and r["i"] >= TAKEOFF}
@@ -34,7 +34,8 @@ meas = {i: (np.array(C[i]["pos"]), sig(C[i])) for i in idx}
 sm = smooth(meas)
 kept = {i: m for i, m in meas.items() if np.linalg.norm(m[0] - sm[i]) < 3 * m[1] + 0.5}
 sm = smooth(kept)
-# rotation: drop a CPR rotation that disagrees with the slerp of its nearest accepted neighbours
+# rotation: drop a CPR rotation that disagrees with the slerp of its nearest CPR neighbours (unchecked themselves;
+# the span ends and frames beside a gap over 12 frames are kept without the test)
 rot_ok = []
 for k, i in enumerate(idx):
     a, b = (idx[k-1] if k else None), (idx[k+1] if k + 1 < len(idx) else None)
