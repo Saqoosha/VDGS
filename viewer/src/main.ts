@@ -362,7 +362,8 @@ new ResizeObserver(layout).observe(view); window.addEventListener('resize', layo
 
 // --- per frame
 // path colour = how the frame's pose was obtained (src): COLMAP-registered, LK gap fill, interpolated, photometrically refined
-const cSrc: Record<string, pc.Color> = { kept: new pc.Color(0.3, 1, 0.4), lk: new pc.Color(1, 0.6, 0.15), interp: new pc.Color(1, 0.3, 0.85), refined: new pc.Color(0.3, 0.85, 1), ground: new pc.Color(0.55, 0.55, 0.55), manual: new pc.Color(1, 0.88, 0.3) }
+const cSrc: Record<string, pc.Color> = { kept: new pc.Color(0.3, 1, 0.4), lk: new pc.Color(1, 0.6, 0.15), interp: new pc.Color(1, 0.3, 0.85), refined: new pc.Color(0.3, 0.85, 1), ground: new pc.Color(0.55, 0.55, 0.55), manual: new pc.Color(1, 0.88, 0.3),
+  cpr: new pc.Color(0.3, 0.85, 1), 'cpr-rot': new pc.Color(1, 0.6, 0.15), 'cpr-fill': new pc.Color(1, 0.3, 0.85) }   // CPR: both from the match / rotation only / neither
 const cPath = cSrc.interp, cScan = new pc.Color(0.2, 0.75, 1), cNow = new pc.Color(1, 1, 0.3), cLm = new pc.Color(1, 0.88, 0.3)
 const pathPos: pc.Vec3[] = [], pathCol: pc.Color[] = []
 function frustum(pos: number[], quat: number[], hfovDeg: number, aspect: number, len: number, col: pc.Color, out: pc.Vec3[], cols: pc.Color[]) {
@@ -371,7 +372,7 @@ function frustum(pos: number[], quat: number[], hfovDeg: number, aspect: number,
   const corners = [[-x, -y, len], [x, -y, len], [x, y, len], [-x, y, len]].map(c => r.transformVector(new pc.Vec3(c[0], c[1], c[2]), new pc.Vec3()).add(o))
   for (let k = 0; k < 4; k++) { out.push(o, corners[k], corners[k], corners[(k + 1) % 4]); cols.push(col, col, col, col) }
 }
-const SRC_NAME: Record<string, string> = { kept: 'colmap', lk: 'lk', interp: 'interp', refined: 'refined', ground: 'ground', manual: 'manual' }
+const SRC_NAME: Record<string, string> = { kept: 'colmap', lk: 'lk', interp: 'interp', refined: 'refined', ground: 'ground', manual: 'manual', cpr: 'cpr', 'cpr-rot': 'cpr (rotation only)', 'cpr-fill': 'cpr (filled)' }
 let lastPoses = poses
 app.on('update', () => {
   const i = Math.max(0, Math.min(poses.length - 1, frameOf(video.currentTime)))

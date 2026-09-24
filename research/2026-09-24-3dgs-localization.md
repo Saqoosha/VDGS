@@ -23,6 +23,11 @@ GPS で実スケールを合わせた 3DGS スキャン上で位置決めする�
 条件がいちばん近いのは LSGS-Loc（屋外 UAV、コード公開）。30° 外れには UGS-Loc の粒子による複数仮説も効く。
 動画を逐次に扱ってヘアピンに効く形の PiLoT は、いまコードが取れない。
 
+## 実測：GS-CPR 型を DVR に掛けた結果
+
+印なしで p50 46.6 → 11.2 px（人の印 537 個で評価）。手順・数字・外れの原因は
+[docs/dvr-localization.ja.md](../docs/dvr-localization.ja.md) の CPR の節。
+
 ## 検証済みの手法
 
 ### VGM / NDT-VGM（豊橋技科大）
