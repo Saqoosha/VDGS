@@ -78,9 +78,11 @@ for k in range(len(rot_ok) - 1):
     if b - a > 1:
         th = np.linalg.norm(v); side = [rate(rot_ok[k-1], a)] if k and a - rot_ok[k-1] <= DENSE else []
         if k + 2 < len(rot_ok) and rot_ok[k+2] - b <= DENSE: side.append(rate(b, rot_ok[k+2]))
-        if side and th > 1e-6:
-            exp_v = np.mean(side, axis=0) * (b - a)
-            cand = [v / th * (th + 2 * np.pi * t) for t in (-2, -1, 0, 1)]   # t = -1 is the long arc
+        exp_v = np.mean(side, axis=0) * (b - a) if side else None
+        ev = np.linalg.norm(exp_v) if exp_v is not None else 0
+        u = None if exp_v is None else v / th if th > 0.2 else exp_v / ev if ev > 1e-6 else None   # near a whole turn: axis from the rates
+        if u is not None:
+            cand = [v + u * 2 * np.pi * t for t in (-2, -1, 0, 1)]         # t = -1 is the long arc
             best = min(cand, key=lambda c: np.linalg.norm(c - exp_v))
             if best is not cand[2]: v = best; n_long += 1
     arc[a] = (b, v)
