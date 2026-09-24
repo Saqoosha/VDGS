@@ -10,7 +10,8 @@ cd /mnt/c/Users/saqoosha/JDL-2026-R6/dvr
 rm -f cprall.done
 PLY=/mnt/c/Users/saqoosha/JDL-2026-R6-fix/out/JDL-2026-R6-fix-web.ply
 round() {   # $1 name, $2 start poses, $3 yaws
-  rm -f ~/$1/DONE          # a DONE left by an earlier run would make the matcher skip unrendered frames
+  # resumes: kept renders and jsonl lines are reused, so after changing the inputs remove ~/$1 and $1.jsonl first
+  mkdir -p ~/$1; rm -f ~/$1/DONE   # a DONE left by an earlier run would make the matcher skip unrendered frames
   # DONE also after a crash, so the matcher stops waiting; the render's own status is checked after the match
   ( s=0; YAWS=$3 ~/gsenv/bin/python cpr_render.py $PLY dvr_pinhole.mp4.json $2 frames_all.txt ~/$1 > $1_render.log 2>&1 || s=$?; touch ~/$1/DONE; exit $s ) &
   rp=$!
