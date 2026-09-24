@@ -24,7 +24,7 @@ jsonl にある枚を飛ばすので、`rm -f` 無しで同じタスクを起動
 | 経路の解決（同一アーチの取り違え、速度の壁、Kalman。観測は inliers で重み付け） | `resolve.py` | 秒 |
 | 60 fps の全フレームに補間（格子 Kalman + RTS、観測は inliers で重み付け、向きは COLMAP フレーム間の slerp） | `interp60.py` | 秒 |
 | 3DGS との画素比較で姿勢を詰める | `refine_batch.py` → `refined2poses.py` | **0.44 s/枚**、全フレームで 40 分 |
-| **描画と MASt3R の照合で姿勢を取り直す（CPR、下の節）** | `cpr_all.sh`（`cpr_render.py` → `cpr_match.py` → `cpr_fuse.py` を 2 周） | 全フレームで約 2 時間 |
+| **描画と MASt3R の照合で姿勢を取り直す（CPR、下の節）** | `cpr_all.sh`（`cpr_render.py` → `cpr_match.py` → `cpr_fuse.py` を 2 周、3 周目は穴埋めのフレームだけ） | 全フレームで約 2 時間 |
 | ビューアで確認 | `viewer/`（Vite + PlayCanvas） | — |
 | 外れは人が印を打つ → 解く → 変わった分を refine（**CPR とは別の系統**：`marks_apply.sh` は run 10 から解き直し、CPR の結果は入らない） | viewer の `mark`、`marks_apply.sh`、`marks_solve.py` | 1 周 1 時間の打ち込み、解くのは秒、refine 数分 |
 
