@@ -8,9 +8,9 @@ frames (weighted chordal mean). sigma 1 cut the frame-to-frame wobble 0.26 -> 0.
 11.8 -> 11.2 px; sigma 3 lags the turns (14.4 px).
 Frames before take-off and frames outside the CPR span keep the start pose.
 usage: cpr_fuse.py start_poses.json cpr.jsonl out_poses.json   env: ROT_SIGMA (frames, default 1, 0 = off)"""
-import json, sys, os, numpy as np
+import json, sys, os, bisect, numpy as np
 from scipy.spatial.transform import Rotation as Rot
-MIN_INL, TAKEOFF, Q_ACC, ROT_OUT, GAP = 100, 116, 40.0, 10.0, 12   # TAKEOFF is hdz_0067's; Q_ACC as interp60.py
+MIN_INL, TAKEOFF, Q_ACC, ROT_OUT, GAP, DENSE = 100, 116, 40.0, 10.0, 12, 6   # TAKEOFF is hdz_0067's; Q_ACC as interp60.py
 ROT_SIGMA = float(os.environ.get("ROT_SIGMA", 1))
 S = json.load(open(sys.argv[1])); N = len(S["poses"])
 C = {r["i"]: r for r in map(json.loads, open(sys.argv[2])) if r.get("inliers", 0) >= MIN_INL and r["i"] >= TAKEOFF}
@@ -35,10 +35,12 @@ sm = smooth(meas)
 kept = {i: m for i, m in meas.items() if np.linalg.norm(m[0] - sm[i]) < 3 * m[1] + 0.5}
 sm = smooth(kept)
 # rotation, gate: predict each CPR rotation from its neighbours and keep it if it agrees. First the dense stretches:
-# neighbours 1 and 2 apart in the CPR list, all within 3 frames, must both agree (two outliers in a row pass a
-# 1-apart test by vouching for each other). Then outward from those: a remaining frame is judged against the
-# extrapolation of the two nearest kept frames on each side within GAP. #3720-#3721, the two frames after a 20-frame
-# gap, agreed with each other and jumped 93 deg in 4 frames to #3725; judged against #3725-#3726 they are dropped.
+# neighbours 1 and 2 apart in the CPR list, all within DENSE frames, must both agree (two outliers in a row pass a
+# 1-apart test by vouching for each other). Then outward, for every frame not yet kept: judge it against the
+# extrapolation of the two nearest kept frames on each side (within GAP of it, within DENSE of each other). #3720-#3721,
+# the two frames after a 20-frame gap, agreed with each other and jumped 93 deg in 4 frames to #3725; judged against
+# #3725-#3726 they are dropped. A frame with kept rotations nearby but no pair to judge by is dropped too (round 3
+# matches it again); only a frame with nothing kept within GAP is taken untested.
 R = {i: Rot.from_quat(C[i]["quat"]) for i in idx}
 def deviation(i, a, b):                              # degrees off the prediction from a, b (either side of i, or both on one side)
     step = (R[a].inv() * R[b]).as_rotvec() / (b - a)
@@ -46,33 +48,39 @@ def deviation(i, a, b):                              # degrees off the predictio
 def agrees(i, pairs): return all(dev < ROT_OUT + 0.5 * span for dev, span in (deviation(i, a, b) for a, b in pairs))
 ok, undecided = set(), []
 for k, i in enumerate(idx):
-    pairs = [(idx[k-d], idx[k+d]) for d in (1, 2) if k - d >= 0 and k + d < len(idx) and i - idx[k-d] <= 3 and idx[k+d] - i <= 3]
-    if len(pairs) == 2: (ok.add(i) if agrees(i, pairs) else None)
-    else: undecided.append(i)
+    pairs = [(idx[k-d], idx[k+d]) for d in (1, 2) if k - d >= 0 and k + d < len(idx) and i - idx[k-d] <= DENSE and idx[k+d] - i <= DENSE]
+    (ok.add(i) if len(pairs) == 2 and agrees(i, pairs) else undecided.append(i))
 for _ in range(len(undecided)):                      # each pass decides the frames next to kept ones
-    changed = False
+    changed, kept_r = False, sorted(ok)
     for i in list(undecided):
-        left = sorted(j for j in ok if i - GAP <= j < i)[-2:]; right = sorted(j for j in ok if i < j <= i + GAP)[:2]
-        pairs = [tuple(x) for x in (left[::-1], right) if len(x) == 2]
+        p = bisect.bisect_left(kept_r, i)
+        left = [j for j in kept_r[max(0, p - 2):p][::-1] if i - j <= GAP]; right = [j for j in kept_r[p:p + 2] if j - i <= GAP]
+        pairs = [(x[0], x[1]) for x in (left, right) if len(x) == 2 and abs(x[1] - x[0]) <= DENSE]
         if not pairs: continue
         undecided.remove(i); changed = True
         if agrees(i, pairs): ok.add(i)
     if not changed: break
-ok |= set(undecided)                                 # isolated: nothing within GAP to judge against
+kept_r = sorted(ok)
+for i in undecided:
+    p = bisect.bisect_left(kept_r, i)
+    if not ((p and i - kept_r[p - 1] <= GAP) or (p < len(kept_r) and kept_r[p] - i <= GAP)): ok.add(i)
 rot_ok = sorted(ok)
-# rotation, fill: between kept rotations take the short or the long arc, whichever is closer to the turn the angular
-# rates on either side imply. Slerp always takes the short one, and #3700-#3720 (20 frames at 500-960 deg/s) came
-# out turning 113 deg the wrong way instead of 247 deg the right way.
+if len(rot_ok) < 2: sys.exit(f"cpr_fuse: only {len(rot_ok)} CPR rotations passed the gate")
+# rotation, fill: between kept rotations take the arc (short, long, or with a whole extra turn) closest to the turn the
+# angular rates on either side imply. Slerp always takes the short one, and #3700-#3720 (20 frames at 500-960 deg/s)
+# came out turning 113 deg the wrong way instead of 247 deg the right way.
 def rate(a, b): return (R[a].inv() * R[b]).as_rotvec() / (b - a)   # rad/frame, body frame
 arc, n_long = {}, 0
 for k in range(len(rot_ok) - 1):
     a, b = rot_ok[k], rot_ok[k+1]; v = (R[a].inv() * R[b]).as_rotvec()
     if b - a > 1:
-        th = np.linalg.norm(v); side = [rate(rot_ok[k-1], a)] if k and a - rot_ok[k-1] <= 6 else []
-        if k + 2 < len(rot_ok) and rot_ok[k+2] - b <= 6: side.append(rate(b, rot_ok[k+2]))
+        th = np.linalg.norm(v); side = [rate(rot_ok[k-1], a)] if k and a - rot_ok[k-1] <= DENSE else []
+        if k + 2 < len(rot_ok) and rot_ok[k+2] - b <= DENSE: side.append(rate(b, rot_ok[k+2]))
         if side and th > 1e-6:
-            exp_v = np.mean(side, axis=0) * (b - a); lv = -v / th * (2 * np.pi - th)
-            if np.linalg.norm(lv - exp_v) < np.linalg.norm(v - exp_v): v = lv; n_long += 1
+            exp_v = np.mean(side, axis=0) * (b - a)
+            cand = [v / th * (th + 2 * np.pi * t) for t in (-2, -1, 0, 1)]   # t = -1 is the long arc
+            best = min(cand, key=lambda c: np.linalg.norm(c - exp_v))
+            if best is not cand[2]: v = best; n_long += 1
     arc[a] = (b, v)
 def rot_at(i):
     if i <= rot_ok[0]: return R[rot_ok[0]]

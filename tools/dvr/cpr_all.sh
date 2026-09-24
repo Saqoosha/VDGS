@@ -26,13 +26,15 @@ ROT_SIGMA=0 $PY cpr_fuse.py poses60_refined10.json cprall1.jsonl poses_cprall1.j
 round cprall2 poses_cprall1.json 0 frames_all.txt
 ROT_SIGMA=0 $PY cpr_fuse.py poses60_refined10.json cprall2.jsonl poses_cprall2.json > cprall2_fuse.log 2>&1
 $PY -c "import json; print(' '.join(str(p['i']) for p in json.load(open('poses_cprall2.json'))['poses'] if p and p['src'] == 'cpr-fill'))" > frames_fill.txt
+rm -rf ~/cprall3 cprall3.jsonl                    # its frames and poses come from round 2, so never resume it
 round cprall3 poses_cprall2.json 0 frames_fill.txt
-# round 3 replaces a round-2 record only where it matched better
+# a fill frame takes its round-3 record when that one reaches MIN_INL: its round-2 record is the one the gate dropped
 $PY -c "
 import json
 m = {r['i']: r for r in map(json.loads, open('cprall2.jsonl'))}
+fill = set(map(int, open('frames_fill.txt').read().split()))
 for r in map(json.loads, open('cprall3.jsonl')):
-    if r.get('inliers', 0) > m.get(r['i'], {}).get('inliers', 0): m[r['i']] = r
+    if r['i'] in fill and r.get('inliers', 0) >= 100: m[r['i']] = r
 open('cprall23.jsonl', 'w').write(''.join(json.dumps(m[i]) + '\n' for i in sorted(m)))"
 ROT_SIGMA=0 $PY cpr_fuse.py poses60_refined10.json cprall23.jsonl poses60_cpr2_raw.json > cprall3_fuse.log 2>&1
 $PY cpr_fuse.py poses60_refined10.json cprall23.jsonl poses60_cpr2.json >> cprall3_fuse.log 2>&1
