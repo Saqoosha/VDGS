@@ -21,6 +21,8 @@ export type Scene = {
   bytes?: number
   hasCollision: boolean
   shown: boolean
+  /** Decoding or uploading in the plugin. shown stays false until the upload finishes. Older plugins omit it. */
+  loading?: boolean
   scale: number
   y: number
   x: number

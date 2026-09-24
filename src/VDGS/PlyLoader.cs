@@ -34,12 +34,13 @@ namespace VDGS
         /// always mirrored; off is for testing, where it lets this loader be compared
         /// against the offline converter under an identical transform.
         /// </param>
-        public static SplatData Load(string path, out string error, bool mirrorY = true)
+        public static SplatData Load(string path, out string error, bool mirrorY = true,
+                                     Action<string> onStage = null)
         {
             error = null;
             try
             {
-                return LoadInner(path, ref error, mirrorY);
+                return LoadInner(path, ref error, mirrorY, onStage);
             }
             catch (Exception e)
             {
@@ -119,11 +120,10 @@ namespace VDGS
             return h;
         }
 
-        private static SplatData LoadInner(string path, ref string error, bool mirrorY)
+        private static SplatData LoadInner(string path, ref string error, bool mirrorY, Action<string> onStage)
         {
-            // Timings go to the log because this runs while the game is frozen: how long
-            // a capture takes to appear is a user-visible number, and which phase owns it
-            // decides whether it is worth moving off the main thread.
+            // Timings go to the log: how long a capture takes to appear is a user-visible
+            // number, and the phase that owns it is where to spend effort.
             var sw = Stopwatch.StartNew();
             double tHeader, tRead;
 
@@ -135,8 +135,10 @@ namespace VDGS
                 if (h == null) return null;
             }
             tHeader = sw.Elapsed.TotalMilliseconds; sw.Restart();
+            onStage?.Invoke("reading");
             bytes = File.ReadAllBytes(path);
             tRead = sw.Elapsed.TotalMilliseconds; sw.Restart();
+            onStage?.Invoke("parsing");
 
             long need = (long)h.DataStart + (long)h.Count * h.Stride;
             if (bytes.LongLength < need)
@@ -184,10 +186,9 @@ namespace VDGS
 
             // Decoding is 97% of the load - 3.15 s of the 3.25 s a 2.17M capture takes on
             // the RTX 3060 host - and every splat is independent, writing to its own
-            // disjoint slice of each buffer. Splitting it across cores is a much smaller
-            // change than moving the whole load off the main thread, and it attacks the
-            // part that actually costs.
-            int workers = Mathf.Clamp(SystemInfo.processorCount, 1, 16);
+            // disjoint slice of each buffer.
+            // Environment, not SystemInfo: this runs off the main thread.
+            int workers = Math.Max(1, Math.Min(Environment.ProcessorCount, 16));
             int perWorker = (count + workers - 1) / workers;
             var mins = new Vector3[workers];
             var maxs = new Vector3[workers];

@@ -64,6 +64,37 @@ namespace VDGS
         }
 
         /// <summary>
+        /// The file read, parse and mirror, done ahead - off the main thread - so Attach only
+        /// builds the Mesh. For a 2.2M-triangle shell this was about a second of stall.
+        /// </summary>
+        internal sealed class Prepared
+        {
+            internal Vector3[] Verts;
+            internal int[] Tris;
+            internal string Error;
+            internal bool Mirrored;
+        }
+
+        /// <summary>Pure C#: safe on a worker. Null when there is no collision.bin.</summary>
+        internal static Prepared Prepare(string dir, bool mirrorY)
+        {
+            var path = PathFor(dir);
+            if (!File.Exists(path)) return null;
+            var p = new Prepared();
+            try
+            {
+                Read(path, out p.Verts, out p.Tris);
+                if (mirrorY) MirrorInPlace(p.Verts, p.Tris);
+                p.Mirrored = mirrorY;
+            }
+            catch (Exception e)
+            {
+                p.Error = e.Message;
+            }
+            return p;
+        }
+
+        /// <summary>
         /// Adds the collider under <paramref name="parent"/>, or reports why not.
         ///
         /// Returns false when there is no collision.bin, which is the normal case for a
@@ -78,7 +109,8 @@ namespace VDGS
         /// SplatCollisionProbe editor tool, which tests the collider directly and has no
         /// placement.json to read.
         /// </summary>
-        internal static bool Attach(Transform parent, string dir, StringBuilder log, bool? mirrorY = null)
+        internal static bool Attach(Transform parent, string dir, StringBuilder log, bool? mirrorY = null,
+                                    Prepared prepared = null)
         {
             var path = PathFor(dir);
             if (!File.Exists(path))
@@ -111,7 +143,10 @@ namespace VDGS
             // once already. "As this shape has always behaved" is only the fallback for a
             // caller that does not know better - see the mirrorY doc comment above.
             var mirror = mirrorY ?? dir.EndsWith(".ply", StringComparison.OrdinalIgnoreCase);
-            if (self.Load(path, mirror, log)) return true;
+            bool ok = prepared != null && prepared.Mirrored == mirror
+                ? self.LoadPrepared(prepared, log)
+                : self.Load(path, mirror, log);
+            if (ok) return true;
 
             // Leave nothing behind. The child alone is what the "already attached" guard
             // above looks for, so an orphan from a failed load makes every later Attach
@@ -210,9 +245,31 @@ namespace VDGS
                 return false;
             }
 
+            if (mirrorY)
+            {
+                MirrorInPlace(verts, tris);
+                log.AppendLine("  mirrored in Y to match PlyLoader, winding reversed with it");
+            }
+            return BuildGuarded(verts, tris, log);
+        }
+
+        private bool LoadPrepared(Prepared p, StringBuilder log)
+        {
+            if (p.Error != null)
+            {
+                log.AppendLine("  collision load failed: " + p.Error);
+                return false;
+            }
+            if (p.Mirrored)
+                log.AppendLine("  mirrored in Y to match PlyLoader, winding reversed with it");
+            return BuildGuarded(p.Verts, p.Tris, log);
+        }
+
+        private bool BuildGuarded(Vector3[] verts, int[] tris, StringBuilder log)
+        {
             try
             {
-                return Build(verts, tris, mirrorY, log);
+                return Build(verts, tris, log);
             }
             catch (Exception e)
             {
@@ -226,27 +283,25 @@ namespace VDGS
             }
         }
 
-        private bool Build(Vector3[] verts, int[] tris, bool mirrorY, StringBuilder log)
+        private static void MirrorInPlace(Vector3[] verts, int[] tris)
         {
+            for (int i = 0; i < verts.Length; i++)
+                verts[i].y = -verts[i].y;
 
-            if (mirrorY)
+            // A reflection has determinant -1, so every triangle now faces the other way.
+            // Swapping two indices puts the solid back on the side it was on; without it
+            // the shell is inside-out, and PhysX single-sided triangles mean a drone
+            // passes through the floor instead of landing on it.
+            for (int i = 0; i < tris.Length; i += 3)
             {
-                for (int i = 0; i < verts.Length; i++)
-                    verts[i].y = -verts[i].y;
-
-                // A reflection has determinant -1, so every triangle now faces the other way.
-                // Swapping two indices puts the solid back on the side it was on; without it
-                // the shell is inside-out, and PhysX single-sided triangles mean a drone
-                // passes through the floor instead of landing on it.
-                for (int i = 0; i < tris.Length; i += 3)
-                {
-                    var t = tris[i + 1];
-                    tris[i + 1] = tris[i + 2];
-                    tris[i + 2] = t;
-                }
-                log.AppendLine("  mirrored in Y to match PlyLoader, winding reversed with it");
+                var t = tris[i + 1];
+                tris[i + 1] = tris[i + 2];
+                tris[i + 2] = t;
             }
+        }
 
+        private bool Build(Vector3[] verts, int[] tris, StringBuilder log)
+        {
             m_Mesh = new Mesh { name = gameObject.name };
             // Not optional. A collision mesh runs to hundreds of thousands of vertices and
             // the default 16-bit index buffer silently wraps at 65535.

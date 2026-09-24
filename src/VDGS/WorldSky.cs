@@ -252,6 +252,7 @@ namespace VDGS
 
             // mipChain: the sky is smooth but the horizon is not, and a drone's roll
             // walks it across the screen; without mips that edge crawls.
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             var tex = new Texture2D(2, 2, TextureFormat.RGB24, true);
             if (!tex.LoadImage(bytes))
             {
@@ -265,11 +266,13 @@ namespace VDGS
             tex.wrapModeV = TextureWrapMode.Clamp;
             // RGB24 is 3 bytes a pixel resident; DXT1 is half a byte and the sky has no
             // detail a block compressor can hurt. 2048x1024 goes 6 MB -> 1.4 MB with mips.
+            double decodeMs = sw.Elapsed.TotalMilliseconds;
             tex.Compress(true);
             tex.Apply(true, true);
             s_Textures[key] = tex;
             log?.AppendLine("sky: loaded " + Path.GetFileName(path) + " " + tex.width + "x" + tex.height
-                            + " " + tex.format);
+                            + " " + tex.format + " - decode " + decodeMs.ToString("0") + " ms, compress "
+                            + (sw.Elapsed.TotalMilliseconds - decodeMs).ToString("0") + " ms");
             return tex;
         }
     }
