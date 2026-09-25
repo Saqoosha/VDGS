@@ -61,6 +61,34 @@ spirula sfm auto images -o ws --data-type video --camera-mode single --focal 277
   カメラが約 1,300 台を超える入力では使えない
 - 関門の 2 m と σ 1 cm はこの 1 本で決めた値
 
+### 学習（IMG_5423）
+
+関門で 2 つに分かれたモデルは、どちらも ENU に置かれているので、ID を振り直してつなぐだけで 1 つの COLMAP
+モデルになる（rtk-clapper の `tools/sfm/merge_models.py`。pycolmap 4.2 で読み直して bin に戻す）。学習は R6 と
+同じ 3M / 30k / SH 3 で 20〜23 分。
+
+- **地上の歩き撮りでは `--background-mode sh` を使わない。** 道が黒い穴になった。道の下には DC の明るさ 0.79 の
+  splat があるのに、薄くて（不透明度 0.23、道 1 m² あたり 不透明度×面積 0.07）背景が透ける。曇り空と舗装が同じ
+  灰色なので、下向きの背景色が道を代わりに描いて損失を下げていた（推測）。`random` で 5 倍（0.37）に埋まり、
+  見た目でも埋まった。代わりに 5 m を超える splat が 48 → 1,647 個に増えた（空を埋める分とみている）
+- **人のマスクは `sam track` で作らない。** 「person; hand」の追跡で、並木が丸ごと人として消えた（1 枚あたり
+  平均 60%、全面のフレームもある）。誤検出を追跡のメモリがフレームをまたいで運ぶ。1 枚ずつ独立に検出する
+  `sam extract --mask-mode image` なら平均 1.8% で、人だけが消える
+- **`--mask-mode image` のために抜き直してよい。** 同じ動画を同じ `--skip 10 --adaptive` で抜けば、同じ 1,044 枚が
+  同じ名前で出て、マスクも `masks/<stem>.png` で書かれる（付け替え不要、4.6 分）。手元でビルドした exe には
+  動画のデコーダーが無い（`-DSS_ENABLE_PATENTED=ON` が要る）ので、抽出はリリース版の `D:\spirula\spirula.exe`
+- 語は `"person; backpack"`。`person` だけだと背負ったリュックが残る。枠の端に写った他人の腕は `person` で拾える
+
+```bash
+spirula sam extract video/IMG_5423.MOV -o m2/images --skip 10 --adaptive \
+  --model D:/spirula/models/sam3-q4_0.ggml --text "person; backpack" --mask-mode image
+spirula train --data . --colmap-recon-dir ws_merged/sparse/0 --cap-max 3000000 --num-iterations 30000 \
+  --sh-degree 3 --background-mode random --floater-suppression mild --distraction-robustness mild \
+  --keep-viewer-alive 0
+```
+
+学習は `--data` の下の `masks/` を自動で読む（`load_masks` 既定 1）。出力 PLY は ENU メートルのまま。
+
 ### win4090 でビルドする
 
 作業場は `D:\spirula-src`（上流の clone。手元の fork から変えたファイルを scp で上書きする）。成果物は
