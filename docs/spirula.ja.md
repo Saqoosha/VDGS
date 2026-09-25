@@ -17,6 +17,64 @@ win4090 の `D:\spirula\spirula.exe`（2026.9.20、Windows Vulkan 版の zip を
 - CLI の SAM 3 のモデルは自分で置く：`https://huggingface.co/PABannier/sam3.cpp/resolve/main/sam3-q4_0.ggml`
   （707 MB、Meta の SAM 3 ライセンス）。GUI は同意の画面を出して `%APPDATA%\spirula-studio\models` に落とす
 
+## RTK の位置を SfM の中で効かせる（fork）
+
+**素の spirula は、位置ファイルを最後の 7 パラメータの当てはめ（`fixGauge()`）にしか使わない。** 登録も統合も
+バンドル調整も位置を読まないので、`--metric-positions` に cm 級の RTK を渡しても、SfM の貼り間違いと曲がりは
+そのまま残る。iPhone の歩き撮り IMG_5423（rtk-clapper で全フレームに RTK、FIX 76%）で両方起きた：
+
+- **285 秒以降の約 60 m が、似た場所へ 100 m ずれて貼られた。** 統合ではなく逐次の登録で起きている（ログは
+  モデル 1 個・統合 0）。PnP が似た場所の点に登録し、あとの画像がそれに続いた。当てはめはこの区間を外れ値として
+  黙って外すので、報告の RMS 0.89 m には出てこない
+- **残りも 0.1〜2 m 曲がる。** 再投影誤差は 1.1 px で健全に見える。拘束を足しても再投影誤差は変わらなかったので、
+  画像からよく決まらない方向に誤差がたまっていただけ
+
+fork のブランチ `rtk-position-prior`（`~/repos/OSS/spirula-studio`、上流 `6b70e20` から）で 2 つ足した：
+
+| フラグ | 効き目 |
+|---|---|
+| `--position-gate M` | PnP で置いたカメラが RTK の位置から M m 以上離れたら登録を拒む（`Mapper::farFromPrior`）。統合でカメラの 5% 超が外れる統合も拒む（`priorGuarded`） |
+| `--position-sigma S` | 全体のバンドル調整ごとにモデルを RTK に当てはめ、FIX のカメラ中心を σ S m で引き寄せる。**項は CPU のソルバーにしか無い**。拘束があれば `runGlobalBA` が自動で CPU に回す |
+
+どちらも `--metric-positions` のファイルを読む。**渡すのは FIX だけ**（FLOAT は hAcc 3 cm と申告して 1.3 m
+ずれていた区間がある。rtk-clapper の AGENTS.md）。
+
+```bash
+spirula sfm auto images -o ws --data-type video --camera-mode single --focal 2773 \
+  --metric-positions positions.txt --position-gate 2 --position-sigma 0.01 \
+  --prefilter-sequential --audit
+```
+
+`--focal 2773` は iPhone Air の 26 mm 換算を 3840 px 幅に直した初期値。
+
+| IMG_5423（FIX の SfM − RTK） | 素 | 関門だけ | 関門＋σ 5 cm | 関門＋σ 1 cm |
+|---|---|---|---|---|
+| 0〜284 秒（35 秒ごとの中央値） | 0.1〜2 m | 0.2〜2.3 m | 0.10〜0.43 m | **0.05〜0.10 m** |
+| 285〜348 秒 | 約 100 m | 0.04〜0.06 m | 0.03〜0.05 m | 0.03〜0.05 m |
+| 所要時間（1,044 枚） | 4 分 | 3 分 54 秒 | 5 分 52 秒 | 5 分 |
+
+- **関門だけでは曲がりは直らず、逆に曲がりで外れた正しい画像まで弾く**（2 m で 35 枚）。σ を足すと 5〜24 枚に減る
+- **σ 5 cm では押し切れず、1 cm で押し切れた。** 1 cm でも再投影誤差は 1.15 px のまま
+- 関門で弾かれた区間は別のモデルになる。`fixGauge` がモデルごとに RTK に合わせるので重ねれば 1 つに見えるが、
+  **1 つのモデルにはなっていない**（IMG_5423 は 0〜284 秒と 285〜348 秒の 2 つ）
+- **CG の経路には項が無く、そこに入るとエラーで止まる。** CPU ソルバーは n_dim が 8,192 を超えると CG を選ぶので、
+  カメラが約 1,300 台を超える入力では使えない
+- 関門の 2 m と σ 1 cm はこの 1 本で決めた値
+
+### win4090 でビルドする
+
+作業場は `D:\spirula-src`（上流の clone。手元の fork から変えたファイルを scp で上書きする）。成果物は
+`D:\spirula-src\build_vulkan\spirula.exe`。素のビルドは 1,157 ステップで十数分、差分なら数十ステップ。
+
+- **Vulkan SDK が要る**（`winget install KhronosGroup.VulkanSDK`、1.4.357.0 を入れた）。VS 2022 は入っていた
+- **`build_develop.bat` を SSH から直接呼ばない。** PATH が 8,191 文字を超えていて、`cmd` が `findstr` すら
+  見つけられない（`'findstr' is not recognized`）。短い PATH と `VULKAN_SDK` をバッチの先頭で組み直した
+  `D:\spirula-src\vdgs-build.bat` を、スケジュールタスク `vdgs-spirula-build` で走らせる。ログは `build.log`、
+  最終行に `exit N`
+- `-DSS_BUILD_GUI=OFF` で GUI を外す。コメントの長さの lint（`tools/check_comment_length.py`、1 か所 3 行まで）は
+  ビルドの前に手元で通しておく
+- SfM も長いものはスケジュールタスク `vdgs-spirula-sfm`（`D:\IMG_5423-spirula\run-prior*.bat`）で回した
+
 ## R6：DJI Avata 2 の映像（採用）
 
 ```bash

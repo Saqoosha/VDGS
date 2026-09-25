@@ -382,6 +382,8 @@ R6（Avata 2）は採用、R5 の 360（Insta360 X3）は不採用。
 - **同じ印刷のアーチへの貼り間違いを `fold-split` が切った**（COLMAP は 26 枚を別のアーチに貼っていた）
 - **`sam track` は連番（`frame_00000.png`）で書く。** stem に付け替えないと、マスクが黙って外れる
 - 不透明度が柔らかい（中央値 0.11、AirVis は 0.98）。浮遊物は少ないが、色は AirVis 版の編集を移して合わせた
+- **`--metric-positions` は最後の相似変換にしか効かない。** RTK を SfM の中で効かせるのは fork の
+  `--position-gate` / `--position-sigma`（iPhone の歩き撮りで 100 m の貼り間違いが消え、曲がりが 5〜10 cm に）
 
 ### 屋外キャプチャの掃除とコリジョン（全文は docs/cleanup.ja.md）
 
