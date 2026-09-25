@@ -89,6 +89,19 @@ spirula train --data . --colmap-recon-dir ws_merged/sparse/0 --cap-max 3000000 -
 
 学習は `--data` の下の `masks/` を自動で読む（`load_masks` 既定 1）。出力 PLY は ENU メートルのまま。
 
+**RTK の有無で同じ設定の学習を比べた（素の spirula の SfM と、関門＋σ 1 cm）。** 学習画像の PSNR は 20.61 対 19.97
+（差 0.64 dB、標準誤差の約 3 倍）、SSIM は 0.537 対 0.501 と小さな差だが、学習に使っていない視点から SuperSplat で
+見ると大きく違う。**崩れるのは、貼り間違えた帰りのフレームにしか写っていない景色**（330 秒の前向き＝南のビル）で、
+RTK なしでは本来の場所にその向きの画像が 1 枚も無い。行きにも通った 300 秒の振り返りは両方とも出ている。曲がって
+いただけの前半（40〜240 秒）は差が小さいが、目で見て RTK ありのほうが良い（道と水路の縁がはっきりする、黒い筋が
+少ない）。同じ ENU のカメラでも、240 秒の景色は RTK なしの版で少しずれて見える。最後の 1 回の当てはめでは
+消えない曲がり（そのあたりで 0.5〜2 m）が、そのまま見えている。比較画像は手元の `~/Downloads/IMG_5423-3dgs/compare_7views.jpg`。
+
+同じ視点で撮る方法は docs/sky.ja.md の SuperSplat の節（`editor-standalone?load=` と `scene.camera.setPose`）。
+ENU の PLY に回転 90, 0, 180 を掛けたとき、SuperSplat の座標は **(−E, U, N)**。splat の要素は `scene.elements` の
+`numSplats` を持つもので、`entity.setLocalEulerAngles(90, 0, 180)` で掛かる（パネルの表示は更新されない）。
+格子は `planes` を持つ要素の `visible = false`、パネルは canvas 以外の要素を `visibility: hidden` で消す。
+
 ### win4090 でビルドする
 
 作業場は `D:\spirula-src`（上流の clone。手元の fork から変えたファイルを scp で上書きする）。成果物は
