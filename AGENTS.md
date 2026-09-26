@@ -385,7 +385,8 @@ R6（Avata 2）は採用、R5 の 360（Insta360 X3）は不採用。
   灰色の道を描いて道が穴になり、`sam track` は誤検出を運んで並木を丸ごと消した
 - 不透明度が柔らかい（中央値 0.11、AirVis は 0.98）。浮遊物は少ないが、色は AirVis 版の編集を移して合わせた
 - **`--metric-positions` は最後の相似変換にしか効かない。** RTK を SfM の中で効かせるのは fork の
-  `--position-gate` / `--position-sigma`（iPhone の歩き撮りで 100 m の貼り間違いが消え、曲がりが 5〜10 cm に）
+  `--position-gate` / `--position-sigma`（iPhone の歩き撮りで 100 m の貼り間違いが消え、曲がりが 5〜10 cm に）。
+  細長い経路は「一直線」として拘束ごと断られるので `--metric-min-perp 0.02` を付ける。位置は PPK の FIX を渡す
 
 ### 屋外キャプチャの掃除とコリジョン（全文は docs/cleanup.ja.md）
 
