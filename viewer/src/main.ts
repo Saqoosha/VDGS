@@ -8,9 +8,19 @@ type ScanCam = { name: string; clip: string; t: number; pos: number[]; quat: num
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T
 // Data lives next to the page: public/data (a symlink to build/dvr/hdz_0067) under the dev
-// server, and <base>/data/ on vdgs.saqoo.sh, where the Worker streams it from R2.
-const DATA = import.meta.env.BASE_URL + 'data/'
+// server, and <base>/data/ on vdgs.saqoo.sh, where the Worker streams it from R2. ?data=<dir>
+// opens another flight's folder under public/ instead; ?poses= and ?scene= pick its files.
+const QS = new URLSearchParams(location.search)
+const DATA = import.meta.env.BASE_URL + (QS.get('data') ?? 'data') + '/'
+// A file named in the URL that the page's own list does not offer is added to it, so another
+// flight's pose set or scan opens without editing index.html.
+function pickFromUrl(sel: HTMLSelectElement, key: string) {
+  const v = QS.get(key); if (!v) return
+  if (!Array.from(sel.options).some(o => o.value === v)) sel.add(new Option(v, v), 0)
+  sel.value = v
+}
 const canvas = $<HTMLCanvasElement>('c'), video = $<HTMLVideoElement>('video'), scanvideo = $<HTMLVideoElement>('scanvideo'), status = $('status')
+video.src = DATA + 'dvr_pinhole.mp4'   // set here, not in index.html, so ?data= brings its own flight's video
 const app = new pc.Application(canvas, { mouse: new pc.Mouse(canvas), keyboard: new pc.Keyboard(window), graphicsDeviceOptions: { antialias: false } })
 app.setCanvasFillMode(pc.FILLMODE_NONE)
 app.setCanvasResolution(pc.RESOLUTION_AUTO)
@@ -140,7 +150,7 @@ const splat = new pc.Entity('scene')
 // spirula is a separate reconstruction (spirula-studio, 2.99M splats) in the same web frame;
 // the DVR poses were solved against the fix model, so its overlay is the one to trust.
 const sceneSel = $<HTMLSelectElement>('scene')
-sceneSel.value = new URLSearchParams(location.search).get('scene') ?? sceneSel.value
+pickFromUrl(sceneSel, 'scene')
 let asset: pc.Asset | null = null
 function loadScene(name: string) {
   if (asset) { splat.removeComponent('gsplat'); app.assets.remove(asset); asset.unload(); asset = null }
@@ -164,7 +174,8 @@ async function loadPoses(name: string) {
 }
 fetch(DATA + 'scan_cameras.json').then(r => r.json()).then(j => { scan = j.cameras; gates = j.gates })
 fetch(DATA + 'dvr_pinhole.mp4.json').then(r => r.json()).then(j => { DVR.fx = j.fx; DVR.w = j.width; DVR.h = j.height; DVR.t0 = j.t0; DVR.fps = j.fps })
-loadPoses((document.getElementById('poseset') as HTMLSelectElement).value)   // the selected option in index.html
+pickFromUrl(document.getElementById('poseset') as HTMLSelectElement, 'poses')
+loadPoses((document.getElementById('poseset') as HTMLSelectElement).value)   // the selected option in index.html, or ?poses=
 
 // --- ui
 const ui = { follow: $<HTMLInputElement>('follow'), compare: $<HTMLInputElement>('compare'), wipe: $<HTMLInputElement>('wipe'),
@@ -225,18 +236,19 @@ function lmRefresh() {
 // The dev server takes marks through /api/marks and writes marks.json; the published site has
 // no writer, so there the page shows the published marks.json, keeps new marks in the browser
 // (localStorage) and offers them as a download.
-let marksApi = true
+let marksApi = !QS.get('data')   // the dev API writes public/data/marks.json only; another flight's marks are its own
+const MARKS_KEY = QS.get('data') ? 'marks:' + QS.get('data') : 'marks'
 async function marksLoad() {
-  try { const r = await fetch('/api/marks'); if (!r.ok) throw 0; marks = await r.json() }
+  try { if (!marksApi) throw 0; const r = await fetch('/api/marks'); if (!r.ok) throw 0; marks = await r.json() }
   catch { marksApi = false
     try { marks = await fetch(DATA + 'marks.json').then(r => r.json()) } catch { }
-    try { const l = localStorage.getItem('marks'); if (l) marks = JSON.parse(l) } catch { }
+    try { const l = localStorage.getItem(MARKS_KEY); if (l) marks = JSON.parse(l) } catch { }
     mk.info.textContent = 'read-only site: new marks stay in this browser (download to keep)' }
   lmRefresh()
 }
 async function marksSave() {
   if (marksApi) { await fetch('/api/marks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(marks, null, 1) }); return }
-  try { localStorage.setItem('marks', JSON.stringify(marks)) } catch { }
+  try { localStorage.setItem(MARKS_KEY, JSON.stringify(marks)) } catch { }
 }
 $<HTMLButtonElement>('dlmarks').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(marks, null, 1)], { type: 'application/json' })); a.download = 'marks.json'; a.click() }
 scanvideo.onerror = () => { scanvideo.hidden = true; video.hidden = false }   // the scan's proxy videos are not published
@@ -363,7 +375,9 @@ new ResizeObserver(layout).observe(view); window.addEventListener('resize', layo
 // --- per frame
 // path colour = how the frame's pose was obtained (src): COLMAP-registered, LK gap fill, interpolated, photometrically refined
 const cSrc: Record<string, pc.Color> = { kept: new pc.Color(0.3, 1, 0.4), lk: new pc.Color(1, 0.6, 0.15), interp: new pc.Color(1, 0.3, 0.85), refined: new pc.Color(0.3, 0.85, 1), ground: new pc.Color(0.55, 0.55, 0.55), manual: new pc.Color(1, 0.88, 0.3),
-  cpr: new pc.Color(0.3, 0.85, 1), 'cpr-rot': new pc.Color(1, 0.6, 0.15), 'cpr-fill': new pc.Color(1, 0.3, 0.85) }   // CPR: position and rotation measured / rotation only / rotation interpolated
+  cpr: new pc.Color(0.3, 0.85, 1), 'cpr-rot': new pc.Color(1, 0.6, 0.15), 'cpr-fill': new pc.Color(1, 0.3, 0.85),   // CPR: position and rotation measured / rotation only / rotation interpolated
+  ba: new pc.Color(0.3, 0.85, 1), 'ba-fill': new pc.Color(1, 0.3, 0.85),   // cpr_ba.py: on the frame's own points / on the motion prior alone
+  takeoff: new pc.Color(0.55, 0.55, 0.55) }   // takeoff.py: the climb off the pad, fitted from rest
 const cPath = cSrc.interp, cScan = new pc.Color(0.2, 0.75, 1), cNow = new pc.Color(1, 1, 0.3), cLm = new pc.Color(1, 0.88, 0.3)
 const pathPos: pc.Vec3[] = [], pathCol: pc.Color[] = []
 function frustum(pos: number[], quat: number[], hfovDeg: number, aspect: number, len: number, col: pc.Color, out: pc.Vec3[], cols: pc.Color[]) {
@@ -372,7 +386,7 @@ function frustum(pos: number[], quat: number[], hfovDeg: number, aspect: number,
   const corners = [[-x, -y, len], [x, -y, len], [x, y, len], [-x, y, len]].map(c => r.transformVector(new pc.Vec3(c[0], c[1], c[2]), new pc.Vec3()).add(o))
   for (let k = 0; k < 4; k++) { out.push(o, corners[k], corners[k], corners[(k + 1) % 4]); cols.push(col, col, col, col) }
 }
-const SRC_NAME: Record<string, string> = { kept: 'colmap', lk: 'lk', interp: 'interp', refined: 'refined', ground: 'ground', manual: 'manual', cpr: 'cpr', 'cpr-rot': 'cpr rot', 'cpr-fill': 'cpr fill' }
+const SRC_NAME: Record<string, string> = { kept: 'colmap', lk: 'lk', interp: 'interp', refined: 'refined', ground: 'ground', manual: 'manual', cpr: 'cpr', 'cpr-rot': 'cpr rot', 'cpr-fill': 'cpr fill', ba: 'ba', 'ba-fill': 'ba fill', takeoff: 'takeoff' }
 let lastPoses = poses
 app.on('update', () => {
   const i = Math.max(0, Math.min(poses.length - 1, frameOf(video.currentTime)))
