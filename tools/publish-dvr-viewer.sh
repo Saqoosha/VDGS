@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Publish the DVR viewer for one capture to https://vdgs.saqoo.sh/dvr/<name>/.
 #   tools/publish-dvr-viewer.sh <name> <data dir>      e.g. jdl-2026-r6 build/dvr/hdz_0067
+#   tools/publish-dvr-viewer.sh <name> <flights.json>  several flights, e.g. fdf-2026-r6 viewer/public/flights.json:
+#     each flight's folder (viewer/public/<data>) goes to dvr/<name>/data/<data>/ - the files its index.json lists, the
+#     video, scan_cameras.json, sky.jpg and its scene - and the page opens the first one when the URL names none.
 # The page (viewer/, built with base /dvr/<name>/) goes into the site as a static asset and
 # is kept in build/dvr-viewer/<name> so make-catalog.sh can put it back; the data (scene .sog,
 # the pinhole video and its json, the pose sets, scan_cameras.json, marks.json) goes to R2 under
@@ -57,18 +60,41 @@ say "checking what else the deploy would change"
 check_the_rest || exit 1
 
 say "build the page"
-( cd "$ROOT/viewer" && VITE_BASE="/dvr/$NAME/" bun run build )
+MULTI=; [[ "$DATA" == *flights.json ]] && MULTI=1
+DEFAULT=; [ -n "$MULTI" ] && DEFAULT="data/$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["flights"][0]["data"])' "$DATA")"
+( cd "$ROOT/viewer" && VITE_BASE="/dvr/$NAME/" VITE_DEFAULT_DATA="$DEFAULT" bun run build )
 rm -rf "$KEEP"; mkdir -p "$KEEP"; cp -R "$ROOT/viewer/dist/." "$KEEP/"
+# the flight menu: the same list with every folder moved under data/, where the Worker serves R2 from
+[ -n "$MULTI" ] && python3 - "$DATA" "$KEEP/flights.json" <<'PY'
+import json, sys
+j = json.load(open(sys.argv[1]))
+for f in j["flights"]: f["data"] = "data/" + f["data"]
+json.dump(j, open(sys.argv[2], "w"), indent=1)
+PY
 rm -rf "$SITE/dvr/$NAME"; mkdir -p "$SITE/dvr"; cp -R "$KEEP" "$SITE/dvr/$NAME"
 
 say "data -> r2:$BUCKET/dvr/$NAME/data/"
 # A folder of its own: the whole of it is uploaded, and $TMP also holds the check's bucket
 # listing, which would otherwise be published as dvr/$NAME/data/dvr.json.
 UP="$TMP/data"
-mkdir -p "$UP/scene"
-for f in dvr_pinhole.mp4 dvr_pinhole.mp4.json poses60_refined15.json poses60_init15.json poses60_refined10.json poses60_cpr2.json poses60_cpr2_raw.json poses60_cpr_match.json scan_cameras.json marks.json sky.jpg; do
-  cp "$DATA/$f" "$UP/$f"; done
-cp "$DATA/scene/JDL-2026-R6-fix-web.sog" "$DATA/scene/JDL-2026-R6-fix-web-edit.sog" "$DATA/scene/JDL-2026-R6-spirula-web-edit.sog" "$UP/scene/"
+if [ -n "$MULTI" ]; then
+  PUB="$(dirname "$DATA")"
+  for FL in $(python3 -c 'import json,sys;print(" ".join(f["data"] for f in json.load(open(sys.argv[1]))["flights"]))' "$DATA"); do
+    SRC="$PUB/$FL"; DST="$UP/$FL"; mkdir -p "$DST/scene"
+    # the pose sets its index.json offers and the scene it opens; -L copies through the dev symlinks
+    for f in index.json dvr_pinhole.mp4 dvr_pinhole.mp4.json scan_cameras.json \
+             $(python3 -c 'import json,sys;print(" ".join(p["file"] for p in json.load(open(sys.argv[1]))["poses"]))' "$SRC/index.json"); do
+      cp -L "$SRC/$f" "$DST/$f"; done
+    [ -e "$SRC/sky.jpg" ] && cp -L "$SRC/sky.jpg" "$DST/sky.jpg"
+    SCN="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["scene"])' "$SRC/index.json")"
+    cp -L "$SRC/scene/$SCN.sog" "$DST/scene/"
+  done
+else
+  mkdir -p "$UP/scene"
+  for f in dvr_pinhole.mp4 dvr_pinhole.mp4.json poses60_refined15.json poses60_init15.json poses60_refined10.json poses60_cpr2.json poses60_cpr2_raw.json poses60_cpr_match.json scan_cameras.json marks.json sky.jpg; do
+    cp "$DATA/$f" "$UP/$f"; done
+  cp "$DATA/scene/JDL-2026-R6-fix-web.sog" "$DATA/scene/JDL-2026-R6-fix-web-edit.sog" "$DATA/scene/JDL-2026-R6-spirula-web-edit.sog" "$UP/scene/"
+fi
 du -sh "$UP"
 rclone --s3-no-check-bucket copy --checksum --progress "$UP" "$REMOTE:$BUCKET/dvr/$NAME/data/"
 

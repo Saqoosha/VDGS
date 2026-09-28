@@ -11,7 +11,9 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 // server, and <base>/data/ on vdgs.saqoo.sh, where the Worker streams it from R2. ?data=<dir>
 // opens another flight's folder under public/ instead; ?poses= and ?scene= pick its files.
 const QS = new URLSearchParams(location.search)
-const DATA = import.meta.env.BASE_URL + (QS.get('data') ?? 'data') + '/'
+// VITE_DEFAULT_DATA: the folder a page with several flights opens when the URL names none (publish-dvr-viewer.sh sets it)
+const DATA_DIR = QS.get('data') ?? import.meta.env.VITE_DEFAULT_DATA ?? 'data'
+const DATA = import.meta.env.BASE_URL + DATA_DIR + '/'
 // A file named in the URL that the page's own list does not offer is added to it, so another
 // flight's pose set or scan opens without editing index.html.
 function pickFromUrl(sel: HTMLSelectElement, key: string) {
@@ -193,7 +195,7 @@ async function setupFlight() {
   try {
     const fl = await fetch(import.meta.env.BASE_URL + 'flights.json').then(r => { if (!r.ok) throw 0; return r.json() })
     fsel.replaceChildren(...fl.flights.map((f: { data: string; label: string }) => new Option(f.label, f.data)))
-    fsel.value = QS.get('data') ?? 'data'
+    fsel.value = DATA_DIR
     fsel.onchange = () => { const q = new URLSearchParams(location.search); q.set('data', fsel.value); q.delete('poses'); q.delete('scene'); location.search = q.toString() }
     fsel.parentElement!.hidden = false
   } catch { }
