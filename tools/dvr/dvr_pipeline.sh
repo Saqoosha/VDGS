@@ -25,7 +25,8 @@ cat > "$OUT/run.sh" <<EOF
 #!/bin/bash
 export CUDA_HOME=/usr/local/cuda-12.9 PATH=/usr/local/cuda-12.9/bin:\$PATH
 cd $WSL
-{ ~/mastenv/bin/python cpr_track.py $PLY dvr_pinhole.mp4 $(basename "$SCAN") track > track.log 2>&1 &&
+# round 1 draws every splat (CULL=0); culling is refine_flight.sh's round 2 - the d07m recipe (docs/dvr-localization.ja.md)
+{ CULL=0 ~/mastenv/bin/python cpr_track.py $PLY dvr_pinhole.mp4 $(basename "$SCAN") track > track.log 2>&1 &&
   CAM=dvr_pinhole.mp4.json ~/mastenv/bin/python cpr_ba.py track/track_init.json track/track.jsonl:track/dump poses60_ba.json > ba.log 2>&1 &&
   touch done; } || touch failed
 EOF

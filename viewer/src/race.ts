@@ -29,7 +29,9 @@ function loadScene(name: string) {
   app.assets.load(a)
 }
 
-const race: Race = await fetch(DATA + 'race.json').then(r => r.json())
+// a failed load says so on the page (it used to sit on 'loading…' with the reason only in the console)
+const race: Race = await fetch(DATA + 'race.json').then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json() })
+  .catch((e: Error) => { status.textContent = `could not load ${DATA}race.json: ${e.message}`; throw e })
 { // the track's length: the closed average line of KANATA's three laps
   const tr = race.track ?? []; let len = 0; for (let i = 0; i < tr.length; i++) { const a = tr[i], b = tr[(i + 1) % tr.length]; len += Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) }
   const info = document.createElement('small'); info.textContent = `track ${len.toFixed(0)} m · ${race.laps} laps`
@@ -117,11 +119,12 @@ function ribbon(mesh: pc.Mesh, pts: pc.Vec3[], c: pc.Color, alpha: (k: number) =
 }
 const trails = drones.map(() => ribbonMesh())
 function updateTrail(mesh: pc.Mesh, p: Pilot, tc: number, c: pc.Color, eye: pc.Vec3, pxWorld: number) {
-  const n = Math.round(TRAIL * FPS), pts: pc.Vec3[] = []
-  for (let k = 0; k <= n && tc - k / FPS >= 0; k++) pts.push(at(p, tc - k / FPS))
-  ribbon(mesh, pts, c, k => 1 - k / Math.max(1, pts.length - 1), eye, pxWorld, TRAIL_PX)
+  // the last TRAIL seconds of the path up to its end, faded by age: after a crash it drains away instead of staying
+  const n = Math.round(TRAIL * FPS), pts: pc.Vec3[] = [], age: number[] = []
+  for (let k = 0; k <= n && tc - k / FPS >= 0; k++) { const s = tc - k / FPS; if (s > p.end) continue; pts.push(at(p, s)); age.push(k / n) }
+  ribbon(mesh, pts, c, k => 1 - age[k], eye, pxWorld, TRAIL_PX)
 }
-// the track: KANATA's three laps averaged (each lap matched to the line by nearest point; they sit 0.5 m from it, p50)
+// the track: KANATA's three laps averaged (tools/dvr/make_race.py)
 // resampled every 0.25 m for the dashes (1.25 m on / 0.75 m off); race.json's line is already smoothed (0.5 m), and
 // smoothing it again here over 3 m flattened the ladder's spiral (loops of 1.8 m radius)
 const trackPts = (() => {
@@ -382,7 +385,7 @@ app.on('update', (dt: number) => {
   for (const [n, d] of drones.entries()) {
     const tc = Math.min(t, d.p.end), now = at(d.p, tc), gone = t > d.p.end
     d.e.setPosition(now); d.m.emissive = gone ? grey : d.col; d.m.update()
-    updateTrail(trails[n], d.p, tc, gone ? grey : d.col, eye, pxWorld)
+    updateTrail(trails[n], d.p, t, gone ? grey : d.col, eye, pxWorld)
     const s_ = cam.camera!.worldToScreen(now, tmpA), behind = cam.forward.dot(tmpB.copy(now).sub(eye)) < 0
     d.tag.style.display = behind ? 'none' : ''; d.tag.style.left = s_.x + 'px'; d.tag.style.top = s_.y + 'px'; d.tag.style.background = gone ? '#8c9199' : d.p.color
     const done = d.p.lap_ends.filter(x => x <= t).length

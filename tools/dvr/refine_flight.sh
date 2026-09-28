@@ -1,11 +1,11 @@
 #!/bin/bash
 # Overnight refinement of one DVR already tracked by dvr_pipeline.sh, on win4090 (WSL, mastenv). All steps local here:
 #   1 cpr_ba.py (distance quotas) + takeoff.py -> poses60_r1.json, eval_align.py -> align_r1.json
-#   2 cpr_rematch.py at r1 (round 2 matching) + cpr_ba.py over both rounds + takeoff.py -> poses60_r2.json, align_r2.json
+#   2 cpr_rematch.py at r1 (round 2 matching, culled, on the DVR-coloured scene; both rounds are measured on it) + cpr_ba.py over both rounds + takeoff.py -> poses60_r2.json, align_r2.json
 #   3 keep the round with fewer frames whose far points (>15 m) sit over 10 px off -> poses60.json, reason in choice.txt
 # usage: refine_flight.sh <flight dir>     tools in /mnt/c/Users/saqoosha/VDGS/tools
 set -uo pipefail
-D="$1"; TL=/mnt/c/Users/saqoosha/VDGS/tools; PLY=/mnt/c/Users/saqoosha/VDGS/scenes/FDF-2026-R6b-spirula-web.ply; PY=~/mastenv/bin/python
+D="$1"; TL=/mnt/c/Users/saqoosha/VDGS/tools; PLY=/mnt/c/Users/saqoosha/VDGS/scenes/FDF-2026-R6b-spirula-web-dvr2.ply; PY=~/mastenv/bin/python
 export CUDA_HOME=/usr/local/cuda-12.9 PATH=/usr/local/cuda-12.9/bin:$PATH CAM=dvr_pinhole.mp4.json
 cd "$D" || exit 1; rm -f align_r1.json align_r2.json   # a failed eval must not leave the last run's to be judged
 log() { echo "[$(date +%H:%M:%S)] $*" | tee -a refine.log; }

@@ -352,13 +352,15 @@ COLMAP のカメラは x 軸 180° を掛けて PlayCanvas のカメラにする
   タイムライン、順位と公式結果、右に 3 人の DVR（中継の 4 分割を `-ss 255 -t 75` で切って 480×360、姿勢と同じ 2,250 フレーム）。材料は
   `build/dvr/race-sf-semifinal/race.json`。**ゴールはスタート台近くのオレンジのアーチ**（3DGS のオレンジの splat で KNT が毎周通る所。中心
   (-4.74, 5.78)）。**スタートは映像の 2.553 s**（KNT の 3 周のゴールから公式 50.676 を引いた）。これで SENA 65.819（公式 1:05.834）、
-  SAQOOSHA 24.368（24.400）と 1 フレーム以内で合う。経路は各飛行の `poses60_m.json`。公開は `flights.json` の `races` に載せて
+  SAQOOSHA 24.368（24.400）と 1 フレーム以内で合う。経路は各飛行の `poses60_m.json`。race.json は `tools/dvr/make_race.py data/dvr/fdf-2026-r6/race-sf-semifinal/race_spec.json build/dvr <out>`
+  で作る（周回・スタート・ホールショット・トラックの線。いまの race.json と一致する）。公開は `flights.json` の `races` に載せて
   `publish-dvr-viewer.sh`（`/dvr/fdf-2026-r6/race.html`）
 - 印（`mark`）は `/api/marks?data=<flight>` でその飛行のフォルダの `marks.json` に保存される
 
 ## 残っているもの
 
-- d05・e02 はまだ d07m の組み合わせで取り直していない（準決勝 3 本と d07 は済み）
+- d05・e02 はまだ d07m の組み合わせで取り直していない（準決勝 3 本と d07 は済み）。通しの既定はこの組み合わせに合わせた
+  （`dvr_pipeline.sh` の 1 周目は `CULL=0`、`refine_flight.sh` の 2 周目と評価は dvr2 のシーン）
 
 - **KNT #1352〜#1364 の位置**（上の「まだ解けない形」）。ビューアの `mark` で目印を打つのが次の手。手前の青い円盤とボールがスキャンに
   あるかは未確認
