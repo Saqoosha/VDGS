@@ -1,5 +1,5 @@
 """Bundle adjustment of every DVR frame's pose against the fixed 3DGS map: the per-frame CPR correspondences
-(DVR pixel <-> map point, saved by cpr_match.py DUMP=) as reprojection residuals, plus a motion prior on linear
+(DVR pixel <-> map point, dumped by cpr_track.py / cpr_rematch.py / gap_track.py) as reprojection residuals, plus a motion prior on linear
 and angular acceleration and on position jerk between neighbouring frames. One Gauss-Newton solve over all frames at once, so a frame
 whose own points leave its position loose (fast turns: blur removes the near field) is pinned by what its
 neighbours measured, not by a smoother. Frames whose own points disagree with the solved track (Mahalanobis in
@@ -181,7 +181,7 @@ def solve(active, iters=30):
                         M = np.zeros((6, 6)); M[3:, 3:] = cj * cj * co[a_] * co[c_] * np.eye(3); add(k - 1 + a_, k - 1 + c_, M)
         A = sp.csc_matrix((vals, (rows, cols)), shape=(6 * n, 6 * n)) + sp.identity(6 * n) * 1e-6
         x = spl.spsolve(A, b).reshape(n, 6)
-        # a stretch whose positions are all weighted to ~0 is held only by the acceleration prior: the step can be
+        # a stretch whose positions are all weighted to ~0 is held only by the motion prior: the step can be
         # tens of metres and the rotation linearisation breaks. Cap each frame's step and iterate instead.
         x[:, :3] *= np.minimum(1, 0.1 / np.maximum(np.linalg.norm(x[:, :3], axis=1), 1e-12))[:, None]
         x[:, 3:] *= np.minimum(1, 1.0 / np.maximum(np.linalg.norm(x[:, 3:], axis=1), 1e-12))[:, None]
