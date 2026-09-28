@@ -5,6 +5,7 @@ usage (mastenv, with gsplat): frame_compare.py scene.ply dvr_pinhole.mp4 poses.j
 import json, sys, os, numpy as np, torch, cv2
 from plyfile import PlyData
 from gsplat import rasterization
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); from frustum import rasterize_culled   # centre-in-view culling, as PlayCanvas
 from scipy.spatial.transform import Rotation as Rot
 dev = "cuda"; ply, video, poses, out = sys.argv[1:5]; frames = [int(x) for x in sys.argv[5:]]; os.makedirs(out, exist_ok=True)
 # NEAR (m): splats whose centre is closer than this are not drawn. Flying 0.5 m over the grass, the scan's large thin
@@ -25,7 +26,7 @@ for i in frames:
     R = Rot.from_quat(P[i]["quat"]).as_matrix(); c = np.array(P[i]["pos"])
     vm = np.eye(4); vm[:3, :3] = R.T; vm[:3, 3] = -R.T @ c
     with torch.no_grad():
-        o, a, _ = rasterization(means, quats, scales, opac, colors, T(vm)[None], K[None], W, H, sh_degree=1, near_plane=NEAR)
+        o, a, _ = rasterize_culled(means, quats, scales, opac, colors, T(vm)[None], K[None], W, H, sh_degree=1, near_plane=NEAR)
     rgb = (o[0, ..., :3].clamp(0, 1) * 255).byte().cpu().numpy()[..., ::-1]; al = a[0, ..., 0].cpu().numpy()
     alv = cv2.applyColorMap((np.clip(al, 0, 1) * 255).astype(np.uint8), cv2.COLORMAP_VIRIDIS); alv[al > 0.9] = (255, 255, 255)
     blend = cv2.addWeighted(dvr, 0.5, rgb, 0.5, 0)

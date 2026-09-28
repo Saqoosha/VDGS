@@ -2,6 +2,7 @@
 // (Avata 2 scan frames, HDZero DVR frames), and the two videos, so a render from any camera
 // can be laid over the frame it was solved from. Frame: x east, y up, z south, metres.
 import * as pc from 'playcanvas'
+import { bakeSky } from './sky'
 
 type Pose = { i: number; t: number; pos: number[]; quat: number[]; src: string } | null
 type ScanCam = { name: string; clip: string; t: number; pos: number[]; quat: number[] }
@@ -37,59 +38,10 @@ app.scene.ambientLight = new pc.Color(0.2, 0.2, 0.2)
 // It lives with the capture's data, not with the page: the sky is this capture's own, and the
 // page's public/ is not copied into the build (public/data is the dev symlink to the data).
 const SKY_URL = DATA + 'sky.jpg'
-// +x -x +y -y +z -z, in the GL cubemap convention (v runs down each face).
-const FACE: ((u: number, v: number) => number[])[] = [
-  (u, v) => [1, -v, -u], (u, v) => [-1, -v, u],
-  (u, v) => [u, 1, v], (u, v) => [u, -1, -v],
-  (u, v) => [u, -v, 1], (u, v) => [-u, -v, -1],
-]
 // The image is read as the usual equirect layout: the top row is straight up, and u = 0.5 looks
 // along -z. Which compass bearing that lands on depends on the photograph, so skyboxRotation
 // turns the whole dome; ?skyturn=<degrees> is there to find the value against the DVR frame.
 const SKY_TURN = Number(new URLSearchParams(location.search).get('skyturn') ?? 0)
-function bakeSky(img: HTMLImageElement, size = 512) {
-  const c = document.createElement('canvas')
-  c.width = img.naturalWidth; c.height = img.naturalHeight
-  const ctx = c.getContext('2d', { willReadFrequently: true })!
-  ctx.drawImage(img, 0, 0)
-  const src = ctx.getImageData(0, 0, c.width, c.height).data, sw = c.width, sh = c.height
-  const levels: Uint8Array[] = []
-  for (let f = 0; f < 6; f++) {
-    const px = new Uint8Array(size * size * 4)
-    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
-      const d = FACE[f](2 * (x + 0.5) / size - 1, 2 * (y + 0.5) / size - 1)
-      // PlayCanvas samples the skybox with `dir.x *= -1.0` (skyboxPS, the SKY_CUBEMAP branch):
-      // the cubemap face layout is the left-handed D3D one, and the engine flips x to meet it.
-      // So the world direction landing on this texel is the face direction with x negated -
-      // bake it the other way and the sky comes out mirrored east for west, which a rotation
-      // cannot undo. Caught by the sun sitting on the wrong side.
-      d[0] = -d[0]
-      const n = Math.hypot(d[0], d[1], d[2])
-      // Bilinear, wrapping in longitude and clamping in latitude - a nearest sample shows the
-      // source pixels as blocks on the zenith faces, where one texel covers a whole column.
-      const sx = (0.5 + Math.atan2(d[0] / n, -d[2] / n) / (2 * Math.PI)) * sw - 0.5
-      const sy = (Math.acos(Math.max(-1, Math.min(1, d[1] / n))) / Math.PI) * sh - 0.5
-      const x0 = Math.floor(sx), y0 = Math.max(0, Math.min(sh - 1, Math.floor(sy)))
-      const fx = sx - x0, fy = sy - y0
-      const x1 = (((x0 + 1) % sw) + sw) % sw, xa = ((x0 % sw) + sw) % sw
-      const y1 = Math.min(sh - 1, y0 + 1)
-      const o = (y * size + x) * 4
-      for (let i = 0; i < 3; i++) {
-        const a = src[(y0 * sw + xa) * 4 + i] * (1 - fx) + src[(y0 * sw + x1) * 4 + i] * fx
-        const b = src[(y1 * sw + xa) * 4 + i] * (1 - fx) + src[(y1 * sw + x1) * 4 + i] * fx
-        px[o + i] = a * (1 - fy) + b * fy
-      }
-      px[o + 3] = 255
-    }
-    levels.push(px)
-  }
-  return new pc.Texture(app.graphicsDevice, {
-    name: 'sky', cubemap: true, width: size, height: size, format: pc.PIXELFORMAT_RGBA8,
-    mipmaps: false, minFilter: pc.FILTER_LINEAR, magFilter: pc.FILTER_LINEAR,
-    addressU: pc.ADDRESS_CLAMP_TO_EDGE, addressV: pc.ADDRESS_CLAMP_TO_EDGE,
-    levels: [levels],
-  })
-}
 // The Skybox layer is pushed between the World layer's opaque and transparent passes, so the
 // splats - transparent, no depth write - still draw over it.
 let skyTex: pc.Texture | null = null
@@ -99,9 +51,9 @@ app.scene.skyboxRotation = new pc.Quat().setFromEulerAngles(0, SKY_TURN, 0)
 const applySky = () => { app.scene.skybox = skyBox.checked ? skyTex : null }
 skyBox.onchange = applySky
 const skyImg = new Image()
-skyImg.onload = () => { skyTex = bakeSky(skyImg); applySky() }
+skyImg.onload = () => { skyTex = bakeSky(app.graphicsDevice, skyImg); applySky() }
 skyImg.onerror = () => { status.textContent = 'sky failed: ' + SKY_URL; console.error('sky failed:', SKY_URL) }
-skyImg.src = SKY_URL
+if (!QS.get('nosky')) skyImg.src = SKY_URL                 // ?nosky=1: no sky image, the splats against the clear colour
 
 // --- camera. COLMAP cameras look +z with y down; PlayCanvas cameras look -z with y up, so a
 // solved pose becomes a PlayCanvas rotation by a half turn about the camera's own x axis.
@@ -263,10 +215,10 @@ function lmRefresh() {
 // The dev server takes marks through /api/marks and writes marks.json; the published site has
 // no writer, so there the page shows the published marks.json, keeps new marks in the browser
 // (localStorage) and offers them as a download.
-let marksApi = !QS.get('data')   // the dev API writes public/data/marks.json only; another flight's marks are its own
+let marksApi = true              // the dev API writes public/<flight>/marks.json (?data=), public/data for hdz_0067
 const MARKS_KEY = QS.get('data') ? 'marks:' + QS.get('data') : 'marks'
 async function marksLoad() {
-  try { if (!marksApi) throw 0; const r = await fetch('/api/marks'); if (!r.ok) throw 0; marks = await r.json() }
+  try { if (!marksApi) throw 0; const r = await fetch(`/api/marks?data=${DATA_DIR}`); if (!r.ok) throw 0; marks = await r.json() }
   catch { marksApi = false
     try { marks = await fetch(DATA + 'marks.json').then(r => r.json()) } catch { }
     try { const l = localStorage.getItem(MARKS_KEY); if (l) marks = JSON.parse(l) } catch { }
@@ -274,7 +226,7 @@ async function marksLoad() {
   lmRefresh()
 }
 async function marksSave() {
-  if (marksApi) { await fetch('/api/marks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(marks, null, 1) }); return }
+  if (marksApi) { await fetch(`/api/marks?data=${DATA_DIR}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(marks, null, 1) }); return }
   try { localStorage.setItem(MARKS_KEY, JSON.stringify(marks)) } catch { }
 }
 $<HTMLButtonElement>('dlmarks').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(marks, null, 1)], { type: 'application/json' })); a.download = 'marks.json'; a.click() }

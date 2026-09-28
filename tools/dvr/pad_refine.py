@@ -21,6 +21,7 @@ from mast3r.fast_nn import fast_reciprocal_NNs
 from dust3r.inference import inference
 from plyfile import PlyData
 from gsplat import rasterization
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); from frustum import rasterize_culled   # centre-in-view culling, as PlayCanvas
 from scipy.spatial.transform import Rotation as Rot
 from scipy.optimize import least_squares
 dev = "cuda"; E = lambda k, d: float(os.environ.get(k, d))
@@ -44,7 +45,7 @@ qvalid = cv2.resize((cv2.erode(cv2.remap(osd, m1, m2, cv2.INTER_NEAREST, borderM
 def render(R, c):
     M = np.eye(4); M[:3, :3] = R.as_matrix().T; M[:3, 3] = -M[:3, :3] @ c
     with torch.no_grad():
-        o, a, _ = rasterization(means, quats, scales, opac, colors, T(M)[None], Krt[None], RW, RH, sh_degree=1, render_mode="RGB+ED", near_plane=NEAR)
+        o, a, _ = rasterize_culled(means, quats, scales, opac, colors, T(M)[None], Krt[None], RW, RH, sh_degree=1, render_mode="RGB+ED", near_plane=NEAR)
     return (o[0, ..., :3].clamp(0, 1) * 255).byte().cpu().numpy(), o[0, ..., 3].cpu().numpy(), a[0, ..., 0].cpu().numpy(), M
 model = AsymmetricMASt3R.from_pretrained("naver/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric").to(dev).eval()
 def view(img, idx): return dict(img=torch.tensor(img, dtype=torch.float32).permute(2, 0, 1)[None] / 255 * 2 - 1, true_shape=np.int32([img.shape[:2]]), idx=idx, instance=str(idx))

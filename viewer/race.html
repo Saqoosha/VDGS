@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FDF R6 Semi-final</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+    <style>
+      :root {
+        --ink: #16181d; --muted: #6b7180; --line: #d9dce3; --panel: rgba(255, 255, 255, 0.9); --bg: #e9ebef;
+        --num: "Barlow Condensed", ui-sans-serif, system-ui, sans-serif; --ui: "Inter", ui-sans-serif, system-ui, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 14px/1.4 var(--ui); overflow: hidden; }
+      #c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+      .panel { position: fixed; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; backdrop-filter: blur(6px); box-shadow: 0 6px 24px rgba(20, 24, 33, 0.12); }
+      #board { left: 16px; top: 16px; width: min(360px, calc(100% - 32px)); padding: 12px 14px 10px; }
+      #board h1 { font: 600 13px var(--ui); margin: 0 0 2px; letter-spacing: .02em; }
+      #board .sub { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+      table { width: 100%; border-collapse: collapse; }
+      td { padding: 5px 4px; border-top: 1px solid var(--line); vertical-align: middle; }
+      td.pos { font: 700 22px var(--num); width: 26px; }
+      td.name { font-weight: 600; }
+      td.name i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 7px; vertical-align: 0; }
+      td.lap { font: 600 16px var(--num); color: var(--muted); text-align: right; white-space: nowrap; }
+      td.time { font: 700 20px var(--num); text-align: right; white-space: nowrap; min-width: 84px; }
+      td.time small { display: block; font: 500 12px var(--num); color: var(--muted); }
+      tr.out td { color: var(--muted); }
+      #laps { margin-top: 8px; font: 500 13px var(--num); color: var(--muted); }
+      #laps div { display: flex; gap: 10px; align-items: baseline; }
+      #laps b { color: var(--ink); font-weight: 600; min-width: 72px; }
+      #official { margin-top: 10px; }
+      #official h2 { font: 600 12px var(--ui); margin: 0 0 4px; color: var(--muted); }
+      #official td { font: 600 15px var(--num); border-top: 1px solid var(--line); padding: 3px 4px; }
+      #official td:last-child { text-align: right; }
+      #dvr { right: 16px; top: 16px; bottom: 164px; width: min(300px, 26vw); padding: 8px; display: flex; flex-direction: column; gap: 8px; overflow: auto; }
+      .tile { position: relative; border-radius: 6px; overflow: hidden; border-top: 4px solid; background: #000; flex: none; }
+      .tile video { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; }
+      .tile span { position: absolute; left: 6px; top: 4px; font: 700 13px var(--num); color: #fff; padding: 1px 6px; border-radius: 3px; letter-spacing: .03em; }
+      #bar { left: 16px; right: 16px; bottom: 16px; padding: 10px 14px 12px; }
+      #row1 { display: flex; gap: 12px; align-items: center; }
+      #play { font: 600 13px var(--ui); background: var(--ink); color: #fff; border: 0; border-radius: 6px; padding: 7px 14px; cursor: pointer; min-width: 74px; }
+      #clock { font: 700 26px var(--num); min-width: 110px; }
+      #clock small { font: 500 13px var(--num); color: var(--muted); margin-left: 4px; }
+      select, label { font: 500 12px var(--ui); color: var(--muted); }
+      #tl { display: block; width: 100%; height: 78px; margin-top: 8px; cursor: pointer; touch-action: none; }
+      .tag { position: fixed; transform: translate(-50%, -135%); pointer-events: none; font: 700 14px var(--num); color: #fff; padding: 2px 8px 1px; border-radius: 4px; white-space: nowrap; letter-spacing: .03em; box-shadow: 0 2px 6px rgba(0,0,0,.25); }
+      .tag small { font-weight: 500; opacity: .9; margin-left: 6px; }
+      #status { position: fixed; left: 50%; top: 16px; transform: translateX(-50%); font: 500 12px var(--ui); color: var(--muted); background: var(--panel); padding: 4px 10px; border-radius: 6px; }
+      @media (max-width: 720px) { #dvr { display: none; } #clock { font-size: 20px; min-width: 84px; } }
+    </style>
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+    <div id="status">loading…</div>
+    <div id="board" class="panel">
+      <h1 id="title">A Main · Semi-final A1</h1>
+      <div class="sub">FDF CUP 2026 R6 · positions from each pilot's DVR on the 3DGS scan</div>
+      <table><tbody id="rows"></tbody></table>
+      <div id="laps"></div>
+      <div id="official"><h2>Official result</h2><table><tbody id="orows"></tbody></table></div>
+    </div>
+    <div id="dvr" class="panel"></div>
+    <div id="bar" class="panel">
+      <div id="row1">
+        <button id="play">▶ Play</button>
+        <div id="clock">0.000<small>s</small></div>
+        <label>speed <select id="speed"><option>0.25</option><option>0.5</option><option selected>1</option><option>2</option></select>×</label>
+        <label><input type="checkbox" id="auto" checked /> auto camera</label>
+      </div>
+      <canvas id="tl"></canvas>
+    </div>
+    <script type="module" src="./src/race.ts"></script>
+  </body>
+</html>
