@@ -13,12 +13,16 @@ the flight instead: a cubic from rest at the takeoff frame, fitted to the first 
 MIN_RUN frames solved on their own points, cross-faded into the solve over its last BLEND frames. Every frame before
 takeoff is held at the cubic's start with that run's first rotation, src "ground"; the fitted stretch is "takeoff".
 
-usage: takeoff.py dvr_pinhole.mp4 poses_in.json poses_out.json   (env FACTOR 2.5, HOLD 30, FLOOR_S 2, FIT_S 0.6, MIN_RUN 10, BLEND 15)
+A pad.json next to the video ({"pos", "quat"}, written by the viewer's pad tool from the first DVR frame, which shows
+the pad) replaces the fitted pad: the pad frames take its pose and the cubic is fitted with its start held there. The
+fit alone can be metres off (KNT: the first solved run is 0.4 s into a race launch). pad_refine.py's pad_refined.json
+is used in its place while it was refined from the pad.json that is there now.
+usage: takeoff.py dvr_pinhole.mp4 poses_in.json poses_out.json   (env FACTOR 2.5, HOLD 30, FLOOR_S 2, FIT_S 0.6, MIN_RUN 10, BLEND 15, PAD)
 Checked on FDF R6b d05 against the blackbox: throttle leaves idle at #150, this finds #154.
 """
 import json, os, sys
 import cv2, numpy as np
-from scipy.spatial.transform import Rotation as Rot
+from scipy.spatial.transform import Rotation as Rot, Slerp
 
 video, src, dst = sys.argv[1:4]
 FACTOR, HOLD, FLOOR_S = float(os.environ.get("FACTOR", 2.5)), int(os.environ.get("HOLD", 30)), float(os.environ.get("FLOOR_S", 2))
@@ -57,11 +61,23 @@ fit = [i for i in range(start, len(P)) if ok[i] and i <= start + FIT_S * fps]
 end = start + int(FIT_S * fps)
 fit = [i for i in range(start, end + 1) if ok[i]]
 tt = (np.array(fit) - take) / fps; X = np.array([P[i]["pos"] for i in fit])
+PAD = os.environ.get("PAD") or os.path.join(os.path.dirname(os.path.abspath(video)), "pad.json")
+pad = json.load(open(PAD)) if os.path.exists(PAD) else None
+REF = os.path.join(os.path.dirname(PAD), "pad_refined.json")        # pad_refine.py: the hand-placed pad matched finer
+if pad and os.path.exists(REF):
+    ref = json.load(open(REF))
+    if ref["hint"]["pos"] == pad["pos"] and ref["hint"]["quat"] == pad["quat"]: pad, PAD = ref, REF
+    else: print(f"{REF} was refined from an earlier pad.json: not used")
 A = np.c_[np.ones_like(tt), tt ** 2, tt ** 3]
-coef, *_ = np.linalg.lstsq(A, X, rcond=None); pos = coef[0]
+if pad:                                                              # start held at the pad the human placed
+    p0 = np.array(pad["pos"], float); bc, *_ = np.linalg.lstsq(A[:, 1:], X - p0, rcond=None); coef = np.vstack([p0, bc])
+else:
+    coef, *_ = np.linalg.lstsq(A, X, rcond=None)
+pos = coef[0]
 curve = lambda t: coef[0] + coef[1] * t * t + coef[2] * t ** 3
-rot = Rot.from_quat(P[start]["quat"])
+rot = Rot.from_quat(pad["quat"] if pad else P[start]["quat"])
 resid = np.linalg.norm(A @ coef - X, axis=1)
+print(f"pad from {PAD}" if pad else "pad fitted from the flight")
 print(f"first run of {MIN_RUN} solved frames after takeoff starts at #{start}; pad {np.round(pos, 2).tolist()}, "
       f"curve to #{end}, residual to the solved frames p50 {np.median(resid):.2f} max {resid.max():.2f} m")
 for p in P[:take]:
@@ -76,7 +92,10 @@ for i in range(take, end + 1):
         w = 0.0                                                    # nothing solved to blend towards
     P[i]["pos"] = np.round((1 - w) * c + w * np.array(P[i]["pos"]), 3).tolist()
     if i < start:
-        P[i]["quat"] = np.round(rot.as_quat(), 6).tolist()
+        # turn from the pad's rotation to the first solved frame's, easing out of rest (smoothstep). Held at the pad's
+        # until then, the whole difference landed on one frame: KNT's hand-placed pad, 35 deg at #100 -> #101.
+        u = (i - take) / max(start - take, 1); u = u * u * (3 - 2 * u)
+        P[i]["quat"] = np.round(Slerp([0, 1], Rot.concatenate([rot, Rot.from_quat(P[start]["quat"])]))(u).as_quat(), 6).tolist()
     if w < 1:
         P[i]["src"] = "takeoff"; n_fill += 1
 print(f"{take} frames before takeoff held on the pad; {n_fill} frames after it on the takeoff curve")

@@ -12,6 +12,10 @@ from plyfile import PlyData
 from gsplat import rasterization
 from scipy.spatial.transform import Rotation as Rot, Slerp
 dev = "cuda"; E = lambda k, d: float(os.environ.get(k, d))
+# NEAR (m): splats whose centre is closer than this are not drawn. Flying 0.5 m over the grass, the scan's large thin
+# ground splats right in front of the camera spread over the whole render as fog (KNT #380-#388: at 0.01 m the ground,
+# pylon and trees vanish; at 1 m they are back). The cost: a real object within NEAR of the lens disappears too.
+NEAR = float(os.environ.get("NEAR", 1.0))
 SUB, TOPK, MIN_INL, LOST, NMAX = int(E("SUB", 4)), int(E("RELOC_TOPK", 5)), int(E("MIN_INL", 100)), int(E("LOST", 10)), int(E("NMAX", 0))
 START, FIRST, DEBUG = int(E("START", -1)), int(E("FIRST", 0)), os.environ.get("DEBUG") == "1"
 PROBE = E("PROBE", 2.0)                            # m: second render this far off, to see if the answer follows the viewpoint
@@ -33,7 +37,7 @@ def w2c(R, c): M = np.eye(4); M[:3, :3] = R.as_matrix().T; M[:3, 3] = -M[:3, :3]
 def render(views):                                   # [(Rot, pos)] -> rgb uint8 (B,h,w,3), depth, alpha, w2c
     vm = np.stack([w2c(R, c) for R, c in views])
     with torch.no_grad():
-        o, a, _ = rasterization(means, quats, scales, opac, colors, T(vm), Krt[None].expand(len(vm), 3, 3), RW, RH, sh_degree=1, render_mode="RGB+ED")
+        o, a, _ = rasterization(means, quats, scales, opac, colors, T(vm), Krt[None].expand(len(vm), 3, 3), RW, RH, sh_degree=1, render_mode="RGB+ED", near_plane=NEAR)
     return (o[..., :3].clamp(0, 1) * 255).byte().cpu().numpy(), o[..., 3].cpu().numpy(), a[..., 0].cpu().numpy(), vm
 # ---- matching (as cpr_match.py)
 model = AsymmetricMASt3R.from_pretrained("naver/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric").to(dev).eval()

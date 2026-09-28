@@ -7,6 +7,10 @@ from plyfile import PlyData
 from gsplat import rasterization
 from scipy.spatial.transform import Rotation as Rot
 dev = "cuda"; ply, video, poses, out = sys.argv[1:5]; frames = [int(x) for x in sys.argv[5:]]; os.makedirs(out, exist_ok=True)
+# NEAR (m): splats whose centre is closer than this are not drawn. Flying 0.5 m over the grass, the scan's large thin
+# ground splats right in front of the camera spread over the whole render as fog (KNT #380-#388: at 0.01 m the ground,
+# pylon and trees vanish; at 1 m they are back). The cost: a real object within NEAR of the lens disappears too.
+NEAR = float(os.environ.get("NEAR", 0.01))
 v = PlyData.read(ply)["vertex"].data; v = v[1 / (1 + np.exp(-v["opacity"])) >= 0.1]
 T = lambda a: torch.tensor(a, dtype=torch.float32, device=dev)
 means, quats = T(np.c_[v["x"], v["y"], v["z"]]), T(np.c_[v["rot_0"], v["rot_1"], v["rot_2"], v["rot_3"]])
@@ -21,7 +25,7 @@ for i in frames:
     R = Rot.from_quat(P[i]["quat"]).as_matrix(); c = np.array(P[i]["pos"])
     vm = np.eye(4); vm[:3, :3] = R.T; vm[:3, 3] = -R.T @ c
     with torch.no_grad():
-        o, a, _ = rasterization(means, quats, scales, opac, colors, T(vm)[None], K[None], W, H, sh_degree=1)
+        o, a, _ = rasterization(means, quats, scales, opac, colors, T(vm)[None], K[None], W, H, sh_degree=1, near_plane=NEAR)
     rgb = (o[0, ..., :3].clamp(0, 1) * 255).byte().cpu().numpy()[..., ::-1]; al = a[0, ..., 0].cpu().numpy()
     alv = cv2.applyColorMap((np.clip(al, 0, 1) * 255).astype(np.uint8), cv2.COLORMAP_VIRIDIS); alv[al > 0.9] = (255, 255, 255)
     blend = cv2.addWeighted(dvr, 0.5, rgb, 0.5, 0)

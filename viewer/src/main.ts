@@ -174,8 +174,31 @@ async function loadPoses(name: string) {
 }
 fetch(DATA + 'scan_cameras.json').then(r => r.json()).then(j => { scan = j.cameras; gates = j.gates })
 fetch(DATA + 'dvr_pinhole.mp4.json').then(r => r.json()).then(j => { DVR.fx = j.fx; DVR.w = j.width; DVR.h = j.height; DVR.t0 = j.t0; DVR.fps = j.fps })
-pickFromUrl(document.getElementById('poseset') as HTMLSelectElement, 'poses')
-loadPoses((document.getElementById('poseset') as HTMLSelectElement).value)   // the selected option in index.html, or ?poses=
+// A flight's folder may carry index.json ({"poses": [{"file", "label"}, ...], "scene"}): its pose sets replace the
+// page's own list (which names hdz_0067's files). flights.json next to the page lists the folders ({"flights":
+// [{"data", "label"}, ...]}) for the flight menu; switching reloads the page with ?data=, keeping the view settings.
+async function setupFlight() {
+  const pose = document.getElementById('poseset') as HTMLSelectElement
+  try {
+    const ix = await fetch(DATA + 'index.json').then(r => { if (!r.ok) throw 0; return r.json() })
+    pose.replaceChildren(...ix.poses.map((p: { file: string; label: string }) => new Option(p.label, p.file)))
+    if (ix.scene && !QS.get('scene')) {                  // the flight's own scan, unless the URL names one
+      if (!Array.from(sceneSel.options).some(o => o.value === ix.scene)) sceneSel.add(new Option(ix.scene, ix.scene), 0)
+      sceneSel.value = ix.scene; loadScene(ix.scene)
+    }
+  } catch { }
+  pickFromUrl(pose, 'poses')
+  loadPoses(pose.value)
+  const fsel = document.getElementById('flight') as HTMLSelectElement
+  try {
+    const fl = await fetch(import.meta.env.BASE_URL + 'flights.json').then(r => { if (!r.ok) throw 0; return r.json() })
+    fsel.replaceChildren(...fl.flights.map((f: { data: string; label: string }) => new Option(f.label, f.data)))
+    fsel.value = QS.get('data') ?? 'data'
+    fsel.onchange = () => { const q = new URLSearchParams(location.search); q.set('data', fsel.value); q.delete('poses'); q.delete('scene'); location.search = q.toString() }
+    fsel.parentElement!.hidden = false
+  } catch { }
+}
+setupFlight()
 
 // --- ui
 const ui = { follow: $<HTMLInputElement>('follow'), compare: $<HTMLInputElement>('compare'), wipe: $<HTMLInputElement>('wipe'),
@@ -205,6 +228,7 @@ ui.scancam.oninput = () => {
 }
 window.addEventListener('keydown', e => {
   if (e.target instanceof HTMLInputElement) return
+  if (padKey(e)) { e.preventDefault(); return }
   if (mk.mode.checked && marks.landmarks[mk.lm.value]?.pos) {          // nudge the selected landmark: arrows on the ground, PageUp/Down in height
     const lm = marks.landmarks[mk.lm.value]; const st = e.shiftKey ? 1 : 0.1; const p = lm.pos!
     const mv: Record<string, number[]> = { ArrowLeft: [-st, 0, 0], ArrowRight: [st, 0, 0], ArrowUp: [0, 0, -st], ArrowDown: [0, 0, st], PageUp: [0, st, 0], PageDown: [0, -st, 0] }
@@ -336,6 +360,83 @@ function drawMarks(i: number, p: Pose) {
   mk.info.textContent = `${n} on this frame · ${tot} marks on ${fr} frames`
 }
 
+// --- pad: where the drone sat before takeoff. takeoff.py holds every frame before takeoff (src "ground") at one pose
+// fitted backwards from the flight, which can be metres off; the first DVR frame shows the pad itself. In pad mode
+// those frames draw from the edited pose, so with compare on frame 0 the render can be walked onto the picture.
+// Keys: arrows move along the ground relative to where the camera looks, W/S (or PageUp/Down) height, Q/E yaw, R/F pitch,
+// Z/X roll; shift steps 10x, option 1/10 (0.1 m / 1 deg -> 1 m / 10 deg, 0.01 m / 0.1 deg). A click in the free 3D view drops the pad there at its
+// current height. Saved (dev server) to <flight>/pad.json, which takeoff.py then uses in place of its own fit.
+type Pad = { pos: number[]; quat: number[] }
+let pad: Pad | null = null, padOrig: Pad | null = null, padTimer = 0
+const pd = { mode: $<HTMLInputElement>('padmode'), info: $('padinfo'), reset: $<HTMLButtonElement>('padreset') }
+const padFlight = QS.get('data') ?? 'data'
+const groundPose = (): Pad | null => { const g = poses.find(p => p && p.src === 'ground'); return g ? { pos: [...g.pos], quat: [...g.quat] } : null }
+async function padLoad() {
+  padOrig = groundPose()
+  try { const r = await fetch(`/api/pad?data=${padFlight}`); if (!r.ok) throw 0; pad = await r.json() } catch { pad = padOrig && { pos: [...padOrig.pos], quat: [...padOrig.quat] } }
+  padShow()
+}
+function padShow() {
+  if (!pad) { pd.info.textContent = 'no ground frames in this pose set'; return }
+  const e = new pc.Quat(pad.quat[0], pad.quat[1], pad.quat[2], pad.quat[3]).getEulerAngles()
+  const dp = padOrig ? Math.hypot(...pad.pos.map((x, k) => x - padOrig!.pos[k])) : 0
+  pd.info.textContent = `pos ${pad.pos.map(x => x.toFixed(2)).join(', ')}  rot ${[e.x, e.y, e.z].map(x => x.toFixed(1)).join(', ')}  moved ${dp.toFixed(2)} m`
+}
+function padSave() {
+  padShow(); lastPoses = []                                   // redraw the path with the pad's segment
+  clearTimeout(padTimer); padTimer = window.setTimeout(() => {
+    fetch(`/api/pad?data=${padFlight}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pos: pad!.pos.map(x => Math.round(x * 1000) / 1000), quat: pad!.quat.map(x => Math.round(x * 1e6) / 1e6) }) })
+      .then(r => { if (!r.ok) throw 0; pd.info.textContent += '  saved' }).catch(() => { pd.info.textContent += '  NOT saved (dev server only)' })
+  }, 300)
+}
+pd.mode.onchange = () => { pd.mode.blur(); if (pd.mode.checked && !pad) padLoad(); lastPoses = [] }
+pd.reset.onclick = () => { pd.reset.blur(); padOrig = groundPose(); if (padOrig) { pad = { pos: [...padOrig.pos], quat: [...padOrig.quat] }; padSave() } }
+function padKey(e: KeyboardEvent): boolean {
+  if (!pd.mode.checked || !pad) return false
+  if (e.metaKey || e.ctrlKey) return false
+  const s = e.shiftKey ? 10 : e.altKey ? 0.1 : 1, st = 0.1 * s, dg = s
+  const r = new pc.Quat(pad.quat[0], pad.quat[1], pad.quat[2], pad.quat[3])
+  const flat = (v: pc.Vec3) => { v.y = 0; return v.length() > 1e-6 ? v.normalize() : v }
+  const fwd = flat(r.transformVector(new pc.Vec3(0, 0, 1), new pc.Vec3())), right = flat(r.transformVector(new pc.Vec3(1, 0, 0), new pc.Vec3()))
+  const move = (v: pc.Vec3, k: number) => { pad!.pos = pad!.pos.map((x, i) => x + [v.x, v.y, v.z][i] * k) }
+  const turn = (axis: pc.Vec3, deg: number, world: boolean) => {
+    const d = new pc.Quat().setFromAxisAngle(axis, deg)
+    const n = world ? d.mul(r) : r.clone().mul(d); pad!.quat = [n.x, n.y, n.z, n.w]
+  }
+  switch (e.code) {                                             // code, not key: option+letter types another character on a Mac
+    case 'ArrowUp': move(fwd, st); break
+    case 'ArrowDown': move(fwd, -st); break
+    case 'ArrowRight': move(right, st); break
+    case 'ArrowLeft': move(right, -st); break
+    case 'PageUp': case 'KeyW': move(new pc.Vec3(0, 1, 0), st); break
+    case 'PageDown': case 'KeyS': move(new pc.Vec3(0, 1, 0), -st); break
+    case 'KeyQ': turn(new pc.Vec3(0, 1, 0), dg, true); break          // yaw about world up
+    case 'KeyE': turn(new pc.Vec3(0, 1, 0), -dg, true); break
+    case 'KeyR': turn(new pc.Vec3(1, 0, 0), dg, false); break         // pitch about the camera's x (right)
+    case 'KeyF': turn(new pc.Vec3(1, 0, 0), -dg, false); break
+    case 'KeyZ': turn(new pc.Vec3(0, 0, 1), dg, false); break         // roll about the camera's z (forward)
+    case 'KeyX': turn(new pc.Vec3(0, 0, 1), -dg, false); break
+    default: return false
+  }
+  padSave(); return true
+}
+canvas.addEventListener('pointerup', e => {
+  if (!pd.mode.checked || !pad || !orbit.enabled || !padPress) return
+  const moved = Math.hypot(e.clientX - padPress.x, e.clientY - padPress.y); padPress = null
+  if (moved > 4) return
+  const r = canvas.getBoundingClientRect(); const sx = e.clientX - r.left, sy = e.clientY - r.top
+  const c = cam.camera!; const rect = c.rect
+  if (sx > r.width * (rect.x + rect.z) || sy > r.height * (1 - rect.y)) return
+  const near = c.screenToWorld(sx, sy, c.nearClip, new pc.Vec3()), far = c.screenToWorld(sx, sy, c.farClip, new pc.Vec3())
+  const d = far.sub(near).normalize(); if (Math.abs(d.y) < 1e-6) return
+  const t = (pad.pos[1] - near.y) / d.y; if (t < 0) return
+  const X = near.add(d.mulScalar(t)); pad.pos = [X.x, pad.pos[1], X.z]; padSave()
+})
+let padPress: { x: number; y: number } | null = null
+canvas.addEventListener('pointerdown', e => { padPress = { x: e.clientX, y: e.clientY } })
+// the pose drawn for frame i: the edited pad for the frames held on the pad
+const shown = (p: Pose): Pose => p && pd.mode.checked && pad && p.src === 'ground' ? { ...p, pos: pad.pos, quat: pad.quat } : p
+
 // --- layout: the 3D canvas follows its box; in compare mode the video is laid exactly over it
 const view = $('view'), dvr = $('dvr')
 function layout() {
@@ -390,13 +491,13 @@ const SRC_NAME: Record<string, string> = { kept: 'colmap', lk: 'lk', interp: 'in
 let lastPoses = poses
 app.on('update', () => {
   const i = Math.max(0, Math.min(poses.length - 1, frameOf(video.currentTime)))
-  ui.seek.value = String(i); const p = poses[i]
+  ui.seek.value = String(i); const p = shown(poses[i])
   ui.tlabel.textContent = `${(DVR.t0 + i / DVR.fps).toFixed(3)} s  #${i}  ${p ? SRC_NAME[p.src] ?? p.src : '-'}`
   const lines: pc.Vec3[] = [], cols: pc.Color[] = []
   if (ui.showPath.checked) {
     if (lastPoses !== poses) { pathPos.length = 0; pathCol.length = 0; lastPoses = poses
       let prev: Pose = null
-      for (const x of poses) { if (x && prev) { pathPos.push(new pc.Vec3(prev.pos[0], prev.pos[1], prev.pos[2]), new pc.Vec3(x.pos[0], x.pos[1], x.pos[2])); const c = cSrc[x.src] ?? cPath; pathCol.push(c, c) } prev = x } }
+      for (const x0 of poses) { const x = shown(x0); if (x && prev) { pathPos.push(new pc.Vec3(prev.pos[0], prev.pos[1], prev.pos[2]), new pc.Vec3(x.pos[0], x.pos[1], x.pos[2])); const c = cSrc[x.src] ?? cPath; pathCol.push(c, c) } prev = x } }
     if (pathPos.length) app.drawLines(pathPos, pathCol, true)
   }
   if (ui.showScan.checked) for (const s of scan) frustum(s.pos, s.quat, 104, 4 / 3, 0.8, cScan, lines, cols)
@@ -415,6 +516,7 @@ app.on('update', () => {
     const X = marks.landmarks[id].pos; if (!X) continue
     lines.push(new pc.Vec3(X[0], X[1], X[2]), new pc.Vec3(X[0], X[1] + 3, X[2])); cols.push(cLm, cLm)
   }
+  if (pd.mode.checked && pad) frustum(pad.pos, pad.quat, 100, 4 / 3, 1.5, cLm, lines, cols)   // the pad being edited
   if (lines.length) app.drawLines(lines, cols, true)
   drawMarks(i, p)
 })

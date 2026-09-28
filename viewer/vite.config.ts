@@ -15,5 +15,19 @@ const marksApi: Plugin = {
     })
   }
 }
+// The pad tool (index.html "pad") saves where the drone sat before takeoff as <flight>/pad.json; takeoff.py reads it.
+const padApi: Plugin = {
+  name: 'pad-api',
+  configureServer(server) {
+    server.middlewares.use('/api/pad', (req, res) => {
+      const dir = new URL(req.url ?? '', 'http://x').searchParams.get('data') ?? ''
+      if (!/^[\w-]+$/.test(dir)) { res.statusCode = 400; res.end('bad data'); return }
+      const file = resolve(__dirname, 'public', dir, 'pad.json')
+      if (req.method === 'GET') { if (!existsSync(file)) { res.statusCode = 404; res.end(); return } res.setHeader('content-type', 'application/json'); res.end(readFileSync(file, 'utf8')); return }
+      if (req.method === 'POST' && req.headers['content-type'] === 'application/json') { let body = ''; req.on('data', c => body += c); req.on('end', () => { JSON.parse(body); writeFileSync(file, body); res.end('ok') }); return }
+      res.statusCode = 405; res.end()
+    })
+  }
+}
 // VITE_BASE is the path the page is published under (tools/publish-dvr-viewer.sh sets /dvr/<name>/).
-export default defineConfig({ base: process.env.VITE_BASE ?? '/', server: { fs: { allow: ['..'] } }, build: { target: 'es2022', copyPublicDir: false }, plugins: [marksApi] })   // public/data is the dev symlink to the data, not an asset
+export default defineConfig({ base: process.env.VITE_BASE ?? '/', server: { fs: { allow: ['..'] } }, build: { target: 'es2022', copyPublicDir: false }, plugins: [marksApi, padApi] })   // public/data is the dev symlink to the data, not an asset

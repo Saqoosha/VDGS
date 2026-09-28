@@ -17,6 +17,10 @@ from plyfile import PlyData
 from gsplat import rasterization
 from scipy.spatial.transform import Rotation as Rot
 dev = "cuda"; SUB = 4
+# NEAR (m): splats whose centre is closer than this are not drawn. Flying 0.5 m over the grass, the scan's large thin
+# ground splats right in front of the camera spread over the whole render as fog (KNT #380-#388: at 0.01 m the ground,
+# pylon and trees vanish; at 1 m they are back). The cost: a real object within NEAR of the lens disappears too.
+NEAR = float(os.environ.get("NEAR", 1.0))
 ply, video, poses_path, track_jl, out_dir = sys.argv[1:6]; os.makedirs(f"{out_dir}/dump", exist_ok=True)
 v = PlyData.read(ply)["vertex"].data; v = v[1 / (1 + np.exp(-v["opacity"])) >= 0.1]
 T = lambda a: torch.tensor(a, dtype=torch.float32, device=dev)
@@ -34,7 +38,7 @@ def w2c(R, c): M = np.eye(4); M[:3, :3] = R.as_matrix().T; M[:3, 3] = -M[:3, :3]
 def render(views):                                   # [(Rot, pos)] -> rgb uint8 (B,h,w,3), depth, alpha, w2c
     vm = np.stack([w2c(R, c) for R, c in views])
     with torch.no_grad():
-        o, a, _ = rasterization(means, quats, scales, opac, colors, T(vm), Krt[None].expand(len(vm), 3, 3), RW, RH, sh_degree=1, render_mode="RGB+ED")
+        o, a, _ = rasterization(means, quats, scales, opac, colors, T(vm), Krt[None].expand(len(vm), 3, 3), RW, RH, sh_degree=1, render_mode="RGB+ED", near_plane=NEAR)
     return (o[..., :3].clamp(0, 1) * 255).byte().cpu().numpy(), o[..., 3].cpu().numpy(), a[..., 0].cpu().numpy(), vm
 model = AsymmetricMASt3R.from_pretrained("naver/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric").to(dev).eval()
 def view(img, idx): return dict(img=torch.tensor(img, dtype=torch.float32).permute(2, 0, 1)[None] / 255 * 2 - 1, true_shape=np.int32([img.shape[:2]]), idx=idx, instance=str(idx))
