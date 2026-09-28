@@ -4,6 +4,7 @@
 #   tools/publish-dvr-viewer.sh <name> <flights.json>  several flights, e.g. fdf-2026-r6 viewer/public/flights.json:
 #     each flight's folder (viewer/public/<data>) goes to dvr/<name>/data/<data>/ - the files its index.json lists, the
 #     video, scan_cameras.json, sky.jpg and its scene - and the page opens the first one when the URL names none.
+#     Folders under "races" (race.html) go the same way: race.json, the pilots' clips, audio.m4a, sky.jpg, the scene.
 # The page (viewer/, built with base /dvr/<name>/) goes into the site as a static asset and
 # is kept in build/dvr-viewer/<name> so make-catalog.sh can put it back; the data (scene .sog,
 # the pinhole video and its json, the pose sets, scan_cameras.json, marks.json) goes to R2 under
@@ -62,7 +63,10 @@ check_the_rest || exit 1
 say "build the page"
 MULTI=; [[ "$DATA" == *flights.json ]] && MULTI=1
 DEFAULT=; [ -n "$MULTI" ] && DEFAULT="data/$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["flights"][0]["data"])' "$DATA")"
-( cd "$ROOT/viewer" && VITE_BASE="/dvr/$NAME/" VITE_DEFAULT_DATA="$DEFAULT" bun run build )
+# race pages (race.html) listed under "races"; the page opens the first
+RACES=; [ -n "$MULTI" ] && RACES="$(python3 -c 'import json,sys;print(" ".join(json.load(open(sys.argv[1])).get("races", [])))' "$DATA")"
+RACE=; [ -n "$RACES" ] && RACE="data/${RACES%% *}"
+( cd "$ROOT/viewer" && VITE_BASE="/dvr/$NAME/" VITE_DEFAULT_DATA="$DEFAULT" VITE_RACE_DATA="$RACE" bun run build )
 rm -rf "$KEEP"; mkdir -p "$KEEP"; cp -R "$ROOT/viewer/dist/." "$KEEP/"
 # the flight menu: the same list with every folder moved under data/, where the Worker serves R2 from
 [ -n "$MULTI" ] && python3 - "$DATA" "$KEEP/flights.json" <<'PY'
@@ -87,6 +91,14 @@ if [ -n "$MULTI" ]; then
       cp -L "$SRC/$f" "$DST/$f"; done
     [ -e "$SRC/sky.jpg" ] && cp -L "$SRC/sky.jpg" "$DST/sky.jpg"
     SCN="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["scene"])' "$SRC/index.json")"
+    cp -L "$SRC/scene/$SCN.sog" "$DST/scene/"
+  done
+  # a race: race.json, each pilot's DVR clip, the race audio, the sky and the scene it names
+  for RC in $RACES; do
+    SRC="$PUB/$RC"; DST="$UP/$RC"; mkdir -p "$DST/scene"
+    for f in race.json audio.m4a sky.jpg $(python3 -c 'import json,sys;print(" ".join(p["video"] for p in json.load(open(sys.argv[1]))["pilots"]))' "$SRC/race.json"); do
+      cp -L "$SRC/$f" "$DST/$f"; done
+    SCN="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["scene"])' "$SRC/race.json")"
     cp -L "$SRC/scene/$SCN.sog" "$DST/scene/"
   done
 else
