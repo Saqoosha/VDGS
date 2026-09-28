@@ -10,7 +10,7 @@ type Race = { title: string; fps: number; start: number; scene: string; laps: nu
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T
 const QS = new URLSearchParams(location.search)
-const DATA = import.meta.env.BASE_URL + (QS.get('data') || import.meta.env.VITE_RACE_DATA || 'race-sf-semifinal')   // VITE_RACE_DATA: the published folder (data/...) + '/'
+const DATA = import.meta.env.BASE_URL + (QS.get('data') || import.meta.env.VITE_RACE_DATA || 'race-sf-semifinal') + '/'   // VITE_RACE_DATA: the published folder (data/...)
 const TRAIL = 2                                                    // seconds of trail behind each drone
 const canvas = $<HTMLCanvasElement>('c'), status = $('status')
 const app = new pc.Application(canvas, { mouse: new pc.Mouse(canvas), graphicsDeviceOptions: { antialias: true } })
