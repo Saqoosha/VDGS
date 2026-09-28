@@ -7,7 +7,7 @@
 #     Folders under "races" (race.html) go the same way: race.json, the pilots' clips, audio.m4a, sky.jpg, the scene.
 # The page (viewer/, built with base /dvr/<name>/) goes into the site as a static asset and
 # is kept in build/dvr-viewer/<name> so make-catalog.sh can put it back; the data (scene .sog,
-# the pinhole video and its json, the pose sets, scan_cameras.json, marks.json) goes to R2 under
+# the pinhole video and its json, the pose sets, scan_cameras.json; marks.json for one flight) goes to R2 under
 # dvr/<name>/data/ with rclone, the same way tools/publish.sh sends captures. The scan's proxy
 # videos are not published on purpose. Then the Worker is deployed.
 set -euo pipefail
@@ -83,11 +83,13 @@ say "data -> r2:$BUCKET/dvr/$NAME/data/"
 UP="$TMP/data"
 if [ -n "$MULTI" ]; then
   PUB="$(dirname "$DATA")"
-  for FL in $(python3 -c 'import json,sys;print(" ".join(f["data"] for f in json.load(open(sys.argv[1]))["flights"]))' "$DATA"); do
+  # lists taken into variables first: a failing $(...) in a for list does not stop set -e, and the upload would go on without it
+  FLS="$(python3 -c 'import json,sys;print(" ".join(f["data"] for f in json.load(open(sys.argv[1]))["flights"]))' "$DATA")"
+  for FL in $FLS; do
     SRC="$PUB/$FL"; DST="$UP/$FL"; mkdir -p "$DST/scene"
     # the pose sets its index.json offers and the scene it opens; -L copies through the dev symlinks
-    for f in index.json dvr_pinhole.mp4 dvr_pinhole.mp4.json scan_cameras.json \
-             $(python3 -c 'import json,sys;print(" ".join(p["file"] for p in json.load(open(sys.argv[1]))["poses"]))' "$SRC/index.json"); do
+    PS="$(python3 -c 'import json,sys;print(" ".join(p["file"] for p in json.load(open(sys.argv[1]))["poses"]))' "$SRC/index.json")"
+    for f in index.json dvr_pinhole.mp4 dvr_pinhole.mp4.json scan_cameras.json $PS; do
       cp -L "$SRC/$f" "$DST/$f"; done
     [ -e "$SRC/sky.jpg" ] && cp -L "$SRC/sky.jpg" "$DST/sky.jpg"
     SCN="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["scene"])' "$SRC/index.json")"
@@ -96,7 +98,8 @@ if [ -n "$MULTI" ]; then
   # a race: race.json, each pilot's DVR clip, the race audio, the sky and the scene it names
   for RC in $RACES; do
     SRC="$PUB/$RC"; DST="$UP/$RC"; mkdir -p "$DST/scene"
-    for f in race.json audio.m4a sky.jpg $(python3 -c 'import json,sys;print(" ".join(p["video"] for p in json.load(open(sys.argv[1]))["pilots"]))' "$SRC/race.json"); do
+    VS="$(python3 -c 'import json,sys;print(" ".join(p["video"] for p in json.load(open(sys.argv[1]))["pilots"]))' "$SRC/race.json")"
+    for f in race.json audio.m4a sky.jpg $VS; do
       cp -L "$SRC/$f" "$DST/$f"; done
     SCN="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["scene"])' "$SRC/race.json")"
     cp -L "$SRC/scene/$SCN.sog" "$DST/scene/"

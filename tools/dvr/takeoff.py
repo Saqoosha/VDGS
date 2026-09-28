@@ -51,7 +51,6 @@ print(f"floor {floor:.2f}, takeoff at #{take} ({take / fps:.2f} s into the clip)
 # 5.8 m/s in +x while the flight left in -x from #176; the curve met it and drew a hook going backwards).
 ok = [bool(p) and p["src"] == "ba" for p in P]
 start = next(i for i in range(take, len(P) - MIN_RUN) if all(ok[i:i + MIN_RUN]))
-fit = [i for i in range(start, len(P)) if ok[i] and i <= start + FIT_S * fps]
 # Right after takeoff the solved frames are weak (near-field grass): on d05 #178-#190 they swing sideways at +-55 m/s^2
 # while the blackbox reads 0-2 m/s^2 across and under 22 deg/s - a straight launch. Meeting one frame exactly, even in
 # velocity, carries that swing into the curve and leaves an acceleration step (an S at the launch). So a cubic from

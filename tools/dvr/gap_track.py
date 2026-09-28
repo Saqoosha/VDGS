@@ -3,8 +3,8 @@ The first pass predicts from the last frames it tracked and gives up after LOST 
 90th percentile 38 m/s and 685 deg/s at 30 fps, 23 deg per frame) the render drifts off the picture and a gap of up to
 two seconds (60 m) is left to the prior, which draws a different line on every lap. Here each gap is entered from the
 solved frame beside it, forward from its start and backward from its end, predicting from the solved poses and trying
-nine renders per frame: the prediction, the prior's own fill, yaw +-15/+-30, pitch +-15 and roll +-20. The first of
-two misses in a row ends that direction. Records and dumps as cpr_track.py (k measured the same way), so cpr_ba.py
+ten renders per frame: the prediction, the prior's own fill, yaw +-15/+-30, pitch +-15 and roll +-20. Two misses in a
+row end that direction. Records and dumps as cpr_track.py (k measured the same way), so cpr_ba.py
 takes out_dir as a later pair.
 usage (mastenv, with gsplat): gap_track.py scene.ply dvr_pinhole.mp4 poses.json out_dir   env: MIN_GAP (3), MIN_INL (100), CLEAN (dir from hdz_blocks.py), TRACK (round 1's track.jsonl)"""
 import json, sys, os, time, math, numpy as np, torch, cv2

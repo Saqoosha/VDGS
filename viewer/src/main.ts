@@ -13,7 +13,7 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 // opens another flight's folder under public/ instead; ?poses= and ?scene= pick its files.
 const QS = new URLSearchParams(location.search)
 // VITE_DEFAULT_DATA: the folder a page with several flights opens when the URL names none (publish-dvr-viewer.sh sets it)
-const DATA_DIR = QS.get('data') ?? import.meta.env.VITE_DEFAULT_DATA ?? 'data'
+const DATA_DIR = QS.get('data') || import.meta.env.VITE_DEFAULT_DATA || 'data'   // || not ??: a single-flight publish passes ''
 const DATA = import.meta.env.BASE_URL + DATA_DIR + '/'
 // A file named in the URL that the page's own list does not offer is added to it, so another
 // flight's pose set or scan opens without editing index.html.
@@ -112,7 +112,7 @@ function loadScene(name: string) {
   const a = new pc.Asset(name, 'gsplat', { url: `${DATA}scene/${name}.sog` }); asset = a
   app.assets.add(a)
   a.on('load', () => { if (asset !== a) return; splat.addComponent('gsplat', { asset: a }); if (!splat.parent) app.root.addChild(splat); status.textContent = name })
-  a.on('error', (err: string) => { status.textContent = 'scene failed: ' + err })
+  a.on('error', (err: string) => { if (asset === a) status.textContent = 'scene failed: ' + err })
   app.assets.load(a)
 }
 sceneSel.onchange = () => loadScene(sceneSel.value)
@@ -216,7 +216,7 @@ function lmRefresh() {
 // no writer, so there the page shows the published marks.json, keeps new marks in the browser
 // (localStorage) and offers them as a download.
 let marksApi = true              // the dev API writes public/<flight>/marks.json (?data=), public/data for hdz_0067
-const MARKS_KEY = QS.get('data') ? 'marks:' + QS.get('data') : 'marks'
+const MARKS_KEY = DATA_DIR === 'data' ? 'marks' : 'marks:' + DATA_DIR   // viewers on one site share localStorage
 async function marksLoad() {
   try { if (!marksApi) throw 0; const r = await fetch(`/api/marks?data=${DATA_DIR}`); if (!r.ok) throw 0; marks = await r.json() }
   catch { marksApi = false

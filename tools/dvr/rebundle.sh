@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Re-solve only the bundle adjustment of a DVR that dvr_pipeline.sh already tracked (the tracker's matches stay on
-# win4090), with the current cpr_ba.py and any SIG_* overrides, then place the pad again. Minutes, not the hour of tracking.
+# win4090), with the current cpr_ba.py and SIG_ACC / SIG_ALPHA overrides; round 1's matches only,
+# so it replaces a round-2 poses60.json, then place the pad again. Minutes, not the hour of tracking.
 #   [SIG_ACC=.. SIG_ALPHA=..] tools/dvr/rebundle.sh <name>
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"; NAME="${1:?name}"

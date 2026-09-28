@@ -15,9 +15,7 @@ from gsplat import rasterization
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); from frustum import rasterize_culled   # centre-in-view culling, as PlayCanvas
 from scipy.spatial.transform import Rotation as Rot
 dev = "cuda"; SUB = 4
-# NEAR (m): splats whose centre is closer than this are not drawn. Flying 0.5 m over the grass, the scan's large thin
-# ground splats right in front of the camera spread over the whole render as fog (KNT #380-#388: at 0.01 m the ground,
-# pylon and trees vanish; at 1 m they are back). The cost: a real object within NEAR of the lens disappears too.
+# NEAR (m): splats whose centre is closer than this are not drawn (see cpr_track.py)
 NEAR = float(os.environ.get("NEAR", 0.01))
 ply, video, poses_path, out_path = sys.argv[1:5]
 v = PlyData.read(ply)["vertex"].data; v = v[1 / (1 + np.exp(-v["opacity"])) >= 0.1]

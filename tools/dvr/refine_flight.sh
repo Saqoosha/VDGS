@@ -7,7 +7,8 @@
 set -uo pipefail
 D="$1"; TL=/mnt/c/Users/saqoosha/VDGS/tools; PLY=/mnt/c/Users/saqoosha/VDGS/scenes/FDF-2026-R6b-spirula-web.ply; PY=~/mastenv/bin/python
 export CUDA_HOME=/usr/local/cuda-12.9 PATH=/usr/local/cuda-12.9/bin:$PATH CAM=dvr_pinhole.mp4.json
-cd "$D" || exit 1; log() { echo "[$(date +%H:%M:%S)] $*" | tee -a refine.log; }
+cd "$D" || exit 1; rm -f align_r1.json align_r2.json   # a failed eval must not leave the last run's to be judged
+log() { echo "[$(date +%H:%M:%S)] $*" | tee -a refine.log; }
 pad() {   # takeoff.py when the clip starts on the pad; a clip that does not (a race cut) keeps the solve as it is
   if $PY $TL/takeoff.py dvr_pinhole.mp4 "$1" "$2" >> refine.log 2>&1; then log "takeoff.py applied -> $2"
   else cp "$1" "$2"; log "takeoff.py found no takeoff; $2 is the bundle adjustment unchanged"; fi; }
@@ -31,4 +32,5 @@ shutil.copy(f"poses60_{pick}.json", "poses60.json")
 msg = f"far >10 px / >5 px of frames: r1 {a[0]}/{a[1]} of {a[2]}, r2 {b[0]}/{b[1]} of {b[2]} -> {pick}"
 open("choice.txt", "w").write(msg + "\n"); print(msg)
 PY
+[ "${PIPESTATUS[0]}" = 0 ] || exit 1
 touch refine.done

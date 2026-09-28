@@ -1,6 +1,6 @@
 // FDF CUP 2026 R6 A-main semi-final: three pilots' DVR paths on the 3DGS scan, played back together.
-// race.json (built from each flight's poses60_pad.json): the paths at the clip's 30 fps, the start of the race in clip
-// time (from KANATA's official total; SENA and SAQOOSHA then agree to 15 and 29 ms), the finish gate and the laps.
+// race.json (from each flight's poses60_m.json): the paths at the clip's 30 fps, the start of the race in clip
+// time (from KANATA's official total), the finish gate and the laps.
 import * as pc from 'playcanvas'
 import { bakeSky } from './sky'
 
@@ -163,7 +163,7 @@ function drawBoard(tc: number) {
     const s = place.get(p.name)!, row = document.createElement('div'); row.className = 'pl' + (s.out ? ' out' : '')
     const cur = s.finished ? 'FINISH' : s.out ? 'OUT' : rt < 0 ? 'START' : `LAP ${Math.min(s.done + 1, race.laps)}/${race.laps}`
     // finished: the total; out: the time of its last lap; racing: the lap in progress
-    const time = s.finished ? fmt(p.total) : s.out ? fmt(s.last - race.start) : rt < 0 ? '' : fmt(Math.min(tc, p.end) - (s.done ? s.last : race.start))
+    const time = s.finished ? fmt(p.total) : s.out ? (s.done ? fmt(s.last - race.start) : '') : rt < 0 ? '' : fmt(Math.min(tc, p.end) - (s.done ? s.last : race.start))
     const name = span('name', p.name); const dot = document.createElement('i'); dot.style.background = s.out ? '#8c9199' : p.color; name.prepend(dot)
     row.append(span('pos', String(s.k)), name, span('lap', cur), span('time', time))
     const v = s.out || s.finished && tc > p.end ? 0 : kmh(p, tc); speedTags[P.indexOf(p)].textContent = v ? `${v.toFixed(0).padStart(3)} km/h` : ''
@@ -208,7 +208,7 @@ tl.addEventListener('pointerup', endSeek); tl.addEventListener('pointercancel', 
 // camera, worked out for the whole race up front (easing it live lagged and let drones slip out of frame):
 // the yaw turns with race time, the target is the three drones' middle smoothed both ways, and the distance is the
 // least that holds all three inside the free part of the screen (not under the DVR column or the timeline), eased
-// the same way but never below what that moment needs, and never out past the scanned course (fog beyond).
+// the same way, kept within the scanned course (fog beyond).
 const box = (() => { const all = P.flatMap(p => p.pos), m = 10
   return { min: [0, 1, 2].map(k => Math.min(...all.map(q => q[k])) - m), max: [0, 1, 2].map(k => Math.max(...all.map(q => q[k])) + (k === 1 ? 40 : m)) } })()   // the fog is at the sides; above is open
 const FOV = 50, PITCH0 = -18, TURN = 6                                 // vertical fov of the free area; degrees a race second
@@ -228,7 +228,7 @@ cam.camera!.calculateProjection = (m: pc.Mat4) => {
   const cx = free.x + free.w / 2, cy = free.y + free.h / 2
   m.setFrustum((0 - cx) * s_, (free.W - cx) * s_, (cy - free.H) * s_, (cy - 0) * s_, near, far)
 }
-// camera modes: orbit (the planned turn), top (the whole course from above), or following one pilot; keys 1-5
+// camera modes: orbit (the planned turn), top (the whole course from above), free, or following one pilot; keys 1-6
 const mode = $<HTMLSelectElement>('cammode')
 mode.replaceChildren(new Option('Orbit', 'orbit'), new Option('Top', 'top'), new Option('Free', 'free'), ...P.map((p, k) => new Option(p.name, 'p' + k)))   // p<k>: follow pilot k
 // the controls as button groups over the hidden select / checkbox (the code reads those as before)
@@ -290,7 +290,13 @@ function cameraFree() {
   cam.setPosition(r.transformVector(new pc.Vec3(0, 0, freeCam.dist), new pc.Vec3()).add(freeCam.pivot)); cam.setRotation(r)
 }
 let lastMode = mode.value
-mode.onchange = () => { startBlend(); refreshCam(); if (mode.value === 'free') enterFree(); mode.blur(); if (lastMode === 'orbit' && mode.value !== 'orbit') view.yawOffset = yawAt(t); lastMode = mode.value; if (mode.value === 'orbit') { view.yawOffset -= TURN * (t - T0) } plan() }
+mode.onchange = () => {
+  mode.blur(); if (mode.value === lastMode) return
+  // the orbit's heading now, kept across the switch (yawAt reads the new mode, so it is worked out from lastMode)
+  const yaw = view.yawOffset + (lastMode === 'orbit' ? TURN * (t - T0) : 0)
+  startBlend(); refreshCam(); if (mode.value === 'free') enterFree()
+  view.yawOffset = mode.value === 'orbit' ? yaw - TURN * (t - T0) : yaw; lastMode = mode.value; plan()
+}
 refreshCam()
 let drag: { x: number; y: number } | null = null
 canvas.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY }; canvas.setPointerCapture(e.pointerId) })
@@ -308,15 +314,13 @@ canvas.addEventListener('contextmenu', e => e.preventDefault())
 canvas.addEventListener('wheel', e => { if (mode.value === 'free') { freeCam.dist = Math.max(2, Math.min(400, freeCam.dist * Math.exp(e.deltaY * 0.001))); e.preventDefault(); return } view.zoom = Math.max(0.4, Math.min(3, view.zoom * Math.exp(e.deltaY * 0.001))); plan(); e.preventDefault() }, { passive: false })
 const topView = (() => {
   const all = P.flatMap(p => p.pos), cx = all.reduce((a, q) => a + q[0], 0) / all.length, cz = all.reduce((a, q) => a + q[2], 0) / all.length
-  let sxx = 0, szz = 0, sxz = 0; for (const q of all) { const x = q[0] - cx, z = q[2] - cz; sxx += x * x; szz += z * z; sxz += x * z }
-  const ang = 0.5 * Math.atan2(2 * sxz, sxx - szz)                       // the course's long axis in the ground plane
   // turned so the line from the start pads to the timing gate runs left to right across the screen
   const pads = P.map(p => at(p, race.start)), sx = pads.reduce((a, q) => a + q.x, 0) / pads.length, sz = pads.reduce((a, q) => a + q.z, 0) / pads.length
   const vx = race.gate.centre[0] - sx, vz = race.gate.centre[2] - sz
   // searched rather than derived: the yaw whose screen-right best follows start -> gate (a closed form was 30 deg out)
   const vl = Math.hypot(vx, vz); let yaw = 0, best = -2
   for (let y = 0; y < 360; y += 0.5) { const rt = new pc.Quat().setFromEulerAngles(-89.9, y, 0).transformVector(new pc.Vec3(1, 0, 0), new pc.Vec3()); const c = (rt.x * vx + rt.z * vz) / vl; if (c > best) { best = c; yaw = y } }
-  return { cx, cz, cy: Math.min(...all.map(q => q[1])), yaw, all, ang }
+  return { cx, cz, cy: Math.min(...all.map(q => q[1])), yaw, all }
 })()
 function cameraTop() {
   const r = new pc.Quat().setFromEulerAngles(-89.9, topView.yaw + view.topYaw, 0)
