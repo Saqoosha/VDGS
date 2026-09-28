@@ -124,6 +124,7 @@ const DVR = { fx: 402.8, w: 960, h: 720, t0: 80, fps: 60 }       // from dvr_pin
 const SCAN = { fx: 1048.44, fy: 1048.62, w: 2688, h: 2016, fps: 59.94 }
 async function loadPoses(name: string) {
   const j = await fetch(DATA + name).then(r => r.json()); poses = j.poses
+  $<HTMLInputElement>('seek').max = String(poses.length - 1)   // index.html's 5875 is hdz_0067's length
   status.textContent = `${name}: ${poses.filter(Boolean).length} frames`
 }
 fetch(DATA + 'scan_cameras.json').then(r => r.json()).then(j => { scan = j.cameras; gates = j.gates })
