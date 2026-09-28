@@ -184,9 +184,9 @@ async function setupFlight() {
   try {
     const ix = await fetch(DATA + 'index.json').then(r => { if (!r.ok) throw 0; return r.json() })
     pose.replaceChildren(...ix.poses.map((p: { file: string; label: string }) => new Option(p.label, p.file)))
-    if (ix.scene && !QS.get('scene')) {                  // the flight's own scan, unless the URL names one
-      if (!Array.from(sceneSel.options).some(o => o.value === ix.scene)) sceneSel.add(new Option(ix.scene, ix.scene), 0)
-      sceneSel.value = ix.scene; loadScene(ix.scene)
+    if (ix.scene) {                                      // the flight's own scan; the page's own list names hdz_0067's
+      sceneSel.replaceChildren(new Option(ix.scene, ix.scene)); pickFromUrl(sceneSel, 'scene')
+      loadScene(sceneSel.value)
     }
   } catch { }
   pickFromUrl(pose, 'poses')
@@ -196,6 +196,7 @@ async function setupFlight() {
     const fl = await fetch(import.meta.env.BASE_URL + 'flights.json').then(r => { if (!r.ok) throw 0; return r.json() })
     fsel.replaceChildren(...fl.flights.map((f: { data: string; label: string }) => new Option(f.label, f.data)))
     fsel.value = DATA_DIR
+    const cur = fl.flights.find((f: { data: string }) => f.data === DATA_DIR); if (cur) document.title = cur.label   // not the page's JDL title
     fsel.onchange = () => { const q = new URLSearchParams(location.search); q.set('data', fsel.value); q.delete('poses'); q.delete('scene'); location.search = q.toString() }
     fsel.parentElement!.hidden = false
   } catch { }
