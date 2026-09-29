@@ -11,13 +11,17 @@ export interface Env {
   CAPTURES: R2Bucket
 }
 
-// Everything else is the site. A DVR viewer (/dvr/<name>/) is a page in the site whose data
-// (a scene, a video, poses) sits in R2 under the same prefix.
-const FROM_R2 = /^\/(scene|track|app)\/|^\/dvr\/[^/]+\/data\//
+// Everything else is the site.
+const FROM_R2 = /^\/(scene|track|app)\//
+// The DVR viewers moved to their own repo and host (github.com/Saqoosha/ghostline); /dvr/<name>/... is
+// /<name>/... there. Their data stays in this bucket under dvr/, read by that Worker.
+const DVR = /^\/dvr(\/.*)?$/
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url)
+    const dvr = DVR.exec(url.pathname)
+    if (dvr) return Response.redirect('https://ghostline.saqoo.sh' + (dvr[1] ?? '/') + url.search, 301)
     if (!FROM_R2.test(url.pathname)) return env.ASSETS.fetch(request)
 
     const key = decodeURIComponent(url.pathname.slice(1))

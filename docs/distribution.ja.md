@@ -209,34 +209,9 @@ build metadata にする：
 **`publish.sh` は R2 に上げてから deploy する。**
 逆にすると、**まだ無いファイルを指すリストを必ず一度公開する**ことになる。
 
-**`publish.sh` は live の DVR ビューアを守ってから deploy する。** deploy はサイトを丸ごと
-置き換え、`/dvr/<name>/` のページもその中にある。ページの出どころはこのチェックアウトの
-`build/dvr-viewer/<name>` で、**最後にこのチェックアウトで `publish-dvr-viewer.sh` を回した時点の写し**
-でしかない。別のチェックアウトから新しい版を上げていると、キャプチャの公開が**古い版に巻き戻し**、
-写しが無ければ**消す**。エラーは出ない。2026-09-23 に本体の写しが 09-22 版のまま live が新しく、
-公開の直前で気づいた。
-
-`tools/check_live_viewers.py` が R2 の `dvr/<name>/data/` から live の一覧を取り、各 `index.html` と、
-それが**直接**名指す資産が手元に揃っているかを確かめ（JS が後から読むものまでは追わない。いまの
-viewer は JS 1 本）、違えば**何も上げる前に**止まる。アップロードは数分
-かかるので、**deploy の直前にもう一度**確かめる。比べる相手は deploy 先の `VDGS_BASE_URL`（既定
-`https://vdgs.saqoo.sh`）で、カタログの URL の host ではない —— 別の base URL で組んだカタログだと
-全 viewer が 404 になり「live じゃない」と読んでしまう。直すのは `bash tools/pull-dvr-viewer.sh <name>`（live のページと
-それが名指す資産を写し取る）→ `make-catalog.sh` のやり直し。わざと変えるときは `VDGS_VIEWER_CHANGE=<name>`。
-
-**`publish-dvr-viewer.sh` も同じ置き換え方をする。** 変えたいのは `dvr/<name>/` だけなのに、
-deploy はこのチェックアウトのサイト丸ごと —— カタログ、トップページ、他の viewer —— を出す。
-サイトを別の時点で組んだチェックアウトからだと**カタログを巻き戻し**、
-手元に無いファイルは**live から消す**。2026-09-23 に別のセッションがこれを理由に実行を控えた。`tools/check_live_site.py` が
-サイト直下の全ファイル（`catalog.json` はバイト単位、ページはビーコンを除く）とトップが名指す資産を、
-`check_live_viewers.py` が今上げる `<name>` 以外の viewer —— R2 にデータがあるものと手元にフォルダが
-あるものの両方 —— を確かめる。**live に無いものが手元にあれば「増える」として止める。** 確認はビルドの
-**前**（止まっても手元の写しは元のまま）と、`.sog` を上げ終えた deploy の直前の 2 回。2 回目で止まったら、
-**データはもう上がっていて live のページがそれを読んでいる**ので、直してもう一度走らせる。live を読む部分は `tools/_live.py` に 1 つだけ置いてある。
-
 **deploy は Worker のコードも上げる。** `wrangler deploy` はサイトと一緒に `worker/`（`/scene/`・
-`/track/`・`/app/`・`/dvr/<name>/data/` を R2 に振り分けるルーティング）を出すので、古いか未マージの
-ブランチから上げると**ルーティングを巻き戻す** —— b422d88 より前なら全 viewer のデータが 404 になる。
+`/track/`・`/app/` を R2 に、`/dvr/` を ghostline に振り分けるルーティング）を出すので、古いか未マージの
+ブランチから上げると**ルーティングを巻き戻す**。
 live の Worker がどのコミットから来たかは読み戻せないので、`tools/check_worker_source.sh` が
 **`origin/master` を正とし**、`worker/` が 1 バイトでも違えば（未コミット・未追跡を含む）両方の公開スクリプトを
 止める。わざと上げるときは `VDGS_WORKER_CHANGE=1`。
@@ -295,8 +270,7 @@ metadata として刻み、次回はそれと突き合わせる。同じ日の c
 |---|---|
 | `/`, `/assets/*`, `/catalog.json` | 静的アセット（`build/release/site`） |
 | `/scene/*`, `/track/*`, `/app/*` | R2 バケット `vdgs`（`build/release/files`） |
-| `/dvr/<name>/` | DVR ビューアのページ（静的アセット。`tools/publish-dvr-viewer.sh` が `viewer/` を `base: /dvr/<name>/` で焼いて `build/dvr-viewer/<name>` に置き、`make-catalog.sh` の `rm -rf` 後も戻す） |
-| `/dvr/<name>/data/*` | 同じ R2（`dvr/<name>/data/`：SOG 2 本、ピンホール動画、姿勢 3 組、`marks.json`。スキャンの代理動画は出さない） |
+| `/dvr/*` | https://ghostline.saqoo.sh へ 301（DVR ビューアは別 repo の Saqoosha/ghostline に移った。データは同じ R2 の `dvr/` のまま） |
 
 **分けている理由はサイズだけ** — デプロイは 1 ファイル 25 MiB 上限、キャプチャは数百 MB。
 viewer の `vite build` は `public/` を丸ごと dist に写すので、`public/data`（データへのシンボリックリンク）が

@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 # Refuse a deploy that would put a Worker other than origin/master's live.
 #
-# `wrangler deploy` ships this checkout's worker/ - the routing that sends /scene/, /track/,
-# /app/ and /dvr/<name>/data/ to R2 - along with the site. publish.sh and
-# publish-dvr-viewer.sh are about captures and viewers, so a checkout on an old or unmerged
-# branch would revert the live routing as a side effect: from before b422d88 there is no
-# /dvr/<name>/data/ route, and every viewer's data 404s. Which commit the live Worker came
+# `wrangler deploy` ships this checkout's worker/ - the routing that sends /scene/, /track/
+# and /app/ to R2, and /dvr/ to ghostline.saqoo.sh - along with the site. publish.sh is about
+# captures, so a checkout on an old or unmerged branch would revert the live routing as a
+# side effect. Which commit the live Worker came
 # from cannot be read back, so origin/master is taken as what it should be: worker/ here
 # must match it exactly, uncommitted edits and untracked files included.
 #
