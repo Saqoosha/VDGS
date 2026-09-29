@@ -120,13 +120,8 @@ x の符号を見る。
 
 ## DVR viewer に出す
 
-空は `build/dvr/hdz_0067/sky.jpg`（→ R2 の `dvr/jdl-2026-r6/data/sky.jpg`）。viewer はこれを CPU で
+DVR ビューアは https://github.com/Saqoosha/ghostline に移った。空はフライトのフォルダの `sky.jpg` で、viewer はこれを CPU で
 512² × 6 面の cubemap に焼くので、継ぎ目のミップの問題は起きない（x の反転だけ要る）。
-
-- `tools/publish-dvr-viewer.sh` は **Worker ごと deploy して、`build/release/site` をまるごと出し直す**。
-  空の差し替えだけなら、R2 のそのファイルだけを `rclone copyto` で置き換えれば足りる
-- **配信は `Cache-Control: max-age=31536000, immutable`。** 同じ URL で中身を変えても、一度読んだブラウザは
-  1 年間古い空を出し続ける。確実に更新したいならファイル名に版を入れる
 
 ## SuperSplat に出す
 

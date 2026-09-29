@@ -988,23 +988,11 @@ docs/superpowers/specs/2026-08-18-splat-collision-design.md。
 **壁の厚みは速度で決まる。** 物理は 400 Hz、150 km/h で 1 ステップ 0.104 m 進むので
 **厚さ 10 cm 未満の壁はすり抜ける**。level set の帯を voxel の 4 倍で焼くのはこのため。
 
-## DVR の飛行経路を 3DGS 上に復元する
+## DVR の飛行経路は ghostline へ移した
 
-ゴーグルの DVR だけから全フレームのカメラ姿勢を同じ場所のスキャン上に求め、`viewer/` で 3DGS と DVR を
-重ねて確かめる（公開版 https://vdgs.saqoo.sh/dvr/jdl-2026-r6/、`tools/publish-dvr-viewer.sh`）。通し・設定・罠は [docs/dvr-localization.ja.md](docs/dvr-localization.ja.md)、道具は
-`tools/dvr/`。**同じスキャンなら 1〜2 時間、ほぼ GPU の放置。** 踏むと高くつく 3 つ：画素比較の loss は
-**両画像を σ 3 px でぼかさないと向きを見ない**（芝が画面の 3 分の 2）、mapper で穴を埋めたら
-**元の COLMAP アンカーを最優先**にして新規は DVR 自身の loss で採否を決める、ヘアピンでは
-slerp の**短い弧が実際と逆**なことがあり長い弧と画素で比べる。**位置は画素比較で探さない**（±6 m の格子探索は
-正しいアンカーまで 6 m 動かして loss を 14% 下げた。偽の極小がどこにでもある）。**数度・1 m を超える外れは
-まず CPR で直す**（`tools/dvr/cpr_all.sh`：3DGS を描いて MASt3R で DVR と照合し PnP。印なしで p50 46.6 → 11.0 px。
-**後に光度 refine を掛けると悪化する**）。人の印は別の系統で、
-viewer の `mark` でランドマークを打ち `marks_apply.sh` が run 10 から解き直す（1 周 1 時間、印の残差 32 → 7 px。
-CPR の結果は入らない）。CPR の穴は、脇の外れた回転を判定で落として正しい向きで描き直せば照合が戻る（#3700〜3735）。
-他のセッションの `wsl --shutdown` は走っている refine を黙って殺す。
-**新しい DVR は印も COLMAP も使わない通し**（`dvr_pipeline.sh` → `refine_flight.sh`）で回す。人が見るずれは、近い芝の点が作る
-RANSAC の合意に遠い電柱や木が外れとして捨てられて出る。解いた姿勢で描き直す 2 周目の照合で直る（d05 で遠くが 10 px 超 67 → 23）。
-動きの制約は加速度ではなくジャーク（60 fps では揺れのほうが本物の機動より大きな加速度に見える）。
+ゴーグルの DVR から飛行経路をスキャン上に求める道具とビューアは https://github.com/Saqoosha/ghostline に移った
+（公開は https://ghostline.saqoo.sh 。旧 URL `vdgs.saqoo.sh/dvr/...` は `worker/` が 301 で送る）。データは R2 の `vdgs` バケットの
+`dvr/` に置いたままで、向こうの Worker が読む。ここに残るのは、向こうが読むスキャンと空を作る道具。
 
 ## 残タスク
 
