@@ -208,7 +208,12 @@ python3 tools/decimate_mesh.py fine.ply reduced.ply 500000
 # 島の除去、glb、ランタイム形式（どこでも）
 python3 tools/clean_mesh.py reduced.ply mesh.ply \
     --voxel $VOXEL --min-voxels 100 --min-extent 0.25
-python3 tools/mesh_to_glb.py mesh.ply collision.glb
+# carve：全三角形を飛行空間に向け、届かない所を埋める
+uv run -q --python 3.12 --with numpy --with scipy --with scikit-image \
+    --with fast-simplification python tools/carve_collision.py mesh.ply carved.ply \
+    --mode open --drop-points drops.txt
+python3 tools/decimate_mesh.py carved.ply final.ply 500000
+python3 tools/mesh_to_glb.py final.ply collision.glb
 python3 tools/glb_to_collision.py collision.glb myscene.collision.bin
 ```
 
@@ -216,9 +221,26 @@ python3 tools/glb_to_collision.py collision.glb myscene.collision.bin
 **`vdb_tool` が無く、`VDGS_HOST` も未設定なら失敗する。** splat-transform の voxel
 メッシュには落ちない（測ったらギャップが約 8 倍）。
 
-`--reverse` は巻き順を反転する。部屋によっては要る（付けないと殻の外側に乗る）。付けると
-壊れるシーンもある。符号付き体積から推測しない。Web UI の **show solid**：正しく巻いて
-あれば室内から壁が見え、裏返しだと消える。あとは飛ぶ。止めてくれるほうのフラグを残す。
+**巻き順は carve が決める。`--reverse` は付けない。** PhysX のメッシュは片面なので、
+全三角形がドローンの飛ぶ側を向いていなければならない。その側はメッシュに書いていなくて、
+carve の seed が届く空間として決まる。グリッドの端まで届くもの（屋外と、これまで測った
+部屋全部 —— playroom も drjohnson も天井から漏れる）は `--mode open`。閉じた部屋は
+`--mode sealed` で、部屋の外が全部埋まる。`sealed` は漏れている部屋を推測で通さず止まる。
+
+確かめるのは carve が書いた落下点で（PhysX で、飛行空間から真下に落とす）：
+
+```bash
+env TMPDIR=/tmp/ <Unity 2022.3> -batchmode -quit -nographics -projectPath unity/VDGSConverter \
+  -executeMethod CollisionTest.RunPoints -vdgsCollision <dir か .ply> -vdgsPoints drops.txt
+```
+
+`held` がほぼ全部なら正しい。`sank` の中央値が数十 cm なら裏返っている —— 球が面を抜けて
+板の裏側で止まっている。`.ply` のキャプチャは carve に `--up=-y` を渡す。落下点がゲームが
+メッシュを読むのと同じ座標で出る。
+
+以前ここにあった規則（`--reverse` は飛んで決める、`CollisionTest.Run` で決める）で出荷した
+FDF・JDL-R5・textilni は、この試験では 200 点中 191〜195 点が 0.22〜0.34 m 沈む。**実機では
+未確認** —— 地面がぼやけたシーンなので、飛んでもめり込みは目で分からない。
 
 ### ファイルの場所
 

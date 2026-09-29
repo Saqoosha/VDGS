@@ -185,6 +185,91 @@ public static class CollisionTest
         if (Application.isBatchMode) EditorApplication.Exit(0);
     }
 
+    /// <summary>
+    /// Drops a ball above surfaces chosen OUTSIDE this test, one per line of a text file:
+    ///
+    ///   Unity ... -executeMethod CollisionTest.RunPoints \
+    ///         -vdgsCollision build/splats/playroom -vdgsPoints drops.txt
+    ///
+    /// Each line is "x ytop z" in the collider's frame: the first surface a downward ray
+    /// meets from inside the flying space, found with facing ignored. Run() cannot pick
+    /// those points itself - which side is flyable is not in the mesh - but carve_collision
+    /// defines it (what the seed reaches), so the points come from there. A ball that rests
+    /// at ytop + radius was held by the face the pilot sees; one that rests lower sank
+    /// through it and was caught by something behind.
+    /// </summary>
+    public static void RunPoints()
+    {
+        var dir = Arg("-vdgsCollision");
+        var pointsPath = Arg("-vdgsPoints");
+        if (string.IsNullOrEmpty(dir) || string.IsNullOrEmpty(pointsPath))
+        {
+            Fail("pass -vdgsCollision <dir or .ply> and -vdgsPoints <file>");
+            return;
+        }
+        var log = new StringBuilder();
+        var root = new GameObject("VDGS_test");
+        if (!SplatCollisionProbe.Attach(root.transform, dir, log))
+        {
+            Debug.Log(log.ToString().TrimEnd());
+            Fail("Attach returned false");
+            return;
+        }
+        var b = root.GetComponentInChildren<MeshCollider>().bounds;
+
+        const float radius = 0.125f;
+        const float step = 0.0025f;
+        var wasMode = Physics.simulationMode;
+        Physics.simulationMode = SimulationMode.Script;
+        // VelociDrone's gravity. Restored afterwards: batch mode saves project settings on
+        // exit, and a changed gravity would land in DynamicsManager.asset.
+        var wasGravity = Physics.gravity;
+        Physics.gravity = new Vector3(0f, -10.78f, 0f);
+
+        int held = 0, sank = 0, through = 0, moving = 0;
+        var sinks = new System.Collections.Generic.List<float>();
+        foreach (var line in File.ReadAllLines(pointsPath))
+        {
+            var f = line.Split(' ');
+            if (f.Length < 3) continue;
+            float x = float.Parse(f[0], System.Globalization.CultureInfo.InvariantCulture);
+            float top = float.Parse(f[1], System.Globalization.CultureInfo.InvariantCulture);
+            float z = float.Parse(f[2], System.Globalization.CultureInfo.InvariantCulture);
+            var ball = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            ball.transform.localScale = Vector3.one * (radius * 2f);
+            ball.transform.position = new Vector3(x, top + radius + kDropHeight, z);
+            var rb = ball.AddComponent<Rigidbody>();
+            rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
+            // Straight down only. The question is whether the surface under this point
+            // holds; on a bumpy capture a free ball rolls off 95% of them first.
+            rb.constraints = RigidbodyConstraints.FreezePositionX | RigidbodyConstraints.FreezePositionZ
+                             | RigidbodyConstraints.FreezeRotation;
+            var settled = false;
+            for (int i = 0; i < 1200; i++)                      // 3 seconds
+            {
+                Physics.Simulate(step);
+                if (i > 100 && rb.velocity.magnitude < 0.01f) { settled = true; break; }
+                if (ball.transform.position.y < b.min.y - 5f) break;
+            }
+            var off = ball.transform.position.y - (top + radius);
+            var p = ball.transform.position;
+            Debug.Log($"[VDGS]   drop {x:0.000} {top:0.000} {z:0.000} -> {p.x:0.000} {p.y:0.000} {p.z:0.000} "
+                      + $"settled={settled}");
+            if (ball.transform.position.y < b.min.y - 5f) through++;
+            else if (off < -0.05f) { sank++; sinks.Add(-off); }
+            else if (settled && off <= kTolerance) held++;
+            else moving++;
+            UnityEngine.Object.DestroyImmediate(ball);
+        }
+        Physics.simulationMode = wasMode;
+        Physics.gravity = wasGravity;
+        sinks.Sort();
+        var median = sinks.Count > 0 ? sinks[sinks.Count / 2] : 0f;
+        Debug.Log($"[VDGS] drops: held {held}, sank {sank} (median {median:0.000} m), "
+                  + $"through {through}, rolling {moving}");
+        if (Application.isBatchMode) EditorApplication.Exit(0);
+    }
+
     private static string Arg(string name)
     {
         var argv = System.Environment.GetCommandLineArgs();

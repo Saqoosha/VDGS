@@ -91,8 +91,10 @@ SuperSplat の「大きい splat を選ぶ」機能が使えないのはこの�
 4. gs_field_mesh.py     密度場 -> 等値面
 5. decimate_mesh.py     三角形の予算まで間引く
 6. clean_mesh.py        島の除去
-7. mesh_to_glb.py -> glb_to_collision.py
-8. CollisionTest.Run    巻き順を決める
+7. carve_collision.py   --mode open --radius 0.2 --grid 0.1。巻き順を飛行側に揃える
+8. decimate_mesh.py     もう一度予算まで
+9. mesh_to_glb.py -> glb_to_collision.py（--reverse なし）
+10. CollisionTest.RunPoints   carve の落下点で確かめる
 ```
 
 ### コリジョン用の ply は描画されない。合成 splat を使ってよい
@@ -200,20 +202,32 @@ smax > 0.3m  かつ  sigma_y < 0.1m  かつ  局所地面から 0.8m 超
 絞ったぶんを間引きが食う。FDF は予算を 1.2M → 2.2M に上げて辺 0.213 m を取り戻した
 （頂点 107 万、`collision.bin` 39 MB）。
 
-### 巻き順は落下テストで決める。符号は使えない
+### 巻き順は carve が決める。落下テストでは決まらなかった
 
-`CollisionTest.Run` を両方の向きで走らせて比べる。JDL では 2 回とも**生成のまま**が勝った：
+**出荷した FDF・JDL-R5・textilni は、エディタの PhysX では 3 本とも裏返りと出る**（2026-09-27、
+実機では未確認）。飛行空間
+から真下に球を落とすと（`CollisionTest.RunPoints`、水平移動を固定）：
 
 ```
-生成のまま  on surface 4, elsewhere 3, through 1   （粗い版）
-反転       on surface 2, elsewhere 2, through 4
-生成のまま  on surface 1, elsewhere 5, through 2   ずれ 0.001〜0.212 m（細かい版）
-反転       on surface 0, elsewhere 6, through 2   ずれ 0.148〜0.372 m
+                出荷版                    --reverse だけ   carve 後
+FDF       held   5 / sank 191  中央値 0.337 m   held 194        held 193
+JDL-R5    held   9 / sank 191  中央値 0.244 m   held 192        held 199
+textilni  held   4 / sank 195  中央値 0.277 m   held 195        held 199
 ```
 
-**屋外では `on surface` の数が低く出る。** テストは「10 秒後に動いていたら失敗」と数える
-ので、野原の凸凹で転がり続ける球が `ELSEWHERE ... still moving` になる。ずれが数 cm
-なら面には乗っている。**判定に使えるのは 2 本の比較のほう。**
+球は地面の面を抜けて、**殻の底面に下から支えられて止まる。** 沈む深さは板の厚み。止まる高さは
+見えている splat の地面より JDL で 13 cm、FDF で 30 cm 下（中央値）。ただ地面がぼやけて
+いるので、実機で飛んでも目では区別がつかない。ゲームのドローンが球と同じに振る舞うかも
+見ていない。
+
+以前の `CollisionTest.Run` が「生成のまま」を選んだ理由は、狙いを `Physics.Raycast` で
+つけていたこと。裏面に当たらないので、裏向きの上面を素通りして**底面を「面」として見つけ**、
+球がそこに止まったのを on surface と数えた。測っている面と落ちた面が同じなので、裏返りを
+原理的に検出できない。
+
+`--reverse` だけでも止まるが、**向きを人が選ぶ工程そのものが間違いの元**だった。
+`carve_collision.py` は seed が届く側を飛行側と定義して全三角形をそちらへ向ける
+（出力の 99.9% 以上）。手順と試験は SCENES.ja.md の 4 章。
 
 ### プレビューの `FAIL - shell leaked` は誤報になりうる
 
@@ -243,7 +257,7 @@ FDF-2026-08-22       4,508,391 splats   362 MB（High）
   実機の所見           良い。前の版より良い
 ```
 
-どちらも `iso 0.6` / `smooth 0.5` / 太らせ `0.05`、巻き順は生成のまま。
+どちらも `iso 0.6` / `smooth 0.5` / 太らせ `0.05`、巻き順は生成のまま（エディタの試験では裏返りと出る。上の節）。
 
 **コリジョン殻は学習走行をまたいで使い回せない。** 正規化が走行ごとに変わるので、同じ変換
 （鏡映・回転・スケール）を当てても位置が揃わない。JDL の 3M 版と 5M 版で実測すると

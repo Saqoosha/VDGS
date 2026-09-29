@@ -217,7 +217,12 @@ python3 tools/decimate_mesh.py fine.ply reduced.ply 500000
 # Islands off, glb, runtime blob (any machine)
 python3 tools/clean_mesh.py reduced.ply mesh.ply \
     --voxel $VOXEL --min-voxels 100 --min-extent 0.25
-python3 tools/mesh_to_glb.py mesh.ply collision.glb
+# Carve: face every triangle toward the flying space, fill what it cannot reach
+uv run -q --python 3.12 --with numpy --with scipy --with scikit-image \
+    --with fast-simplification python tools/carve_collision.py mesh.ply carved.ply \
+    --mode open --drop-points drops.txt
+python3 tools/decimate_mesh.py carved.ply final.ply 500000
+python3 tools/mesh_to_glb.py final.ply collision.glb
 python3 tools/glb_to_collision.py collision.glb myscene.collision.bin
 ```
 
@@ -226,10 +231,28 @@ python3 tools/glb_to_collision.py collision.glb myscene.collision.bin
 does not fall back to splat-transform's voxel mesher — that path was measured at about
 8× the gap.
 
-`--reverse` flips winding. Some rooms need it (otherwise you sit on the outside of the
-shell); some break if you add it. Do not guess from signed volume. Enable **show solid**
-in the Web UI: inside a correctly wound room the walls are visible, inside an inside-out
-one they vanish. Then fly. Keep the flag that holds you up.
+**Winding comes from the carve; do not pass `--reverse`.** PhysX meshes are
+single-sided, so every triangle must face the side the drone flies in, and that side is not
+in the mesh: it is what the carve's seed reaches. `--mode open` for anything that reaches
+the edge of the grid (outdoors, and every room measured so far - playroom and drjohnson
+leak through their ceilings); `--mode sealed` for a room that holds, which then fills
+everything outside it. `sealed` refuses a room that leaks rather than guessing.
+
+Check it with the drop points it wrote (straight down, in PhysX, from the flying space):
+
+```bash
+env TMPDIR=/tmp/ <Unity 2022.3> -batchmode -quit -nographics -projectPath unity/VDGSConverter \
+  -executeMethod CollisionTest.RunPoints -vdgsCollision <dir or .ply> -vdgsPoints drops.txt
+```
+
+`held` should be nearly all of them. `sank` with a median of a few tenths of a metre is an
+inside-out mesh: the ball passed the surface and rests on the underside of the slab. For a
+`.ply` capture pass `--up=-y` to the carve so the points come out in the frame the game
+loads the mesh in.
+
+FDF, JDL-R5 and textilni, shipped under the previous rule here (pick `--reverse` by flying,
+or by `CollisionTest.Run`), sink 191-195 of 200 balls by 0.22-0.34 m in this test. **Not
+confirmed in the game** - their ground is blurry, so flying does not show the difference.
 
 ### Where the file goes
 

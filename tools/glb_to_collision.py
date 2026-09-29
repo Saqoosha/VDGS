@@ -16,10 +16,9 @@ So the format is the two arrays with a header, matching how the splat data alrea
 
 Little-endian, which is every platform this runs on.
 
-WINDING: `--reverse` flips every triangle. Which scenes need it is decided by the drop
-test in unity/VDGSConverter/Assets/Editor/CollisionTest.cs, per scene - see the comment in
-main(). Do not infer it from the signed volume; that was tried and it is wrong for
-textilni.
+WINDING: decided by tools/carve_collision.py, which faces every triangle toward the space
+the seed reaches. Run that first and do NOT pass `--reverse` here. `--reverse` flips every
+triangle and remains for meshes that did not go through the carve - see main().
 
 FRAME: passed through unchanged. The mesh must arrive in the same frame as the converted
 splat asset the game loads, and that is per scene - build/splats/playroom is unmirrored
@@ -93,29 +92,26 @@ def main():
     if hi >= len(verts):
         raise SystemExit(f'{src}: index {hi} out of range for {len(verts)} vertices')
 
-    # Winding is EXPLICIT, per scene, and decided by the drop test - not by the sign of the
-    # volume printed below. That sign was used as an automatic criterion for one afternoon
-    # and it is wrong:
+    # Winding. A mesh that went through carve_collision.py already faces the flying side and
+    # must be written as is. For one that did not, which side is flyable is not in the mesh,
+    # and two ways of guessing it have both been wrong:
     #
-    #   playroom    -24.51 m^3   reversing it is CORRECT   (ball reaches the floor)
-    #   drjohnson  -107.97 m^3   reversing it is CORRECT
-    #   textilni  -2571.04 m^3   reversing it is WRONG     (0 of 8 balls held, vs 6 of 8)
-    #
-    # All three report a negative volume; two need reversing and one must be left alone.
-    # textilni is not a simple closed solid - 2,383 non-manifold edges - and it is also the
-    # only one of the three whose triangle count hit the 500K decimation budget, so either
-    # the level set or fast_simplification is producing a different convention there. The
-    # mechanism is NOT understood; what is measured is which winding holds a dropped ball.
+    #   the signed volume    all three of playroom, drjohnson and textilni are negative
+    #   CollisionTest.Run    kept FDF, JDL-R5 and textilni as generated, and in the editor's
+    #                        PhysX all three are inside out (not confirmed in the game, where
+    #                        the blurry ground hides it): dropped straight down from the flying space, 191-194
+    #                        of 200 balls pass the ground and rest 0.22-0.34 m lower, on the
+    #                        slab's underside. Run aims with Physics.Raycast, and the game
+    #                        (and this project) do not hit backfaces, so it aimed at the very
+    #                        underside the ball then landed on and called it on-surface.
     #
     # PhysX treats a non-convex MeshCollider as SINGLE-SIDED, which is why this matters at
     # all: a body reaching a triangle from behind is not stopped, it passes through and gets
-    # held from the far side. On playroom that put a ball 31 mm into the ceiling's underside,
-    # 2.2 m above a floor it never touched - and the old single-drop test called it PASS,
-    # because the ball did stop.
+    # held from the far side.
     #
-    # Verify every mesh either way before shipping it:
+    # Verify with the drop points carve defines:
     #   Unity -batchmode -quit -nographics -projectPath unity/VDGSConverter \
-    #         -executeMethod CollisionTest.Run -vdgsCollision <dir or .ply>
+    #         -executeMethod CollisionTest.RunPoints -vdgsCollision <dir or .ply> -vdgsPoints <file>
     tri = np.asarray(indices, np.int64).reshape(-1, 3)
     vol = signed_volume(verts, tri)
     if reverse:
@@ -123,7 +119,7 @@ def main():
         print(f'   winding reversed (--reverse): {vol:+.2f} -> {signed_volume(verts, tri):+.2f} m^3')
     else:
         print(f'   winding kept as generated: {vol:+.2f} m^3   '
-              '(sign is NOT the criterion - run CollisionTest)')
+              '(sign is NOT the criterion - see the comment above)')
     indices = tri.reshape(-1)
 
     verts = np.ascontiguousarray(verts, '<f4')
