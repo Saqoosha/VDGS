@@ -86,8 +86,8 @@ v2f vert (uint vtxID : SV_VertexID, uint instID : SV_InstanceID)
 		o.vertex.xy += deltaScreenPos * centerClipPos.w;
 		// Keep every splat inside the clip volume in depth, as PlayCanvas does: the game
 		// camera's far plane is 900 m and the sky splats sit beyond it, so without this the
-		// hardware clips them and the dark skybox shows through. Order comes from the sort,
-		// not from this depth.
+		// hardware clips them and the dark skybox shows through. Splats nearer than the near
+		// plane are kept the same way. Order comes from the sort, not from this depth.
 		#if UNITY_REVERSED_Z
 		o.vertex.z = clamp(o.vertex.z, 0, o.vertex.w);
 		#else
@@ -116,7 +116,7 @@ v2f vert (uint vtxID : SV_VertexID, uint instID : SV_InstanceID)
 half4 frag (v2f i) : SV_Target
 {
 	// Manual scene-depth test (see _CameraDepthTexture note above). This mod only runs
-	// under -force-d3d12, where render-target UVs start at the top - so SV_Position
+	// under D3D12 or Metal, where render-target UVs start at the top - so SV_Position
 	// pixel coordinates map straight onto the depth texture.
 	if (_SplatDepthClip != 0)
 	{
@@ -127,9 +127,8 @@ half4 frag (v2f i) : SV_Target
 		#else
 		bool sceneEmpty = rawDepth >= 1;
 		#endif
-		// A pixel nothing was drawn to holds the far plane, and splats past it (the
-		// capture's sky reaches ~970 m, the game camera's far is 900 m) must not be
-		// tested against it.
+		// A pixel nothing was drawn to holds the far plane, not a surface, so splats past
+		// the far plane (FDF-2026-R6b's sky) must not be tested against it.
 		float sceneEyeZ = LinearEyeDepth(rawDepth);
 		if (!sceneEmpty && i.viewZ > sceneEyeZ * 1.005 + 0.1)
 			discard;

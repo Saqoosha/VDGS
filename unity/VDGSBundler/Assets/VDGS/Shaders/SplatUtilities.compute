@@ -309,9 +309,9 @@ void DecomposeCovariance(float3 cov2d, out float2 v1, out float2 v2)
     // Cap each axis the way PlayCanvas (SuperSplat) does: min(1024, shorter screen side)
     // in its units, which count double because its focal length is width * P00 rather
     // than width * P00 / 2. The old 4096 let a splat a few tens of centimetres from the
-    // camera - a 2.4 m flat disc at 0.25 m projects to 11,000 px - cover the whole
-    // frame at its full opacity, a flat green veil the web viewers never show: capped,
-    // the same splat falls off to nothing well inside the screen.
+    // camera (sqrt(2*lambda1) ~11,000 px at 1080p) spread nearly flat over the whole
+    // frame at its own opacity, a veil the web viewers never show; capped, its falloff
+    // lands within about one screen height.
     float maxSize = 0.5 * min(1024.0, min(_VecScreenParams.x, _VecScreenParams.y));
     v1 = min(sqrt(2.0 * lambda1), maxSize) * diagVec;
     v2 = min(sqrt(2.0 * lambda2), maxSize) * float2(diagVec.y, -diagVec.x);

@@ -20,6 +20,8 @@ namespace VDGS
     /// "poses" is a JSON array of { "pos", "fwd", "up", "name"? }; both paths are relative
     /// to &lt;game&gt;/vdgs. "warmup" frames hold the first pose before recording starts,
     /// for the sort and the spawn to settle. rec.done is written in "out" when finished.
+    /// "fov" and the renderer knobs are the top-level keys and apply to every pose; the
+    /// camera stays on the last pose afterwards, and "out" is not emptied first.
     ///
     /// "black" clears to solid black and sets cullingMask to 0. The splats survive that
     /// because they are drawn from a CommandBuffer rather than by the culling pass, so
@@ -156,6 +158,18 @@ namespace VDGS
 
         /// <summary>One pose per frame: set it for this frame's render and capture that render.</summary>
         private static void StepRecord()
+        {
+            // Runs ahead of Poll's try, from Plugin.Update: a throw here would stop the
+            // rest of Update every frame, so a bad pose ends the recording instead.
+            try { StepRecordUnguarded(); }
+            catch (Exception e)
+            {
+                Probe.Write("evalcam: recording stopped at pose " + Math.Max(s_RecIdx, 0) + " - " + e.Message);
+                s_RecPoses = null;
+            }
+        }
+
+        private static void StepRecordUnguarded()
         {
             int i = Math.Max(s_RecIdx, 0);
             if (i >= s_RecPoses.Count)
