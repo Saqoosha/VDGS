@@ -1,0 +1,11 @@
+{
+  "id": "fdf-cup-2026-r6",
+  "name": "VDGS FDF CUP 2026 R6",
+  "description": "The FDF CUP 2026 Round 6 course at Funabashi Drone Field, Funabashi, Chiba, Japan, reconstructed from Saqoosha's own iPhone and DJI footage taken on race day, with the sky from the same footage. No collision yet, so gates and ground are flown through.",
+  "author": "Saqoosha",
+  "licence": "CC0-1.0",
+  "captured": "2026-09-27",
+  "installAs": "FDF-2026-R6b",
+  "revision": 1,
+  "track": "VDGS-FDF-CUP-2026-R6.track.json"
+}
