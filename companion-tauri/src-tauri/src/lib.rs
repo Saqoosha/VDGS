@@ -560,11 +560,14 @@ impl Host {
                     }
                     tracks::ImportResult::WouldOverwrite => {
                         let shown = tracks::display_name(&t.name);
-                        let bound = entry.install_as.as_deref().is_some_and(|s| {
-                            game::read_bindings(&root)
+                        let bound = match entry.install_as.as_deref() {
+                            // Nothing is ever bound for such an entry, so no advice would help.
+                            None => true,
+                            Some(s) => game::try_read_bindings(&root)
+                                .map_err(|e| e.to_string())?
                                 .get(&shown)
-                                .is_some_and(|list| list.iter().any(|b| b == s))
-                        });
+                                .is_some_and(|list| list.iter().any(|b| b == s)),
+                        };
                         // Already bound (an update after the gates changed): the capture
                         // still shows, so a log line is the whole story.
                         if bound {
