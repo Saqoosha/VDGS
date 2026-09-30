@@ -82,4 +82,38 @@ public class SogChunkTests
         public byte[] Read(string p) => p == m_Name ? m_Bytes : throw new FileNotFoundException(p);
         public void Dispose() { }
     }
+
+    // The fixtures only carry tag 252, so the other three dropped-component cases are pinned
+    // here against the table-driven code they replaced, bit for bit.
+    [Fact]
+    public void UnpackQuatMatchesTheTableForEveryTag()
+    {
+        int[] quatIdx = { 1, 2, 3, 0, 2, 3, 0, 1, 3, 0, 1, 2 };
+        float invSqrt2 = 1f / (float)Math.Sqrt(2.0);
+        var got = new float[4];
+        for (int tag = 0; tag < 256; tag++)
+        for (int px = 0; px < 256; px += 17)
+        for (int py = 0; py < 256; py += 17)
+        for (int pz = 0; pz < 256; pz += 17)
+        {
+            float[] want;
+            if (tag < 252) want = new[] { 0f, 0f, 0f, 1f };
+            else
+            {
+                int m = tag - 252;
+                float a = (px / 255f * 2f - 1f) * invSqrt2;
+                float b = (py / 255f * 2f - 1f) * invSqrt2;
+                float c = (pz / 255f * 2f - 1f) * invSqrt2;
+                var wxyz = new float[4];
+                wxyz[quatIdx[m * 3]] = a;
+                wxyz[quatIdx[m * 3 + 1]] = b;
+                wxyz[quatIdx[m * 3 + 2]] = c;
+                wxyz[m] = (float)Math.Sqrt(Math.Max(0.0, 1f - (a * a + b * b + c * c)));
+                want = new[] { wxyz[1], wxyz[2], wxyz[3], wxyz[0] };
+            }
+            SogChunk.UnpackQuat((byte)px, (byte)py, (byte)pz, (byte)tag, got, 0);
+            for (int k = 0; k < 4; k++)
+                Assert.Equal(BitConverter.SingleToInt32Bits(want[k]), BitConverter.SingleToInt32Bits(got[k]));
+        }
+    }
 }

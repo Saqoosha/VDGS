@@ -127,24 +127,28 @@ namespace VDGS
             if (len > 1e-20f) { float inv = 1f / len; x *= inv; y *= inv; z *= inv; w *= inv; }
             else { x = y = z = 0f; w = 1f; }
 
-            var q = new[] { x, y, z, w };
+            // Scalars, not an array: this runs once per splat on every loader thread.
             int largest = 0;
-            for (int i = 1; i < 4; i++)
-                if (Mathf.Abs(q[i]) > Mathf.Abs(q[largest])) largest = i;
-            if (q[largest] < 0f)
-                for (int i = 0; i < 4; i++) q[i] = -q[i];
+            float big = Mathf.Abs(x);
+            if (Mathf.Abs(y) > big) { largest = 1; big = Mathf.Abs(y); }
+            if (Mathf.Abs(z) > big) { largest = 2; big = Mathf.Abs(z); }
+            if (Mathf.Abs(w) > big) largest = 3;
+            float lv = largest == 0 ? x : largest == 1 ? y : largest == 2 ? z : w;
+            if (lv < 0f) { x = -x; y = -y; z = -z; w = -w; }
 
             uint bits = (uint)largest << 30;
             int slot = 0;
-            for (int i = 0; i < 4; i++)
-            {
-                if (i == largest) continue;
-                float stored = (q[i] + 1f / kSqrt2) / kSqrt2;
-                uint u = (uint)Mathf.Clamp(Mathf.RoundToInt(stored * 1023f), 0, 1023);
-                bits |= u << (slot * 10);
-                slot++;
-            }
+            if (largest != 0) bits |= Smallest3(x) << (10 * slot++);
+            if (largest != 1) bits |= Smallest3(y) << (10 * slot++);
+            if (largest != 2) bits |= Smallest3(z) << (10 * slot++);
+            if (largest != 3) bits |= Smallest3(w) << (10 * slot++);
             return bits;
+        }
+
+        private static uint Smallest3(float v)
+        {
+            float stored = (v + 1f / kSqrt2) / kSqrt2;
+            return (uint)Mathf.Clamp(Mathf.RoundToInt(stored * 1023f), 0, 1023);
         }
 
         /// <summary>Splat index to texel, matching SplatIndexToPixelIndex in the HLSL.</summary>

@@ -140,7 +140,11 @@ namespace VDGS
         private void OnPreCullCamera(Camera cam)
         {
             if (!GatherSplatsForCamera(cam))
+            {
+                // Empty, not stale: cameras would replay a disposed capture's commands.
+                m_CommandBuffer?.Clear();
                 return;
+            }
 
             if (m_CommandBuffer == null)
                 m_CommandBuffer = new CommandBuffer { name = "VDGS RenderGaussianSplats" };
@@ -382,13 +386,22 @@ namespace VDGS
         public SplatData Data => m_Data;
 
         internal bool HasValidData => m_Data != null && m_Data.SplatCount > 0;
-        internal bool HasValidRenderSetup => m_GpuPosData != null && m_GpuOtherData != null && m_GpuChunks != null;
+        internal bool HasValidRenderSetup =>
+            m_GpuPosData != null && m_GpuOtherData != null && m_GpuChunks != null && m_Upload.Count == 0
+            && m_UploadError == null;
 
         private static bool ResourcesReady =>
             ShaderBundle.Loaded && SystemInfo.supportsComputeShaders;
 
         /// <summary>Assigns the scene to draw. Recreates all GPU resources.</summary>
-        public void SetData(SplatData data)
+        public void SetData(SplatData data) => SetData(data, spread: false);
+
+        /// <summary>
+        /// spread: upload a few milliseconds' worth per frame instead of all at once, and
+        /// draw nothing until it is done. 17.3M splats is about 880 MB, which in one frame
+        /// stalled the game for 0.7-1.4 s on the RTX 3060 box.
+        /// </summary>
+        public void SetData(SplatData data, bool spread)
         {
             if (m_Data == data)
                 return;
@@ -399,6 +412,71 @@ namespace VDGS
             EnsureMaterials();
             EnsureSorterAndRegister();
             CreateResources();
+            if (!spread)
+                while (m_Upload.Count > 0) m_Upload.Dequeue().Run();
+        }
+
+        private struct UploadStep
+        {
+            public Action Run;
+            public long Bytes;
+        }
+        private readonly Queue<UploadStep> m_Upload = new Queue<UploadStep>();
+        private long m_UploadTotal, m_UploadDone;
+        private const int kUploadSlice = 4 << 20;
+        private const double kUploadMsPerFrame = 4.0;
+
+        internal bool Uploading => m_Upload.Count > 0;
+        /// <summary>Set when an upload step threw; the capture then never draws.</summary>
+        internal string UploadError => m_UploadError;
+        private string m_UploadError;
+        internal float UploadProgress => m_UploadTotal == 0 ? 1f : (float)((double)m_UploadDone / m_UploadTotal);
+
+        private void QueueStep(long bytes, Action run)
+        {
+            m_Upload.Enqueue(new UploadStep { Run = run, Bytes = bytes });
+            m_UploadTotal += bytes;
+        }
+
+        /// <summary>Queues a raw buffer's contents in slices; byte offsets, which SetData honours for byte[].</summary>
+        private void QueueSlices(GraphicsBuffer buf, byte[] src, int length)
+        {
+            for (int at = 0; at < length; at += kUploadSlice)
+            {
+                int from = at, n = Math.Min(kUploadSlice, length - at);
+                QueueStep(n, () => buf.SetData(src, from, from, n));
+            }
+        }
+
+        private void QueueSlices(GraphicsBuffer buf, uint[] src)
+        {
+            int per = kUploadSlice / 4;
+            for (int at = 0; at < src.Length; at += per)
+            {
+                int from = at, n = Math.Min(per, src.Length - at);
+                QueueStep(n * 4L, () => buf.SetData(src, from, from, n));
+            }
+        }
+
+        private void Update()
+        {
+            if (m_Upload.Count == 0) return;
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            // At least one step a frame, so a step longer than the budget still moves.
+            do
+            {
+                var step = m_Upload.Dequeue();
+                try { step.Run(); }
+                catch (Exception e)
+                {
+                    // Draining on would mark half-written buffers drawable.
+                    m_UploadError = e.GetType().Name + ": " + e.Message;
+                    m_Upload.Clear();
+                    Debug.LogException(e);
+                    return;
+                }
+                m_UploadDone += step.Bytes;
+            } while (m_Upload.Count > 0 && sw.Elapsed.TotalMilliseconds < kUploadMsPerFrame);
         }
 
         private void OnEnable()
@@ -409,6 +487,7 @@ namespace VDGS
             EnsureMaterials();
             EnsureSorterAndRegister();
             CreateResources();
+            while (m_Upload.Count > 0) m_Upload.Dequeue().Run();
         }
 
         private void OnDisable()
@@ -448,6 +527,9 @@ namespace VDGS
                 return;
 
             m_SplatCount = m_Data.SplatCount;
+            m_Upload.Clear();
+            m_UploadTotal = m_UploadDone = 0;
+            m_UploadError = null;
 
             m_GpuPosData = RawBuffer(m_Data.PosData, "VDGS PosData");
             m_GpuOtherData = RawBuffer(m_Data.OtherData, "VDGS OtherData");
@@ -458,9 +540,13 @@ namespace VDGS
             // and no GraphicsFormat Texture2D overload, so go through TextureFormat.
             var tex = new Texture2D(texWidth, texHeight, ColorFormatToTexture(m_Data.ColorFmt), false)
             { name = "VDGS ColorData" };
-            tex.SetPixelData(m_Data.ColorData, 0);
-            tex.Apply(false, true);
             m_GpuColorData = tex;
+            // Whole-mip only: the one step that cannot be sliced.
+            QueueStep(m_Data.ColorData.Length, () =>
+            {
+                tex.SetPixelData(m_Data.ColorData, 0);
+                tex.Apply(false, true);
+            });
 
             if (m_Data.HasChunks)
             {
@@ -494,8 +580,19 @@ namespace VDGS
                 2, 3, 6, 3, 7, 6
             });
 
-            InitSortBuffers(m_SplatCount);
-            CreateLodResources();
+            if (m_Data.Lod != null)
+            {
+                m_GpuSplatRun = new GraphicsBuffer(GraphicsBuffer.Target.Structured, m_SplatCount, 4)
+                { name = "VDGS SplatRun" };
+                QueueSlices(m_GpuSplatRun, m_Data.Lod.RunOfSplat);
+            }
+
+            // Last: InitSortBuffers -> BuildChunkRadii reads other.bin on the GPU.
+            QueueStep(0, () =>
+            {
+                InitSortBuffers(m_SplatCount);
+                CreateLodResources();
+            });
         }
 
         private void CreateLodResources()
@@ -516,8 +613,6 @@ namespace VDGS
             }
 
             int runs = lod.RunOffset.Length;
-            m_GpuSplatRun = new GraphicsBuffer(GraphicsBuffer.Target.Structured, m_SplatCount, 4) { name = "VDGS SplatRun" };
-            m_GpuSplatRun.SetData(lod.RunOfSplat);
             m_RunActive = new byte[runs];
             m_RunInfoWords = new uint[runs * 2];
             for (int r = 0; r < runs; r++)
@@ -595,17 +690,15 @@ namespace VDGS
         }
 
         /// <summary>
-        /// Raw buffers are addressed as uint by the shaders. GraphicsBuffer.SetData cannot
-        /// take a byte[] for a 4-byte-stride buffer, so reinterpret the bytes as uint first.
+        /// Raw buffers are addressed as uint by the shaders.
         /// </summary>
-        private static GraphicsBuffer RawBuffer(byte[] bytes, string name)
+        private GraphicsBuffer RawBuffer(byte[] bytes, string name)
         {
             int uintCount = bytes.Length / 4;
             var buf = new GraphicsBuffer(GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopySource,
                 uintCount, 4) { name = name };
-            var words = new uint[uintCount];
-            Buffer.BlockCopy(bytes, 0, words, 0, uintCount * 4);
-            buf.SetData(words);
+            // Straight from byte[]: no uint[] copy of the whole capture.
+            QueueSlices(buf, bytes, uintCount * 4);
             return buf;
         }
 
@@ -887,6 +980,8 @@ namespace VDGS
 
         private void DisposeResources()
         {
+            m_Upload.Clear();
+            m_UploadTotal = m_UploadDone = 0;
             if (m_GpuColorData != null)
             {
                 DestroyImmediate(m_GpuColorData);

@@ -326,7 +326,10 @@ makes the kernel count as using them, and Unity drops the dispatch), and cutting
 means, and every-leaf-level-0 collapsed to 241 ms (23 ms on the RTX 3060) — presumably unified
 memory under 17.3M resident splats.
 
-### Load time (unsolved)
+### Load time
+
+**Solved on 2026-09-24: 16.1 s frozen → 4.1 s with the game running.** The numbers below are the
+state before that; what changed and the new figures are in docs/performance.ja.md「読み込み時間」.
 
 | Machine | Where | read | decode | pack | total |
 |---|---|---|---|---|---|
@@ -335,11 +338,8 @@ memory under 17.3M resident splats.
 | M1 Max | Debug (default) | 0.7 s | 33 s | 33 s | 67 s |
 | M1 Max | Release (`-releaseCodeOptimization`) | 0.6 s | 17 s | 21 s | 39 s |
 
-**The game stalls for 16 s.** On Windows that is the editor's figure again; Release code does not
-shrink it. The VP8L decoder alone does one 748² × 7-image chunk in 0.6 s on
-.NET 8, so Mono is far slower. Raising the thread pool minimum on the Mac left it at 61 s, so it
-is not thread starvation. The suspect in pack is `PackRotation`'s per-splat `new float[4]`,
-moved unchanged from PlyLoader.
+The cause was the per-splat `new float[4]` in `PackRotation` and `UnpackQuat`: each one fed
+Mono's stop-the-world GC, which is also why raising the thread pool minimum did nothing.
 
 ## 5. Reducing splat count (costs quality; out of scope)
 

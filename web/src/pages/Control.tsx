@@ -116,6 +116,10 @@ function CaptureRow({ index, scene, onShow }: { index: string; scene: Scene; onS
             <span className="font-mono text-[10px] tracking-[0.2em] text-signal uppercase">
               shown
             </span>
+          ) : scene.loading ? (
+            <span className="font-mono text-[10px] tracking-[0.2em] text-muted-foreground uppercase">
+              loading…
+            </span>
           ) : null}
         </div>
         <p className="mt-1.5 font-mono text-[11px] tracking-[0.04em] text-muted-foreground">
@@ -130,8 +134,12 @@ function CaptureRow({ index, scene, onShow }: { index: string; scene: Scene; onS
           ) : null}
         </p>
       </div>
-      <Button variant={scene.shown ? 'ghost' : 'default'} disabled={scene.shown} onClick={onShow}>
-        {scene.shown ? 'Shown' : 'Show'}
+      <Button
+        variant={scene.shown || scene.loading ? 'ghost' : 'default'}
+        disabled={scene.shown || scene.loading}
+        onClick={onShow}
+      >
+        {scene.shown ? 'Shown' : scene.loading ? 'Loading…' : 'Show'}
       </Button>
     </li>
   )

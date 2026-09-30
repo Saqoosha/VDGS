@@ -71,6 +71,17 @@ describe('Control XSS', () => {
   })
 })
 
+// A large capture decodes for seconds; a second click used to be the only feedback.
+describe('a capture that is still loading', () => {
+  it('says so and cannot be shown twice', () => {
+    const s = scene({ shown: false, loading: true })
+    const status: Status = { ...sample(s), loaded: [] }
+    render(<Control state={status} refresh={async () => status} />)
+    expect(screen.getByText('loading…')).toBeTruthy()
+    expect((screen.getByRole('button', { name: 'Loading…' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+})
+
 // Each is a control that would otherwise look broken with no explanation.
 describe('controls that explain themselves', () => {
   it('hides Mirror for a converted capture - the flip happens while a .ply is parsed', () => {
