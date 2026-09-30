@@ -559,11 +559,27 @@ impl Host {
                         ));
                     }
                     tracks::ImportResult::WouldOverwrite => {
-                        log(format!(
-                            "a different track is already called \"{}\" - left alone, so yours is not replaced",
-                            t.name
+                        let shown = tracks::display_name(&t.name);
+                        let bound = match entry.install_as.as_deref() {
+                            // Nothing is ever bound for such an entry, so no advice would help.
+                            None => true,
+                            Some(s) => game::try_read_bindings(&root)
+                                .map_err(|e| e.to_string())?
+                                .get(&shown)
+                                .is_some_and(|list| list.iter().any(|b| b == s)),
+                        };
+                        // Already bound (an update after the gates changed): the capture
+                        // still shows, so a log line is the whole story.
+                        if bound {
+                            log(format!(
+                                "\"{shown}\" in VelociDrone has other gates than the published course - left alone"
+                            ));
+                            return Ok(());
+                        }
+                        // Unbound: returning Ok left the row back at GET with no reason shown.
+                        return Err(format!(
+                            "The capture is installed, but VelociDrone already has a different track called \"{shown}\", so it was left alone and the capture is not bound to this track. Delete or rename that track in VelociDrone, then get this one again."
                         ));
-                        return Ok(());
                     }
                 }
 
