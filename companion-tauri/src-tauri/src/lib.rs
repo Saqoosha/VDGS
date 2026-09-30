@@ -558,12 +558,24 @@ impl Host {
                             t.name
                         ));
                     }
-                    // An error, not a log line: returning Ok here left the button back at
-                    // GET with the capture on disk and nothing bound, and no way to tell why.
                     tracks::ImportResult::WouldOverwrite => {
+                        let shown = tracks::display_name(&t.name);
+                        let bound = entry.install_as.as_deref().is_some_and(|s| {
+                            game::read_bindings(&root)
+                                .get(&shown)
+                                .is_some_and(|list| list.iter().any(|b| b == s))
+                        });
+                        // Already bound (an update after the gates changed): the capture
+                        // still shows, so a log line is the whole story.
+                        if bound {
+                            log(format!(
+                                "\"{shown}\" in VelociDrone has other gates than the published course - left alone"
+                            ));
+                            return Ok(());
+                        }
+                        // Unbound: returning Ok left the row back at GET with no reason shown.
                         return Err(format!(
-                            "The capture is installed, but VelociDrone already has a different track called \"{}\", so it was left alone and the capture is not bound to anything.\n\nDelete or rename that track in VelociDrone, then press GET again.",
-                            tracks::display_name(&t.name)
+                            "The capture is installed, but VelociDrone already has a different track called \"{shown}\", so it was left alone and the capture is not bound to this track. Delete or rename that track in VelociDrone, then get this one again."
                         ));
                     }
                 }
