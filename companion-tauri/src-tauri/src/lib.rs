@@ -558,12 +558,13 @@ impl Host {
                             t.name
                         ));
                     }
+                    // An error, not a log line: returning Ok here left the button back at
+                    // GET with the capture on disk and nothing bound, and no way to tell why.
                     tracks::ImportResult::WouldOverwrite => {
-                        log(format!(
-                            "a different track is already called \"{}\" - left alone, so yours is not replaced",
-                            t.name
+                        return Err(format!(
+                            "The capture is installed, but VelociDrone already has a different track called \"{}\", so it was left alone and the capture is not bound to anything.\n\nDelete or rename that track in VelociDrone, then press GET again.",
+                            tracks::display_name(&t.name)
                         ));
-                        return Ok(());
                     }
                 }
 
