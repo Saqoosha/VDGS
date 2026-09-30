@@ -84,6 +84,15 @@ v2f vert (uint vtxID : SV_VertexID, uint instID : SV_InstanceID)
 		float2 deltaScreenPos = (quadPos.x * view.axis1 + quadPos.y * view.axis2) * 2 / _ScreenParams.xy;
 		o.vertex = centerClipPos;
 		o.vertex.xy += deltaScreenPos * centerClipPos.w;
+		// Keep every splat inside the clip volume in depth, as PlayCanvas does: the game
+		// camera's far plane is 900 m and the sky splats sit beyond it, so without this the
+		// hardware clips them and the dark skybox shows through. Order comes from the sort,
+		// not from this depth.
+		#if UNITY_REVERSED_Z
+		o.vertex.z = clamp(o.vertex.z, 0, o.vertex.w);
+		#else
+		o.vertex.z = clamp(o.vertex.z, -o.vertex.w, o.vertex.w);
+		#endif
 		// View-space depth of the splat centre - the same constant the quad's hardware
 		// depth test used when a depth attachment was still bound.
 		o.viewZ = centerClipPos.w;
@@ -112,8 +121,17 @@ half4 frag (v2f i) : SV_Target
 	if (_SplatDepthClip != 0)
 	{
 		float2 depthUV = i.vertex.xy / _ScreenParams.xy;
-		float sceneEyeZ = LinearEyeDepth(SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, depthUV));
-		if (i.viewZ > sceneEyeZ * 1.005 + 0.1)
+		float rawDepth = SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, depthUV);
+		#if UNITY_REVERSED_Z
+		bool sceneEmpty = rawDepth <= 0;
+		#else
+		bool sceneEmpty = rawDepth >= 1;
+		#endif
+		// A pixel nothing was drawn to holds the far plane, and splats past it (the
+		// capture's sky reaches ~970 m, the game camera's far is 900 m) must not be
+		// tested against it.
+		float sceneEyeZ = LinearEyeDepth(rawDepth);
+		if (!sceneEmpty && i.viewZ > sceneEyeZ * 1.005 + 0.1)
 			discard;
 	}
 

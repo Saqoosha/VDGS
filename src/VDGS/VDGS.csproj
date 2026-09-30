@@ -55,6 +55,10 @@
       <HintPath>..\..\lib\unity\UnityEngine.ImageConversionModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="UnityEngine.ScreenCaptureModule">
+      <HintPath>..\..\lib\unity\UnityEngine.ScreenCaptureModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="UnityEngine.AssetBundleModule">
       <HintPath>..\..\lib\unity\UnityEngine.AssetBundleModule.dll</HintPath>
       <Private>false</Private>

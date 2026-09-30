@@ -12,6 +12,15 @@ namespace VDGS
     ///
     ///   { "pos": [x,y,z], "fwd": [x,y,z], "up": [x,y,z], "fov": 47.83, "black": true }
     ///
+    /// "record": { "poses": "path.json", "out": "rec", "warmup": 30 } plays a pose list
+    /// one pose per rendered frame and saves every frame, so a whole flight comes out in
+    /// the time the game takes to render it. Pose and screenshot land in the same frame
+    /// (pose set in Update, applied in onPreCull, captured at the end of that frame), so
+    /// the images cannot drift behind the poses the way an outside capture loop does.
+    /// "poses" is a JSON array of { "pos", "fwd", "up", "name"? }; both paths are relative
+    /// to &lt;game&gt;/vdgs. "warmup" frames hold the first pose before recording starts,
+    /// for the sort and the spawn to settle. rec.done is written in "out" when finished.
+    ///
     /// "black" clears to solid black and sets cullingMask to 0. The splats survive that
     /// because they are drawn from a CommandBuffer rather than by the culling pass, so
     /// what is left on screen is splats over black - the exact condition a WebGL viewer
@@ -36,6 +45,10 @@ namespace VDGS
         private static float s_CullSlack = -1f;
         private static int s_DepthClip = -1;
         private static bool s_Pin;
+        // Recording: null when not recording.
+        private static JArray s_RecPoses;
+        private static string s_RecOut;
+        private static int s_RecIdx;
 
         internal static void Init(string gameRoot)
         {
@@ -46,6 +59,8 @@ namespace VDGS
         /// <summary>Call once per frame; re-reads the file when it appears or changes.</summary>
         internal static void Poll(float dt)
         {
+            if (s_Active && s_RecPoses != null) StepRecord();
+
             s_Timer += dt;
             if (s_Timer < 1f) return;
             s_Timer = 0f;
@@ -89,6 +104,20 @@ namespace VDGS
                 s_DropDegenerate = j["dropDegenerate"] != null ? ((bool)j["dropDegenerate"] ? 1 : 0) : -1;
                 s_CullSlack = j["cullCenterSlack"] != null ? (float)j["cullCenterSlack"] : -1f;
                 s_DepthClip = j["depthClip"] != null ? ((bool)j["depthClip"] ? 1 : 0) : -1;
+                s_RecPoses = null;
+                var rec = j["record"];
+                if (rec != null)
+                {
+                    var dir = Path.GetDirectoryName(s_Path);
+                    s_RecPoses = JArray.Parse(File.ReadAllText(Path.Combine(dir, (string)rec["poses"])));
+                    s_RecOut = Path.Combine(dir, rec["out"] != null ? (string)rec["out"] : "rec");
+                    Directory.CreateDirectory(s_RecOut);
+                    File.Delete(Path.Combine(s_RecOut, "rec.done"));
+                    s_RecIdx = -(rec["warmup"] != null ? (int)rec["warmup"] : 30);
+                    s_Pin = true;
+                    SetPose((JObject)s_RecPoses[0]);
+                    Probe.Write("evalcam: recording " + s_RecPoses.Count + " poses -> " + s_RecOut);
+                }
                 s_Active = true;
                 ApplyOverrides();
                 Probe.Write("evalcam: on pos=" + s_Pos + " fwd=" + s_Fwd + " up=" + s_Up
@@ -116,6 +145,34 @@ namespace VDGS
                 if (s_CullSlack >= 0f) r.m_CullCenterSlack = s_CullSlack;
                 if (s_DepthClip >= 0) r.m_DepthClip = s_DepthClip != 0;
             }
+        }
+
+        private static void SetPose(JObject p)
+        {
+            s_Pos = Vec(p["pos"]);
+            s_Fwd = Vec(p["fwd"]).normalized;
+            s_Up = Vec(p["up"]).normalized;
+        }
+
+        /// <summary>One pose per frame: set it for this frame's render and capture that render.</summary>
+        private static void StepRecord()
+        {
+            int i = Math.Max(s_RecIdx, 0);
+            if (i >= s_RecPoses.Count)
+            {
+                File.WriteAllText(Path.Combine(s_RecOut, "rec.done"), s_RecPoses.Count.ToString());
+                Probe.Write("evalcam: recorded " + s_RecPoses.Count + " frames");
+                s_RecPoses = null;
+                return;
+            }
+            var p = (JObject)s_RecPoses[i];
+            SetPose(p);
+            if (s_RecIdx >= 0)
+            {
+                string name = p["name"] != null ? (string)p["name"] : i.ToString("D5");
+                ScreenCapture.CaptureScreenshot(Path.Combine(s_RecOut, name + ".png"));
+            }
+            s_RecIdx++;
         }
 
         private static Vector3 Vec(JToken t)
