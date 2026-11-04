@@ -23,9 +23,11 @@ compute 'SplatUtilities'                   supported=True
 速くなる」は一度そう結論して外した** — 3 シーンの実機値に当てはめたのが誤りで、同一
 ジオメトリで SH だけ 5.1 倍減らす統制比較を取ったら 6.5% しか動かなかった。
 
-効いた手は 2 つ。どちらも品質を落とさない：
+効いた手は 3 つ。どれも品質を落とさない：
 
 - **視錐台カリング**（`m_FrustumCulling`、既定 on）— 内部視点で 10.7% 減、ピクセル完全一致
+- **culled な splat を view パスでも飛ばす**（`SplatCulled`）— FDF の内部視点で
+  `8.71 ms` → `6.76 ms`、ピクセル完全一致。距離パスの判定を変えたら view パスも同じ関数を通る
 - **Float32 を避ける**。実機で `26.83 ms / 37.3 fps` → `17.30 ms / 57.8 fps`
 
 **品質は `High` を使う。** `Medium` 以下は drjohnson が 2.6 倍暗くなる（原因は未解明。
@@ -195,8 +197,11 @@ VDGS_BENCH_INSIDE=1 VDGS_BENCH_CULL=0 bash tools/bench-win.sh   # カリング�
 `Assertion failed on expression: 's_EditorBuildSettings != NULL'` と `task not launched`、
 CPU 0%）。`softwareupdate --install-rosetta --agree-to-license` で戻る（2026-09-15）。
 
-**シェーダーを変えたら `bash tools/bake-shaders.sh` で焼き直す。** 焼かないとゲーム側は
-古いシェーダーのまま動き、C# だけ新しいという食い違いになる。
+**シェーダーを変えたら `bash tools/bake-shaders.sh` で焼き直す**（Metal 版は別で、Mac の
+`BuildBundles.BuildMac`）。 焼かないとゲーム側は
+古いシェーダーのまま動き、C# だけ新しいという食い違いになる。**DLL と同じコミットから
+両方を入れる。** 新しいシェーダーと古い DLL では view カーネルのバッファが未バインドになり、
+両者の版を照合する仕組みは無い（`deploy.sh --plugin` は DLL しか運ばない）。
 
 - tgz は**プロジェクトディレクトリごと**固める必要がある（`build-shaders-win.ps1` は
   `%USERPROFILE%\VDGS` に展開するため）。中身だけ固めると `unpack failed: VDGSBundler missing`
@@ -478,8 +483,8 @@ GPU 側、踏むと高くつく 5 つ。数字は docs/performance.ja.md §3。�
 docs/superpowers/specs/2026-09-17-ssog-lod-design.md にあるが、距離帯の節は採用しなかった案。
 
 **全段を常駐させ、葉ごとに 1 段だけ描く。** 飛行中の `SetData` を避けるため。非選択の splat は
-`CSCompactActive` でソート鍵バッファから外し、距離パスもソートも view パスも `_SortCount` 本
-だけ走る。RTX 3060 で LOD 無し 23.1 ms → LOD 既定 10.9 ms（17.3M 常駐、2.98M 描画）。
+`CSCompactActive` でソート鍵バッファから外し、距離パスもソートも `_SortCount` 本だけ走り、
+view パスはそのうち可視の分だけ仕事をする。RTX 3060 で LOD 無し 23.1 ms → LOD 既定 10.9 ms（17.3M 常駐、2.98M 描画）。
 **ただし level 2 だけの ply（2.24M）は 9.3 ms** — 常駐の費用がゼロになるわけではない。
 段は `placement.json` の `lodDetail`（無単位の見かけの大きさ、既定 1）と `lodBudget`
 （既定 3M）で決まり、Tweak のダイアルで動かせる。

@@ -66,7 +66,8 @@ if [ -d "$ROOT/web/dist" ]; then
 fi
 
 # The shader bundle is built ON the Windows box (macOS cannot run DXC for D3D),
-# so it is never staged from here - see tools/build-shaders-win.ps1.
+# so it is never staged from here - see tools/build-shaders-win.ps1. The DLL and the
+# bundle must come from the same commit, so run tools/bake-shaders.sh alongside this.
 
 # Splat scenes: build/splats/<name>/ -> <game>/vdgs/<name>/
 if [ "$PLUGIN_ONLY" = 0 ] && [ "$UI_ONLY" = 0 ] && [ -d "$ROOT/build/splats" ]; then

@@ -447,17 +447,9 @@ half4 LoadSplatColTex(uint3 coord)
     return _SplatColor.Load(coord);
 }
 
-/// Just the scale, without touching rotation, colour or spherical harmonics.
-///
-/// The frustum cull needs a per-splat radius, and LoadSplatData would drag in the SH read
-/// - which is the single most expensive part of a splat - to get it. This mirrors the
-/// scale half of LoadSplatData exactly, chunk decode included: a chunked scale is stored
-/// as a 0..1 weight and comes back through lerp then raised to the eighth power.
-float3 LoadSplatScale(uint idx)
+/// Bytes per splat in other.bin: rotation, scale, and the SH palette index if there is one.
+uint SplatOtherStride(uint scaleFmt, uint shFormat)
 {
-    uint scaleFmt = (_SplatFormat >> 8) & 0xFF;
-    uint shFormat = (_SplatFormat >> 16) & 0xFF;
-
     uint otherStride = 4; // rotation is 10.10.10.2
     if (scaleFmt == VECTOR_FMT_32F)
         otherStride += 12;
@@ -469,7 +461,20 @@ float3 LoadSplatScale(uint idx)
         otherStride += 2;
     if (shFormat > VECTOR_FMT_6)
         otherStride += 2;
+    return otherStride;
+}
 
+/// Just the scale, without touching rotation, colour or spherical harmonics.
+///
+/// The frustum cull needs a per-splat radius, and LoadSplatData would drag in the SH read
+/// - which is the single most expensive part of a splat - to get it. A chunked scale is
+/// stored as a 0..1 weight and comes back through lerp then raised to the eighth power.
+float3 LoadSplatScale(uint idx)
+{
+    uint scaleFmt = (_SplatFormat >> 8) & 0xFF;
+    uint shFormat = (_SplatFormat >> 16) & 0xFF;
+
+    uint otherStride = SplatOtherStride(scaleFmt, shFormat);
     float3 scale = LoadAndDecodeVector(_SplatOther, idx * otherStride + 4, scaleFmt);
 
     uint chunkIdx = idx / kChunkSize;
@@ -490,27 +495,32 @@ float3 LoadSplatScale(uint idx)
 /// carries none, which is common for handheld LiDAR scanners.
 uint _SplatSHOrder;
 
-SplatData LoadSplatData(uint idx)
+/// What the projection needs: position, rotation and scale. A splat that turns out to be
+/// off screen stops here, without paying for its colour and spherical harmonics.
+SplatData LoadSplatGeometry(uint idx)
 {
     SplatData s = (SplatData)0;
 
+    uint scaleFmt = (_SplatFormat >> 8) & 0xFF;
+    uint shFormat = (_SplatFormat >> 16) & 0xFF;
+    uint otherAddr = idx * SplatOtherStride(scaleFmt, shFormat);
+
+    s.pos       = LoadSplatPos(idx);
+    s.rot       = DecodeRotation(DecodePacked_10_10_10_2(LoadUInt(_SplatOther, otherAddr)));
+    s.scale     = LoadSplatScale(idx);
+    return s;
+}
+
+/// The other half: colour, opacity and spherical harmonics.
+void LoadSplatShading(uint idx, inout SplatData s)
+{
     // figure out raw data offsets / locations
     uint3 coord = SplatIndexToPixelIndex(idx);
 
     uint scaleFmt = (_SplatFormat >> 8) & 0xFF;
     uint shFormat = (_SplatFormat >> 16) & 0xFF;
 
-    uint otherStride = 4; // rotation is 10.10.10.2
-    if (scaleFmt == VECTOR_FMT_32F)
-        otherStride += 12;
-    else if (scaleFmt == VECTOR_FMT_16)
-        otherStride += 6;
-    else if (scaleFmt == VECTOR_FMT_11)
-        otherStride += 4;
-    else if (scaleFmt == VECTOR_FMT_6)
-        otherStride += 2;
-    if (shFormat > VECTOR_FMT_6)
-        otherStride += 2;
+    uint otherStride = SplatOtherStride(scaleFmt, shFormat);
     uint otherAddr = idx * otherStride;
 
     uint shStride = 0;
@@ -523,11 +533,7 @@ SplatData LoadSplatData(uint idx)
     else if (shFormat == VECTOR_FMT_6)
         shStride = 32; // 15x ushort, rounded up to multiple of 4
 
-
     // load raw splat data, which might be chunk-relative
-    s.pos       = LoadSplatPosValue(idx);
-    s.rot       = DecodeRotation(DecodePacked_10_10_10_2(LoadUInt(_SplatOther, otherAddr)));
-    s.scale     = LoadAndDecodeVector(_SplatOther, otherAddr + 4, scaleFmt);
     half4 col   = LoadSplatColTex(coord);
 
     uint shIndex = idx;
@@ -652,19 +658,10 @@ SplatData LoadSplatData(uint idx)
     if (chunkIdx < _SplatChunkCount)
     {
         SplatChunkInfo chunk = _SplatChunks[chunkIdx];
-        float3 posMin = float3(chunk.posX.x, chunk.posY.x, chunk.posZ.x);
-        float3 posMax = float3(chunk.posX.y, chunk.posY.y, chunk.posZ.y);
-        half3 sclMin = half3(f16tof32(chunk.sclX    ), f16tof32(chunk.sclY    ), f16tof32(chunk.sclZ    ));
-        half3 sclMax = half3(f16tof32(chunk.sclX>>16), f16tof32(chunk.sclY>>16), f16tof32(chunk.sclZ>>16));
         half4 colMin = half4(f16tof32(chunk.colR    ), f16tof32(chunk.colG    ), f16tof32(chunk.colB    ), f16tof32(chunk.colA    ));
         half4 colMax = half4(f16tof32(chunk.colR>>16), f16tof32(chunk.colG>>16), f16tof32(chunk.colB>>16), f16tof32(chunk.colA>>16));
         half3 shMin = half3(f16tof32(chunk.shR    ), f16tof32(chunk.shG    ), f16tof32(chunk.shB    ));
         half3 shMax = half3(f16tof32(chunk.shR>>16), f16tof32(chunk.shG>>16), f16tof32(chunk.shB>>16));
-        s.pos = lerp(posMin, posMax, s.pos);
-        s.scale     = lerp(sclMin, sclMax, s.scale);
-        s.scale *= s.scale;
-        s.scale *= s.scale;
-        s.scale *= s.scale;
         col   = lerp(colMin, colMax, col);
         col.a = InvSquareCentered01(col.a);
 
@@ -689,7 +686,12 @@ SplatData LoadSplatData(uint idx)
     }
     s.opacity   = col.a;
     s.sh.col    = col.rgb;
+}
 
+SplatData LoadSplatData(uint idx)
+{
+    SplatData s = LoadSplatGeometry(idx);
+    LoadSplatShading(idx, s);
     return s;
 }
 
