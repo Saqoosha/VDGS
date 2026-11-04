@@ -783,9 +783,9 @@ namespace VDGS
         private void SetCullParams(CommandBuffer cmd, ComputeShader cs, int kernel, Camera cam, Matrix4x4 matrix)
         {
             cmd.SetComputeIntParam(cs, Props.CullEnabled, m_FrustumCulling ? 1 : 0);
-            // Object -> clip, with the platform's projection conventions applied. The
-            // compute passes only have the modelview matrix, and a hand-rolled projection
-            // here would be wrong on exactly one graphics API and right on the others.
+            // Object -> clip, with the platform's projection conventions applied. A
+            // hand-rolled projection here would be wrong on exactly one graphics API and
+            // right on the others.
             var proj = GL.GetGPUProjectionMatrix(cam.projectionMatrix, true);
             cmd.SetComputeMatrixParam(cs, Props.MatrixObjectToClip,
                 proj * cam.worldToCameraMatrix * matrix);

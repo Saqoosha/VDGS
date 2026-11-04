@@ -197,7 +197,8 @@ VDGS_BENCH_INSIDE=1 VDGS_BENCH_CULL=0 bash tools/bench-win.sh   # カリング�
 `Assertion failed on expression: 's_EditorBuildSettings != NULL'` と `task not launched`、
 CPU 0%）。`softwareupdate --install-rosetta --agree-to-license` で戻る（2026-09-15）。
 
-**シェーダーを変えたら `bash tools/bake-shaders.sh` で焼き直す。** 焼かないとゲーム側は
+**シェーダーを変えたら `bash tools/bake-shaders.sh` で焼き直す**（Metal 版は別で、Mac の
+`BuildBundles.BuildMac`）。 焼かないとゲーム側は
 古いシェーダーのまま動き、C# だけ新しいという食い違いになる。**DLL と同じコミットから
 両方を入れる。** 新しいシェーダーと古い DLL では view カーネルのバッファが未バインドになり、
 両者の版を照合する仕組みは無い（`deploy.sh --plugin` は DLL しか運ばない）。
