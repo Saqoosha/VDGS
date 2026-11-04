@@ -198,7 +198,9 @@ VDGS_BENCH_INSIDE=1 VDGS_BENCH_CULL=0 bash tools/bench-win.sh   # カリング�
 CPU 0%）。`softwareupdate --install-rosetta --agree-to-license` で戻る（2026-09-15）。
 
 **シェーダーを変えたら `bash tools/bake-shaders.sh` で焼き直す。** 焼かないとゲーム側は
-古いシェーダーのまま動き、C# だけ新しいという食い違いになる。
+古いシェーダーのまま動き、C# だけ新しいという食い違いになる。**DLL と同じコミットから
+両方を入れる。** 新しいシェーダーと古い DLL では view カーネルのバッファが未バインドになり、
+両者の版を照合する仕組みは無い（`deploy.sh --plugin` は DLL しか運ばない）。
 
 - tgz は**プロジェクトディレクトリごと**固める必要がある（`build-shaders-win.ps1` は
   `%USERPROFILE%\VDGS` に展開するため）。中身だけ固めると `unpack failed: VDGSBundler missing`
@@ -480,8 +482,8 @@ GPU 側、踏むと高くつく 5 つ。数字は docs/performance.ja.md §3。�
 docs/superpowers/specs/2026-09-17-ssog-lod-design.md にあるが、距離帯の節は採用しなかった案。
 
 **全段を常駐させ、葉ごとに 1 段だけ描く。** 飛行中の `SetData` を避けるため。非選択の splat は
-`CSCompactActive` でソート鍵バッファから外し、距離パスもソートも view パスも `_SortCount` 本
-だけ走る。RTX 3060 で LOD 無し 23.1 ms → LOD 既定 10.9 ms（17.3M 常駐、2.98M 描画）。
+`CSCompactActive` でソート鍵バッファから外し、距離パスもソートも `_SortCount` 本だけ走り、
+view パスはそのうち可視の分だけ仕事をする。RTX 3060 で LOD 無し 23.1 ms → LOD 既定 10.9 ms（17.3M 常駐、2.98M 描画）。
 **ただし level 2 だけの ply（2.24M）は 9.3 ms** — 常駐の費用がゼロになるわけではない。
 段は `placement.json` の `lodDetail`（無単位の見かけの大きさ、既定 1）と `lodBudget`
 （既定 3M）で決まり、Tweak のダイアルで動かせる。

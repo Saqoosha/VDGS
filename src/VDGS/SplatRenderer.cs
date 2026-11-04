@@ -216,7 +216,6 @@ namespace VDGS
         internal static readonly int SplatSortKeys = Shader.PropertyToID("_SplatSortKeys");
         internal static readonly int MatrixObjectToClip = Shader.PropertyToID("_MatrixObjectToClip");
         internal static readonly int CullEnabled = Shader.PropertyToID("_CullEnabled");
-        internal static readonly int CullMargin = Shader.PropertyToID("_CullMargin");
         internal static readonly int CullProjScale = Shader.PropertyToID("_CullProjScale");
         internal static readonly int CullRadiusScale = Shader.PropertyToID("_CullRadiusScale");
         internal static readonly int SplatVisibleCount = Shader.PropertyToID("_SplatVisibleCount");
@@ -667,6 +666,7 @@ namespace VDGS
             // count so a scene is visible immediately and stays visible if sorting is
             // skipped by m_SortNthFrame.
             m_GpuDrawArgs.SetData(new uint[] { 6, (uint)count, 0, 0, 0 });
+            m_GpuVisibleCount.SetData(new uint[] { (uint)count });
 
             BuildChunkRadii(count);
 
@@ -779,16 +779,12 @@ namespace VDGS
                 cmb.SetKeyword(cs, LodKeyword(cs), false);
         }
 
-        /// <summary>
-        /// The frustum test's inputs. The distance pass and the view pass have to see the
-        /// same values, or a drawn splat could be skipped by the view pass.
-        /// </summary>
+        /// <summary>The frustum test's inputs, shared by the distance pass and the view pass.</summary>
         private void SetCullParams(CommandBuffer cmd, ComputeShader cs, int kernel, Camera cam, Matrix4x4 matrix)
         {
             cmd.SetComputeIntParam(cs, Props.CullEnabled, m_FrustumCulling ? 1 : 0);
-            cmd.SetComputeFloatParam(cs, Props.CullMargin, Mathf.Max(0f, m_CullMargin));
             // Object -> clip, with the platform's projection conventions applied. The
-            // distance pass only has the modelview matrix, and a hand-rolled projection
+            // compute passes only have the modelview matrix, and a hand-rolled projection
             // here would be wrong on exactly one graphics API and right on the others.
             var proj = GL.GetGPUProjectionMatrix(cam.projectionMatrix, true);
             cmd.SetComputeMatrixParam(cs, Props.MatrixObjectToClip,
@@ -912,6 +908,7 @@ namespace VDGS
             DisposeBuffer(ref m_GpuChunks);
             DisposeBuffer(ref m_GpuVisibleCount);
             DisposeBuffer(ref m_GpuDrawArgs);
+            DisposeBuffer(ref m_GpuChunkRadius);
             DisposeBuffer(ref m_GpuView);
             DisposeBuffer(ref m_GpuIndexBuffer);
             DisposeBuffer(ref m_GpuSortDistances);

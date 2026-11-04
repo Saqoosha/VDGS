@@ -319,8 +319,8 @@ CLAUDE.md ("Streamed SOG と LOD"); the design is
 docs/superpowers/specs/2026-09-17-ssog-lod-design.md.
 
 Selection is apparent-size bands + a splat budget + hysteresis (`LodSelector`). Unselected splats
-are compacted out of the sort-key buffer entirely (`CSCompactActive`), so the distance pass, the
-sort and the view pass all run over `_SortCount`, and **an unselected splat does not pay the
+are compacted out of the sort-key buffer entirely (`CSCompactActive`), so the distance pass and
+the sort run over `_SortCount`, the view pass works only on the visible part of it, and **an unselected splat does not pay the
 per-splat fixed cost that is 87% of the frame.**
 
 ### Measured (RTX 3060, editor under D3D12, 1024², camera inside the scene, 2026-09-17)

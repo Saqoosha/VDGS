@@ -467,9 +467,8 @@ uint SplatOtherStride(uint scaleFmt, uint shFormat)
 /// Just the scale, without touching rotation, colour or spherical harmonics.
 ///
 /// The frustum cull needs a per-splat radius, and LoadSplatData would drag in the SH read
-/// - which is the single most expensive part of a splat - to get it. This mirrors the
-/// scale half of LoadSplatData exactly, chunk decode included: a chunked scale is stored
-/// as a 0..1 weight and comes back through lerp then raised to the eighth power.
+/// - which is the single most expensive part of a splat - to get it. A chunked scale is
+/// stored as a 0..1 weight and comes back through lerp then raised to the eighth power.
 float3 LoadSplatScale(uint idx)
 {
     uint scaleFmt = (_SplatFormat >> 8) & 0xFF;
@@ -506,26 +505,9 @@ SplatData LoadSplatGeometry(uint idx)
     uint shFormat = (_SplatFormat >> 16) & 0xFF;
     uint otherAddr = idx * SplatOtherStride(scaleFmt, shFormat);
 
-    // load raw splat data, which might be chunk-relative
-    s.pos       = LoadSplatPosValue(idx);
+    s.pos       = LoadSplatPos(idx);
     s.rot       = DecodeRotation(DecodePacked_10_10_10_2(LoadUInt(_SplatOther, otherAddr)));
-    s.scale     = LoadAndDecodeVector(_SplatOther, otherAddr + 4, scaleFmt);
-
-    // if raw data is chunk-relative, convert to final values by interpolating between chunk min/max
-    uint chunkIdx = idx / kChunkSize;
-    if (chunkIdx < _SplatChunkCount)
-    {
-        SplatChunkInfo chunk = _SplatChunks[chunkIdx];
-        float3 posMin = float3(chunk.posX.x, chunk.posY.x, chunk.posZ.x);
-        float3 posMax = float3(chunk.posX.y, chunk.posY.y, chunk.posZ.y);
-        half3 sclMin = half3(f16tof32(chunk.sclX    ), f16tof32(chunk.sclY    ), f16tof32(chunk.sclZ    ));
-        half3 sclMax = half3(f16tof32(chunk.sclX>>16), f16tof32(chunk.sclY>>16), f16tof32(chunk.sclZ>>16));
-        s.pos = lerp(posMin, posMax, s.pos);
-        s.scale     = lerp(sclMin, sclMax, s.scale);
-        s.scale *= s.scale;
-        s.scale *= s.scale;
-        s.scale *= s.scale;
-    }
+    s.scale     = LoadSplatScale(idx);
     return s;
 }
 

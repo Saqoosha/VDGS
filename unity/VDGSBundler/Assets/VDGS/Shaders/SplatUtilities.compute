@@ -67,7 +67,6 @@ RWStructuredBuffer<uint> _SplatSortKeys;
 // in splat order rather than draw order, so it repeats the test through SplatCulled.
 float4x4 _MatrixObjectToClip;
 uint _CullEnabled;
-float _CullMargin;
 // Projection scale (P._m00, P._m11) and the world scale of this splat object, so the
 // margin can be derived from each splat's own size instead of from one global number.
 float2 _CullProjScale;
@@ -427,14 +426,13 @@ void CalcViewDataFor(uint idx)
     _SplatViewData[idx] = view;
 }
 
-/// Without levels of detail the thread index IS the splat, and every splat is visited.
+/// Without levels of detail the thread index IS the splat.
 [numthreads(GROUP_SIZE,1,1)]
 void CSCalcViewData (uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= _SplatCount)
         return;
-    // A culled splat is never drawn. Clearing its position keeps it harmless if the two
-    // passes ever round the test differently.
+    // Clearing the position keeps a culled splat out of the draw whatever the sort decided.
     if (SplatCulled(LoadSplatPos(id.x), id.x))
     {
         _SplatViewData[id.x].pos = 0;
