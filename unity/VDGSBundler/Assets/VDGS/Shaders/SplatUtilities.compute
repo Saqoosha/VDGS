@@ -63,8 +63,8 @@ RWStructuredBuffer<uint> _SplatSortKeys;
 // The cull happens here, in the distance pass, because this is where the draw order is
 // decided. A culled splat gets the maximum sort key; the sort is ascending, so it parks
 // past every visible splat and the indirect draw simply stops before reaching it. That
-// removes it from the rasteriser and from CSCalcViewData's useful work in one move,
-// without a separate compaction pass.
+// removes it from the rasteriser without a separate compaction pass. CSCalcViewData runs
+// in splat order rather than draw order, so it repeats the test through SplatCulled.
 float4x4 _MatrixObjectToClip;
 uint _CullEnabled;
 float _CullMargin;
@@ -98,6 +98,47 @@ uint FloatToSortableUint(float f)
     return fu ^ mask;
 }
 
+/// True when a splat is outside the frustum. Shared by the distance pass, which decides
+/// what gets drawn, and the view pass, which must skip the same splats.
+bool SplatCulled(float3 posObj, uint origIdx)
+{
+    if (_CullEnabled == 0)
+        return false;
+
+    float4 clip = mul(_MatrixObjectToClip, float4(posObj, 1));
+
+    // Per-splat, not per-scene. A single global margin has to cover the largest
+    // gaussian anywhere in the capture, and captures hold a few enormous diffuse
+    // ones, so every small splat ends up paying for them. Bounding each splat by its
+    // own size keeps the cull exact where it matters and tight everywhere else.
+    float radius = asfloat(_SplatChunkRadius[origIdx / kChunkSize]) * _CullRadiusScale;
+
+    // clip.w is the view depth, so a sphere of world radius r about the centre
+    // reaches clip.w +/- r along the axis and r * P00 across it.
+    bool culled = (clip.w + radius <= 0)
+          || abs(clip.x) > clip.w + radius * _CullProjScale.x
+          || abs(clip.y) > clip.w + radius * _CullProjScale.y;
+
+    // The margin above deliberately keeps a splat whose centre is off screen but whose
+    // body reaches into it. Standing inside a capture that is the wrong rule: the
+    // camera sits among splats a few centimetres away, each projects to thousands of
+    // pixels, and dozens of them smear across the whole frame as a haze. The web
+    // reference viewers instead drop on the centre alone -
+    //
+    //     float clip = 1.2 * pos2d.w;
+    //     if (pos2d.x < -clip || pos2d.x > clip || ...) return;   antimatter15/splat
+    //
+    // which quietly removes exactly those near-camera splats. _CullCenterSlack > 0
+    // adds that test; 1.2 is the web constant.
+    if (_CullCenterSlack > 0)
+    {
+        float lim = _CullCenterSlack * clip.w;
+        culled = culled || clip.w <= 0
+              || abs(clip.x) > lim || abs(clip.y) > lim;
+    }
+    return culled;
+}
+
 [numthreads(GROUP_SIZE,1,1)]
 void CSSetIndices (uint3 id : SV_DispatchThreadID)
 {
@@ -120,41 +161,7 @@ void CSCalcDistances (uint3 id : SV_DispatchThreadID)
     float3 posObj = LoadSplatPos(origIdx);
     float3 pos = mul(_MatrixMV, float4(posObj.xyz, 1)).xyz;
 
-    bool culled = false;
-    if (_CullEnabled != 0)
-    {
-        float4 clip = mul(_MatrixObjectToClip, float4(posObj, 1));
-
-        // Per-splat, not per-scene. A single global margin has to cover the largest
-        // gaussian anywhere in the capture, and captures hold a few enormous diffuse
-        // ones, so every small splat ends up paying for them. Bounding each splat by its
-        // own size keeps the cull exact where it matters and tight everywhere else.
-        float radius = asfloat(_SplatChunkRadius[origIdx / kChunkSize]) * _CullRadiusScale;
-
-        // clip.w is the view depth, so a sphere of world radius r about the centre
-        // reaches clip.w +/- r along the axis and r * P00 across it.
-        culled = (clip.w + radius <= 0)
-              || abs(clip.x) > clip.w + radius * _CullProjScale.x
-              || abs(clip.y) > clip.w + radius * _CullProjScale.y;
-
-        // The margin above deliberately keeps a splat whose centre is off screen but whose
-        // body reaches into it. Standing inside a capture that is the wrong rule: the
-        // camera sits among splats a few centimetres away, each projects to thousands of
-        // pixels, and dozens of them smear across the whole frame as a haze. The web
-        // reference viewers instead drop on the centre alone -
-        //
-        //     float clip = 1.2 * pos2d.w;
-        //     if (pos2d.x < -clip || pos2d.x > clip || ...) return;   antimatter15/splat
-        //
-        // which quietly removes exactly those near-camera splats. _CullCenterSlack > 0
-        // adds that test; 1.2 is the web constant.
-        if (_CullCenterSlack > 0)
-        {
-            float lim = _CullCenterSlack * clip.w;
-            culled = culled || clip.w <= 0
-                  || abs(clip.x) > lim || abs(clip.y) > lim;
-        }
-    }
+    bool culled = SplatCulled(posObj, origIdx);
 
     _SplatSortDistances[idx] = culled ? 0xFFFFFFFFu : FloatToSortableUint(pos.z);
 
@@ -346,7 +353,7 @@ bool IsSplatCut(float3 pos)
 
 void CalcViewDataFor(uint idx)
 {
-    SplatData splat = LoadSplatData(idx);
+    SplatData splat = LoadSplatGeometry(idx);
     SplatViewData view = (SplatViewData)0;
     
     float3 centerWorldPos = mul(_MatrixObjectToWorld, float4(splat.pos,1)).xyz;
@@ -399,15 +406,22 @@ void CalcViewDataFor(uint idx)
         if (any(abs(centerPx) - reach > 0.5 * _VecScreenParams.xy))
             view.pos.w = 0;
 
-        float3 worldViewDir = _VecWorldSpaceCameraPos.xyz - centerWorldPos;
-        float3 objViewDir = mul((float3x3)_MatrixWorldToObject, worldViewDir);
-        objViewDir = normalize(objViewDir);
+        // The cull keeps centres out to 1.2x the frame, so part of what reaches this point
+        // is dropped by the footprint test above. Those never need a colour.
+        if (view.pos.w > 0)
+        {
+            LoadSplatShading(idx, splat);
 
-        half4 col;
-        col.rgb = ShadeSH(splat.sh, objViewDir, _SHOrder, _SHOnly != 0);
-        col.a = min(splat.opacity * opacityScale, 65000);
-        view.color.x = (f32tof16(col.r) << 16) | f32tof16(col.g);
-        view.color.y = (f32tof16(col.b) << 16) | f32tof16(col.a);
+            float3 worldViewDir = _VecWorldSpaceCameraPos.xyz - centerWorldPos;
+            float3 objViewDir = mul((float3x3)_MatrixWorldToObject, worldViewDir);
+            objViewDir = normalize(objViewDir);
+
+            half4 col;
+            col.rgb = ShadeSH(splat.sh, objViewDir, _SHOrder, _SHOnly != 0);
+            col.a = min(splat.opacity * opacityScale, 65000);
+            view.color.x = (f32tof16(col.r) << 16) | f32tof16(col.g);
+            view.color.y = (f32tof16(col.b) << 16) | f32tof16(col.a);
+        }
     }
     
     _SplatViewData[idx] = view;
@@ -419,10 +433,17 @@ void CSCalcViewData (uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= _SplatCount)
         return;
+    // A culled splat is never drawn. Clearing its position keeps it harmless if the two
+    // passes ever round the test differently.
+    if (SplatCulled(LoadSplatPos(id.x), id.x))
+    {
+        _SplatViewData[id.x].pos = 0;
+        return;
+    }
     CalcViewDataFor(id.x);
 }
 
-/// With levels, only the selected splats, read through the key buffer.
+/// With levels, only the visible selected splats, read through the key buffer.
 ///
 /// A separate kernel rather than a branch inside one: this pass is 87% of the frame, and
 /// merely binding the sort's key buffer to it cost a 2.24M .ply about 1 ms a frame on the
@@ -430,7 +451,9 @@ void CSCalcViewData (uint3 id : SV_DispatchThreadID)
 [numthreads(GROUP_SIZE,1,1)]
 void CSCalcViewDataLod (uint3 id : SV_DispatchThreadID)
 {
-    if (id.x >= _SortCount)
+    // The keys are sorted by now, so the visible splats come first and the culled ones
+    // are parked behind them.
+    if (id.x >= _SplatVisibleCount[0])
         return;
     CalcViewDataFor(_SplatSortKeys[id.x]);
 }

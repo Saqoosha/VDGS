@@ -752,7 +752,12 @@ namespace VDGS
                 : (int)KernelIndices.CalcViewData;
             SetDataOnCS(cmb, kView);
             if (m_LodSelector != null)
+            {
                 cmb.SetComputeBufferParam(cs, kView, Props.SplatSortKeys, m_GpuSortKeys);
+                cmb.SetComputeBufferParam(cs, kView, Props.SplatVisibleCount, m_GpuVisibleCount);
+            }
+            else
+                SetCullParams(cmb, cs, kView, cam, matO2W);
 
             cmb.SetComputeMatrixParam(cs, Props.MatrixMV, matView * matO2W);
             cmb.SetComputeMatrixParam(cs, Props.MatrixObjectToWorld, matO2W);
@@ -772,6 +777,37 @@ namespace VDGS
 
             if (m_LodSelector != null)
                 cmb.SetKeyword(cs, LodKeyword(cs), false);
+        }
+
+        /// <summary>
+        /// The frustum test's inputs. The distance pass and the view pass have to see the
+        /// same values, or a drawn splat could be skipped by the view pass.
+        /// </summary>
+        private void SetCullParams(CommandBuffer cmd, ComputeShader cs, int kernel, Camera cam, Matrix4x4 matrix)
+        {
+            cmd.SetComputeIntParam(cs, Props.CullEnabled, m_FrustumCulling ? 1 : 0);
+            cmd.SetComputeFloatParam(cs, Props.CullMargin, Mathf.Max(0f, m_CullMargin));
+            // Object -> clip, with the platform's projection conventions applied. The
+            // distance pass only has the modelview matrix, and a hand-rolled projection
+            // here would be wrong on exactly one graphics API and right on the others.
+            var proj = GL.GetGPUProjectionMatrix(cam.projectionMatrix, true);
+            cmd.SetComputeMatrixParam(cs, Props.MatrixObjectToClip,
+                proj * cam.worldToCameraMatrix * matrix);
+            // A clip-space frustum plane is not unit length. For the side planes the
+            // gradient with respect to view position is (P00, 0, -1), so a sphere of
+            // radius r reaches r*sqrt(P00^2+1) across the plane, not r*P00. At 120
+            // degrees that is a factor of two.
+            cmd.SetComputeVectorParam(cs, Props.CullProjScale, new Vector4(
+                Mathf.Sqrt(proj.m00 * proj.m00 + 1f),
+                Mathf.Sqrt(proj.m11 * proj.m11 + 1f), 0, 0));
+            // A gaussian's drawn footprint is the quad the vertex shader emits, +/-2 in
+            // the covariance axes; m_CullMargin is now the sigma multiplier on top of
+            // that rather than a fraction of the screen. The object's own scale has to be
+            // folded in because the capture is placed with a scale in the world.
+            cmd.SetComputeFloatParam(cs, Props.CullRadiusScale,
+                Mathf.Max(0f, m_CullMargin) * m_SplatScale * Mathf.Abs(transform.lossyScale.x));
+            cmd.SetComputeFloatParam(cs, Props.CullCenterSlack, m_CullCenterSlack);
+            cmd.SetComputeBufferParam(cs, kernel, Props.SplatChunkRadius, m_GpuChunkRadius);
         }
 
         internal void SortPoints(CommandBuffer cmd, Camera cam, Matrix4x4 matrix)
@@ -838,29 +874,7 @@ namespace VDGS
             cmd.SetComputeIntParam(cs, Props.SortCount, m_SortCount);
             cmd.SetComputeIntParam(cs, Props.SplatChunkCount, m_GpuChunksValid ? m_GpuChunks.count : 0);
             cmd.SetComputeBufferParam(cs, k, Props.SplatVisibleCount, m_GpuVisibleCount);
-            cmd.SetComputeIntParam(cs, Props.CullEnabled, m_FrustumCulling ? 1 : 0);
-            cmd.SetComputeFloatParam(cs, Props.CullMargin, Mathf.Max(0f, m_CullMargin));
-            // Object -> clip, with the platform's projection conventions applied. The
-            // distance pass only has the modelview matrix, and a hand-rolled projection
-            // here would be wrong on exactly one graphics API and right on the others.
-            var proj = GL.GetGPUProjectionMatrix(cam.projectionMatrix, true);
-            cmd.SetComputeMatrixParam(cs, Props.MatrixObjectToClip,
-                proj * cam.worldToCameraMatrix * matrix);
-            // A clip-space frustum plane is not unit length. For the side planes the
-            // gradient with respect to view position is (P00, 0, -1), so a sphere of
-            // radius r reaches r*sqrt(P00^2+1) across the plane, not r*P00. At 120
-            // degrees that is a factor of two.
-            cmd.SetComputeVectorParam(cs, Props.CullProjScale, new Vector4(
-                Mathf.Sqrt(proj.m00 * proj.m00 + 1f),
-                Mathf.Sqrt(proj.m11 * proj.m11 + 1f), 0, 0));
-            // A gaussian's drawn footprint is the quad the vertex shader emits, +/-2 in
-            // the covariance axes; m_CullMargin is now the sigma multiplier on top of
-            // that rather than a fraction of the screen. The object's own scale has to be
-            // folded in because the capture is placed with a scale in the world.
-            cmd.SetComputeFloatParam(cs, Props.CullRadiusScale,
-                Mathf.Max(0f, m_CullMargin) * m_SplatScale * Mathf.Abs(transform.lossyScale.x));
-            cmd.SetComputeFloatParam(cs, Props.CullCenterSlack, m_CullCenterSlack);
-            cmd.SetComputeBufferParam(cs, k, Props.SplatChunkRadius, m_GpuChunkRadius);
+            SetCullParams(cmd, cs, k, cam, matrix);
             BindLod(cmd, cs, k);
 
             cs.GetKernelThreadGroupSizes(k, out uint gsX, out _, out _);

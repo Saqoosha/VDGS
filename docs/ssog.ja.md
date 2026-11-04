@@ -149,7 +149,8 @@ size = 葉の最長辺 * worldScale / max(距離, 1e-4)
 ```
 
 `CSCompactActive` が `InterlockedAdd` で選択された splat を鍵バッファの前方へ詰める。以降
-`CSCalcDistances` も radix sort も `CSCalcViewDataLod` も **`_SortCount` 本だけ**走る。
+`CSCalcDistances` も radix sort も **`_SortCount` 本だけ**走り、`CSCalcViewDataLod` は
+そのうち可視の分だけ仕事をする。
 `_SortCount` は CPU 側の `LodSelector.ActiveSplats`。
 
 **詰める側は常駐全部を走査する**（dispatch は `m_SplatCount` 本）。ただし走るのは選択が

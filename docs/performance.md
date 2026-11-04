@@ -88,8 +88,34 @@ each. Every pixel identical.**
 3. `DrawProceduralIndirect` draws only the visible count, accumulated **one atomic per
    wave** — three million contended increments would cost more than the cull saves
 
-That removes it from the rasteriser and from `CSCalcViewData`'s useful work without a
-separate compaction pass.
+That removes it from the rasteriser without a separate compaction pass.
+
+**It does not remove it from `CSCalcViewData` by itself.** That kernel walks every splat in
+splat order, not draw order, so culled splats used to pay for the loads, the covariance and
+the SH anyway. It now exits early through `SplatCulled`, the same test the distance pass
+uses, and only splats that pass the footprint test read colour and SH
+(`LoadSplatGeometry` / `LoadSplatShading`). The LOD kernel has sorted keys, so it stops at
+the visible count.
+
+```
+RTX 3060, 1024², 2026-11-04                      before      after
+FDF-2026-R6b (2.99M, inside view)               8.71 ms     6.76 ms
+JDL-2026-R6 (2.99M, inside view)                4.49 ms     3.75 ms
+7a7bfaea (LOD, 17.3M resident, inside view)     9.50 ms     9.13 ms
+FDF-2026-R6b (whole-scene view)                10.73 ms    10.24 ms
+JDL-2026-R6 (whole-scene view)                 12.76 ms    12.41 ms
+```
+
+FDF and JDL matched by PNG hash across 4 views. LOD varies by 2.5% of pixels even with
+identical code, because the atomic in `CSCompactActive` reorders the keys each run, so the
+check there was that the before/after difference is the same size as that variation. Metal
+(M1 Max, JDL-2026-R6) also differed by 0 pixels.
+
+In the game (2560×1440, FDF-2026-R6b, same pose pinned with `evalcam`) the fps does not move.
+Both builds sit at 106.3 fps, which is display pacing (1.5 × the 6.27 ms refresh). What can be
+compared is GPU load at that equal fps: measured new, old, new, utilisation went
+78.5% → 89.5% → 79.0% and power 136.6 W → 149.7 W → 137.9 W. **If two builds agree to four
+digits, the number is showing the sync, not the speed.**
 
 #### The margin comes from each splat's own size
 
