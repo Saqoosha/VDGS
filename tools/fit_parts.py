@@ -219,7 +219,7 @@ def capsule_mesh(caps, seg=16, rings=4):
                 p0 = base + i * seg + j; p1 = base + i * seg + (j + 1) % seg
                 q0 = p0 + seg; q1 = p1 + seg
                 F += [(p0, q0, p1), (p1, q0, q1)]
-    return np.array(V, np.float32), np.array(F, np.int32)
+    return np.array(V, np.float32).reshape(-1, 3), np.array(F, np.int32).reshape(-1, 3)
 
 
 def write_mesh_ply(path, V, F):
