@@ -272,17 +272,10 @@ impl Host {
                 );
             }
             let root = game::root(&app);
-            // Not "is a loader here" but "is it ours": an official BepInEx has the same
-            // files and a preloader that dies on arm64.
-            if !bepinex::is_ours(&root) {
-                bepinex::install(&root, log, &mut |p| host.percent(Some(p)))
-                    .map_err(|e| e.to_string())?;
-                host.percent(None);
-            }
             let Some(bundled) = game::bundled_mod_dir(&resource_dir) else {
                 return Err("This build carries no mod payload.".into());
             };
-            game::install_bundled_mod(&root, &bundled, log).map_err(|e| e.to_string())
+            host.install_current_mod(&root, &bundled, log)
         });
     }
 
@@ -782,49 +775,49 @@ impl Host {
         });
     }
 
-    /// Fly is the one moment the game is certainly closed and the user wants this mod. A
-    /// capture updated without the mod it needs fails silently: its gates are flown through.
-    fn update_older_mod(&self, app: &Path) -> std::io::Result<()> {
-        let root = game::root(app);
-        let have = game::installed_mod_version(&root);
-        let want = game::bundled_mod_version(&self.resource_dir);
-        let (Some(have), Some(want)) = (have, want) else {
-            return Ok(());
-        };
-        if !game::mod_is_older(&have, &want) {
-            return Ok(());
+    /// The loader first: a mod on a loader that cannot start is no mod.
+    fn install_current_mod(
+        &self,
+        root: &Path,
+        bundled: &Path,
+        log: &mut dyn FnMut(String),
+    ) -> Result<(), String> {
+        // Not "is a loader here" but "is it ours": an official BepInEx has the same
+        // files and a preloader that dies on arm64.
+        if !bepinex::is_ours(root) {
+            bepinex::install(root, log, &mut |p| self.percent(Some(p)))
+                .map_err(|e| e.to_string())?;
+            self.percent(None);
         }
-        let Some(bundled) = game::bundled_mod_dir(&self.resource_dir) else {
-            return Ok(());
-        };
-        self.log(&format!("updating the mod from {have} to {want}"));
-        game::install_bundled_mod(&root, &bundled, &mut |s| self.log(&s))
+        game::install_bundled_mod(root, bundled, log).map_err(|e| e.to_string())
     }
 
-    fn launch(&self) {
+    /// Fly also brings an older mod up to date. A capture updated without the mod it needs
+    /// fails silently: its gates are flown through.
+    fn launch(self: &Arc<Self>) {
         let Some(app) = self.inner.lock().unwrap().game.clone() else {
             return;
         };
-        if launch::is_running() {
-            self.log("VelociDrone is already running");
-            return;
-        }
-        if let Err(ex) = self.update_older_mod(&app) {
-            self.log(&format!("failed: {ex}"));
-            self.error_dialog(&ex.to_string());
-            return;
-        }
-        match launch::spawn(&app) {
-            Ok(child) => {
-                self.inner.lock().unwrap().child = Some(child);
-                self.log("started through Doorstop");
-                self.push();
+        let resource_dir = self.resource_dir.clone();
+        self.run_busy("starting the game", move |host, log| {
+            if launch::is_running() {
+                log("VelociDrone is already running".into());
+                return Ok(());
             }
-            Err(ex) => {
-                self.log(&format!("failed: {ex}"));
-                self.error_dialog(&ex.to_string());
+            let root = game::root(&app);
+            if let Some(bundled) = game::bundled_mod_dir(&resource_dir) {
+                let have = game::installed_mod_version(&root);
+                let want = game::dll_file_version(&bundled.join("BepInEx/plugins/VDGS.dll"));
+                if game::needs_mod_update(have.as_deref(), want.as_deref()) {
+                    log("updating the mod before starting".into());
+                    host.install_current_mod(&root, &bundled, log)?;
+                }
             }
-        }
+            let child = launch::spawn(&app).map_err(|e| e.to_string())?;
+            host.inner.lock().unwrap().child = Some(child);
+            log("started through Doorstop".into());
+            Ok(())
+        });
     }
 }
 

@@ -320,17 +320,28 @@ pub fn bundled_mod_dir(resource_dir: &Path) -> Option<PathBuf> {
     }
 }
 
-/// True when `installed` is an older dotted version than `bundled`. A version that does
-/// not parse is never older, so a build nobody can compare is left alone.
+/// True when `installed` is an older dotted version than `bundled`, with missing fields
+/// read as 0. A version that does not parse is never older, so it is left alone.
 pub fn mod_is_older(installed: &str, bundled: &str) -> bool {
-    let parse = |v: &str| {
-        v.split('.')
-            .map(|p| p.parse::<u32>().ok())
-            .collect::<Option<Vec<u32>>>()
-    };
+    fn parse(v: &str) -> Option<[u32; 4]> {
+        let mut out = [0; 4];
+        for (i, part) in v.split('.').enumerate() {
+            *out.get_mut(i)? = part.parse().ok()?;
+        }
+        Some(out)
+    }
     match (parse(installed), parse(bundled)) {
         (Some(a), Some(b)) => a < b,
         _ => false,
+    }
+}
+
+/// A missing or unreadable DLL counts as older: that is what an interrupted copy leaves.
+pub fn needs_mod_update(installed: Option<&str>, bundled: Option<&str>) -> bool {
+    match (installed, bundled) {
+        (_, None) => false,
+        (None, Some(_)) => true,
+        (Some(have), Some(want)) => mod_is_older(have, want),
     }
 }
 
@@ -808,7 +819,11 @@ pub fn install_bundled_mod(
     let mut copied = 0usize;
     let mut written: Vec<PathBuf> = Vec::new();
 
-    for file in list_files_recursive(&src)? {
+    // The DLL last: its version is what says the update finished, so a copy that fails
+    // partway leaves it older and the next Fly tries again.
+    let mut files = list_files_recursive(&src)?;
+    files.sort_by_key(|f| f.ends_with("BepInEx/plugins/VDGS.dll"));
+    for file in files {
         let relative = match file.strip_prefix(&src) {
             Ok(r) => r,
             Err(_) => continue,
@@ -1272,6 +1287,15 @@ mod tests {
         assert!(!mod_is_older("2026.11.5.0", "2026.11.5.0"));
         assert!(!mod_is_older("2026.12.1.0", "2026.11.5.0"));
         assert!(!mod_is_older("dev", "2026.11.5.0"));
+        assert!(!mod_is_older("2026.11.5", "2026.11.5.0"));
+    }
+
+    #[test]
+    fn needs_mod_update_treats_a_broken_dll_as_older() {
+        assert!(needs_mod_update(None, Some("2026.11.5.0")));
+        assert!(needs_mod_update(Some("0.1.0.0"), Some("2026.11.5.0")));
+        assert!(!needs_mod_update(Some("2026.11.5.0"), Some("2026.11.5.0")));
+        assert!(!needs_mod_update(None, None));
     }
 
     #[test]
