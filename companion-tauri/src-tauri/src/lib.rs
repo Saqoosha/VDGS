@@ -782,12 +782,36 @@ impl Host {
         });
     }
 
+    /// Fly is the one moment the game is certainly closed and the user wants this mod. A
+    /// capture updated without the mod it needs fails silently: its gates are flown through.
+    fn update_older_mod(&self, app: &Path) -> std::io::Result<()> {
+        let root = game::root(app);
+        let have = game::installed_mod_version(&root);
+        let want = game::bundled_mod_version(&self.resource_dir);
+        let (Some(have), Some(want)) = (have, want) else {
+            return Ok(());
+        };
+        if !game::mod_is_older(&have, &want) {
+            return Ok(());
+        }
+        let Some(bundled) = game::bundled_mod_dir(&self.resource_dir) else {
+            return Ok(());
+        };
+        self.log(&format!("updating the mod from {have} to {want}"));
+        game::install_bundled_mod(&root, &bundled, &mut |s| self.log(&s))
+    }
+
     fn launch(&self) {
         let Some(app) = self.inner.lock().unwrap().game.clone() else {
             return;
         };
         if launch::is_running() {
             self.log("VelociDrone is already running");
+            return;
+        }
+        if let Err(ex) = self.update_older_mod(&app) {
+            self.log(&format!("failed: {ex}"));
+            self.error_dialog(&ex.to_string());
             return;
         }
         match launch::spawn(&app) {

@@ -320,6 +320,20 @@ pub fn bundled_mod_dir(resource_dir: &Path) -> Option<PathBuf> {
     }
 }
 
+/// True when `installed` is an older dotted version than `bundled`. A version that does
+/// not parse is never older, so a build nobody can compare is left alone.
+pub fn mod_is_older(installed: &str, bundled: &str) -> bool {
+    let parse = |v: &str| {
+        v.split('.')
+            .map(|p| p.parse::<u32>().ok())
+            .collect::<Option<Vec<u32>>>()
+    };
+    match (parse(installed), parse(bundled)) {
+        (Some(a), Some(b)) => a < b,
+        _ => false,
+    }
+}
+
 pub fn bundled_mod_version(resource_dir: &Path) -> Option<String> {
     let dir = bundled_mod_dir(resource_dir)?;
     dll_file_version(&dir.join("BepInEx/plugins/VDGS.dll"))
@@ -1249,6 +1263,15 @@ mod tests {
         assert!(bind(&root, "VDGS X", "x-dir", false).is_err());
         assert_eq!(std::fs::read(&path).unwrap(), before);
         assert_eq!(before, corrupt);
+    }
+
+    #[test]
+    fn mod_is_older_compares_numerically() {
+        assert!(mod_is_older("0.1.0.0", "2026.11.5.0"));
+        assert!(mod_is_older("2026.9.17.0", "2026.11.5.0"));
+        assert!(!mod_is_older("2026.11.5.0", "2026.11.5.0"));
+        assert!(!mod_is_older("2026.12.1.0", "2026.11.5.0"));
+        assert!(!mod_is_older("dev", "2026.11.5.0"));
     }
 
     #[test]
