@@ -808,9 +808,13 @@ impl Host {
             if let Some(bundled) = game::bundled_mod_dir(&resource_dir) {
                 let have = game::installed_mod_version(&root);
                 let want = game::dll_file_version(&bundled.join("BepInEx/plugins/VDGS.dll"));
-                if game::needs_mod_update(have.as_deref(), want.as_deref()) {
+                // No DLL at all means it was uninstalled, and that choice stands.
+                let installed = root.join("BepInEx/plugins/VDGS.dll").is_file();
+                if installed && game::needs_mod_update(have.as_deref(), want.as_deref()) {
                     log("updating the mod before starting".into());
-                    host.install_current_mod(&root, &bundled, log)?;
+                    host.install_current_mod(&root, &bundled, log).map_err(|e| {
+                        format!("The mod could not be updated, so the game was not started: {e}")
+                    })?;
                 }
             }
             let child = launch::spawn(&app).map_err(|e| e.to_string())?;

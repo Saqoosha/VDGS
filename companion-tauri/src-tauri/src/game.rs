@@ -336,7 +336,7 @@ pub fn mod_is_older(installed: &str, bundled: &str) -> bool {
     }
 }
 
-/// A missing or unreadable DLL counts as older: that is what an interrupted copy leaves.
+/// An unreadable DLL counts as older: that is what an interrupted copy leaves.
 pub fn needs_mod_update(installed: Option<&str>, bundled: Option<&str>) -> bool {
     match (installed, bundled) {
         (_, None) => false,
