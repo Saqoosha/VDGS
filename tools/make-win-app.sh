@@ -177,7 +177,7 @@ say "building on $BUILD_HOST"
 # The user's environment is not touched; this only shapes what this build sees.
 set +e
 remote_pwsh <<'PS' > "$WORK/build.log" 2>&1
-  # exit 1, never throw: fed on stdin, a throw does not end the script.
+  # exit 1, never throw: fed on stdin, a throw ends one line and the script runs on (measured).
   $ErrorActionPreference = 'Stop'
   $root = Join-Path $env:USERPROFILE 'VDGS'
   $work = Join-Path $root 'companion-win'
@@ -237,7 +237,9 @@ remote_pwsh <<'PS' 2>&1 | quiet
   Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
   New-Item -ItemType Directory -Force -Path $stage | Out-Null
   Copy-Item $exe (Join-Path $stage 'VDGS.exe')
+  if (-not $?) { Write-Output 'staging the exe failed'; exit 1 }
   Copy-Item -Recurse $res (Join-Path $stage 'resources')
+  if (-not $?) { Write-Output 'staging the resources failed'; exit 1 }
   $zip = Join-Path $root 'vdgs-companion.zip'
   Remove-Item $zip -ErrorAction SilentlyContinue
   # Not Compress-Archive: under Windows PowerShell 5 it writes backslashes into entry names.

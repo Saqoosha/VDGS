@@ -491,14 +491,14 @@ namespace VDGS
             return nc + nb > 0;
         }
 
-        // Past this a squared length overflows float and PhysX gets a NaN rotation.
+        // Metres from the capture's origin. Past this it is a broken file, not a course.
         private const float kMaxPartExtent = 1e5f;
 
         private static bool Finite3(float[] f)
         {
             if (f == null || f.Length != 3) return false;
             foreach (var x in f)
-                if (float.IsNaN(x) || !(Mathf.Abs(x) <= kMaxPartExtent)) return false;
+                if (!(Mathf.Abs(x) <= kMaxPartExtent)) return false;
             return true;
         }
 

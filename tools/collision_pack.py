@@ -56,6 +56,8 @@ def main():
     a = ap.parse_args()
     if not a.mesh and not a.parts:
         raise SystemExit('nothing to pack: pass --mesh and/or --parts')
+    if a.parts and a.mirror_y and json.load(open(a.parts)).get('frame') != 'ply':
+        raise SystemExit('--mirror-y needs a parts file in the ply frame')
     os.makedirs(a.out, exist_ok=True)
     if a.mesh:
         V, F = read_mesh_ply(a.mesh)
@@ -67,8 +69,6 @@ def main():
         print(f'collision.bin: {len(V):,} verts, {len(F):,} tris{" (mirrored, winding swapped)" if a.mirror_y else ""}')
     if a.parts:
         parts = json.load(open(a.parts))
-        if a.mirror_y and parts.get('frame') != 'ply':
-            raise SystemExit(f'--mirror-y needs a ply-frame parts file, got frame {parts.get("frame")!r}')
         for c in parts.get('capsules', []):
             for k in list(c):
                 if k.startswith('_'): del c[k]
