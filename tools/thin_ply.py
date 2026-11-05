@@ -33,12 +33,11 @@ def main():
 
     ply = PlyData.read(a.src)
     v = ply["vertex"].data
+    v = v[np.all([np.isfinite(v[n]) for n in v.dtype.names], axis=0)]
     o = json.load(open(a.objects))
     xz = np.c_[v["x"], v["z"]].astype(np.float64)
     op = 1 / (1 + np.exp(-v["opacity"].astype(np.float64)))
     s = np.sort(np.exp(np.c_[v["scale_0"], v["scale_1"], v["scale_2"]].astype(np.float64)), axis=1)
-    finite = np.isfinite(xz).all(1) & np.isfinite(v["y"]) & np.isfinite(op) & np.isfinite(s).all(1)
-    xz[~np.isfinite(xz)] = 1e9
 
     sites = np.array(o["keep"], float)
     d_keep, near = cKDTree(sites[:, :2]).query(xz, distance_upper_bound=a.keep_radius)
@@ -47,20 +46,19 @@ def main():
     h[close] = v["y"][close] - sites[near[close], 2]
     r, g, b = (np.asarray(v[f"f_dc_{i}"], np.float64) * 0.28209479177387814 + 0.5 for i in range(3))
     grass = (r > 1.25 * b) & (g > 1.15 * b) & (abs(r - g) < 0.16) & (r + g + b > 0.55)
-    keep = finite & close & ~grass & (op > 0.4) & (s[:, 2] < 0.6) & (h > 0.05) & (h < 6)
+    keep = close & ~grass & (op > 0.4) & (s[:, 2] < 0.6) & (h > 0.05) & (h < 6)
     print(f"{len(v):,} splats, {keep.sum():,} protected", flush=True)
 
     line = np.array(o["line"], float)[:, [0, 2]]
     d_line, _ = cKDTree(line).query(xz)
     score = op * s[:, 2] * s[:, 1] * np.minimum(1.0, (a.near / np.maximum(d_line, 1e-3)) ** 2)
-    score[~finite] = -1
 
     room = a.target - int(keep.sum())
-    if room <= 0:
+    if room < 0:
         raise SystemExit(f"the protected splats alone are over the target ({keep.sum():,})")
-    rest = np.flatnonzero(~keep & finite)
+    rest = np.flatnonzero(~keep)
     keep[rest[np.argpartition(-score[rest], room)[:room]] if room < len(rest) else rest] = True
-    lost = score[~keep & finite].sum() / score[finite].sum()
+    lost = score[~keep].sum() / score.sum()
     print(f"kept {keep.sum():,}, dropped {(~keep).sum():,}, {lost:.1%} of the weighted coverage went with them", flush=True)
     for lo, hi in [(0, 15), (15, 40), (40, 1e9)]:
         m = (d_line >= lo) & (d_line < hi)
