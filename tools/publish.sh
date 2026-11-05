@@ -65,6 +65,10 @@ unset AK SK
 # 403. Skipping that check is the fix; widening the token is not.
 RC=(rclone --s3-no-check-bucket)
 
+# Only what a catalog can name. --metadata costs one request per object, and the bucket
+# also holds ghostline's dvr/, which took a listing past ten minutes.
+LIST=(--include '/scene/**' --include '/app/**' --include '/track/**')
+
 # ------------------------------------------------------------------ what is being sent
 # Only what the catalog names. Sending everything under files/ meant re-uploading captures
 # that had already dropped out of the list, and hid which objects a publish depends on.
@@ -106,7 +110,7 @@ say "asking the bucket what is already there"
 # Listed once, as JSON, and parsed rather than pattern-matched: a key with a space in it
 # truncates under awk. A listing that fails must not read as an empty bucket either - that
 # would make every check below pass by having nothing to check.
-"${RC[@]}" lsjson --recursive --metadata "$REMOTE:$BUCKET" > "$TMP/remote.json" || {
+"${RC[@]}" lsjson --recursive --metadata "${LIST[@]}" "$REMOTE:$BUCKET" > "$TMP/remote.json" || {
   echo "   could not list $REMOTE:$BUCKET - refusing to publish blind" >&2; exit 1; }
 
 # Each object carries the sha256 it was uploaded with, so "is this already published" is
@@ -179,7 +183,7 @@ done < "$TMP/plan.tsv"
 say "confirming every named object is in the bucket"
 # The deploy below publishes the list. Anything missing here would be a live link to a
 # 404, so this is the last point at which that is still cheap to find.
-"${RC[@]}" lsjson --recursive --metadata "$REMOTE:$BUCKET" > "$TMP/after.json" || {
+"${RC[@]}" lsjson --recursive --metadata "${LIST[@]}" "$REMOTE:$BUCKET" > "$TMP/after.json" || {
   echo "   could not re-list $REMOTE:$BUCKET" >&2; exit 1; }
 python3 - "$TMP/after.json" "$TMP/keys.tsv" <<'PY' || exit 1
 import json, sys
