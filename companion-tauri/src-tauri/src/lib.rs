@@ -272,17 +272,10 @@ impl Host {
                 );
             }
             let root = game::root(&app);
-            // Not "is a loader here" but "is it ours": an official BepInEx has the same
-            // files and a preloader that dies on arm64.
-            if !bepinex::is_ours(&root) {
-                bepinex::install(&root, log, &mut |p| host.percent(Some(p)))
-                    .map_err(|e| e.to_string())?;
-                host.percent(None);
-            }
             let Some(bundled) = game::bundled_mod_dir(&resource_dir) else {
                 return Err("This build carries no mod payload.".into());
             };
-            game::install_bundled_mod(&root, &bundled, log).map_err(|e| e.to_string())
+            host.install_current_mod(&root, &bundled, log)
         });
     }
 
@@ -782,25 +775,53 @@ impl Host {
         });
     }
 
-    fn launch(&self) {
+    /// The loader first: a mod on a loader that cannot start is no mod.
+    fn install_current_mod(
+        &self,
+        root: &Path,
+        bundled: &Path,
+        log: &mut dyn FnMut(String),
+    ) -> Result<(), String> {
+        // Not "is a loader here" but "is it ours": an official BepInEx has the same
+        // files and a preloader that dies on arm64.
+        if !bepinex::is_ours(root) {
+            bepinex::install(root, log, &mut |p| self.percent(Some(p)))
+                .map_err(|e| e.to_string())?;
+            self.percent(None);
+        }
+        game::install_bundled_mod(root, bundled, log).map_err(|e| e.to_string())
+    }
+
+    /// Fly also brings an older mod up to date. A capture updated without the mod it needs
+    /// fails silently: its gates are flown through.
+    fn launch(self: &Arc<Self>) {
         let Some(app) = self.inner.lock().unwrap().game.clone() else {
             return;
         };
-        if launch::is_running() {
-            self.log("VelociDrone is already running");
-            return;
-        }
-        match launch::spawn(&app) {
-            Ok(child) => {
-                self.inner.lock().unwrap().child = Some(child);
-                self.log("started through Doorstop");
-                self.push();
+        let resource_dir = self.resource_dir.clone();
+        self.run_busy("starting the game", move |host, log| {
+            if launch::is_running() {
+                log("VelociDrone is already running".into());
+                return Ok(());
             }
-            Err(ex) => {
-                self.log(&format!("failed: {ex}"));
-                self.error_dialog(&ex.to_string());
+            let root = game::root(&app);
+            if let Some(bundled) = game::bundled_mod_dir(&resource_dir) {
+                let have = game::installed_mod_version(&root);
+                let want = game::dll_file_version(&bundled.join("BepInEx/plugins/VDGS.dll"));
+                // No DLL at all means it was uninstalled, and that choice stands.
+                let installed = root.join("BepInEx/plugins/VDGS.dll").is_file();
+                if installed && game::needs_mod_update(have.as_deref(), want.as_deref()) {
+                    log("updating the mod before starting".into());
+                    host.install_current_mod(&root, &bundled, log).map_err(|e| {
+                        format!("The mod could not be updated, so the game was not started: {e}")
+                    })?;
+                }
             }
-        }
+            let child = launch::spawn(&app).map_err(|e| e.to_string())?;
+            host.inner.lock().unwrap().child = Some(child);
+            log("started through Doorstop".into());
+            Ok(())
+        });
     }
 }
 
