@@ -67,6 +67,8 @@ def main():
         print(f'collision.bin: {len(V):,} verts, {len(F):,} tris{" (mirrored, winding swapped)" if a.mirror_y else ""}')
     if a.parts:
         parts = json.load(open(a.parts))
+        if a.mirror_y and parts.get('frame') != 'ply':
+            raise SystemExit(f'--mirror-y needs a ply-frame parts file, got frame {parts.get("frame")!r}')
         for c in parts.get('capsules', []):
             for k in list(c):
                 if k.startswith('_'): del c[k]

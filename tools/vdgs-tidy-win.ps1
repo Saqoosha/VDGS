@@ -44,7 +44,7 @@ foreach ($f in Get-ChildItem $vdgs -Filter *.ply -File) {
     if ($kept.Contains($name)) { continue }
     # The collision mesh and the placement live beside a .ply, not inside it.
     $side = @(Get-ChildItem $vdgs -File | Where-Object {
-        $_.Name -eq "$name.ply" -or $_.Name -eq "$name.collision.bin" -or $_.Name -eq "$name.placement.json"
+        $_.Name -eq "$name.ply" -or $_.Name -eq "$name.collision.bin" -or $_.Name -eq "$name.parts.json" -or $_.Name -eq "$name.placement.json"
     })
     $moves += [pscustomobject]@{ Name = $name; Paths = @($side | ForEach-Object { $_.FullName }) }
 }

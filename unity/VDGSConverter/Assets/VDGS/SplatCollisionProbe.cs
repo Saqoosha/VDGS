@@ -27,6 +27,12 @@ public class SplatCollisionProbe : MonoBehaviour
         return VDGS.SplatCollision.Attach(parent, splatDir, log);
     }
 
+    /// <summary>Where the loader looks for the primitives.</summary>
+    public static string PartsPathFor(string splatDir)
+    {
+        return VDGS.SplatCollision.PartsPathFor(splatDir);
+    }
+
     /// <summary>Name of the child the loader creates, so callers can find the collider.</summary>
     public static string ChildName(string parentName)
     {

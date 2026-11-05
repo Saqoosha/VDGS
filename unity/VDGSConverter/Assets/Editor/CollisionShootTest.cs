@@ -22,7 +22,7 @@ using UnityEngine;
 ///
 /// Meshes go through the plugin's own SplatCollision (via SplatCollisionProbe), so the
 /// mirror and the winding swap are the shipped ones. Capsules are placed here, mirrored in Y
-/// the same way, because the plugin has no capsule loader yet.
+/// the same way, not through the loader.
 /// </summary>
 public static class CollisionShootTest
 {

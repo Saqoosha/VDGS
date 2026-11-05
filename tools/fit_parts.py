@@ -143,7 +143,7 @@ def merge_panels(caps, P, w, angle=12.0, dist=0.35, overlap=0.6, pad=0.0, min_th
         slo, shi = np.percentile(sx, [1, 99])
         centre = c + u * (slo + shi) / 2 + v1 * (lo1 + hi1) / 2 + v2 * (lo2 + hi2) / 2
         size = [float(shi - slo) + 2 * pad, float(hi1 - lo1) + 2 * pad, max(float(hi2 - lo2), min_thick) + 2 * pad]
-        # 軸は u, v, w の 3 本に平らに書く。ランタイムは JsonUtility で読み、入れ子の配列が読めない
+        # 軸は u, v, w の 3 本に平らに書く
         boxes.append({'c': centre.round(4).tolist(), 'u': u.round(5).tolist(), 'v': v1.round(5).tolist(),
                       'w': v2.round(5).tolist(), 'size': [round(x, 4) for x in size],
                       'points': int(len(idx)), 'from': len(g)})

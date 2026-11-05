@@ -74,10 +74,22 @@ public static class CollisionTest
         var b = col.bounds;
         Debug.Log($"[VDGS] collider bounds {b.min} .. {b.max}");
 
-        // parts.json, when present, adds primitives beside the shell. Counted here so a
-        // file that loaded nothing shows up as "0 capsules" rather than as silence.
+        // parts.json, when present, adds primitives beside the shell. Counted against the
+        // file itself, because a load that drops entries still looks like a success.
         var capsules = child.GetComponentsInChildren<CapsuleCollider>(true);
         var boxes = child.GetComponentsInChildren<BoxCollider>(true);
+        var partsPath = SplatCollisionProbe.PartsPathFor(dir);
+        if (File.Exists(partsPath))
+        {
+            var j = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(partsPath));
+            int wantCapsules = (j["capsules"] as Newtonsoft.Json.Linq.JArray)?.Count ?? 0;
+            int wantBoxes = (j["boxes"] as Newtonsoft.Json.Linq.JArray)?.Count ?? 0;
+            if (capsules.Length != wantCapsules || boxes.Length != wantBoxes)
+            {
+                Fail($"parts.json holds {wantCapsules} capsules and {wantBoxes} boxes, loaded {capsules.Length} and {boxes.Length}");
+                return;
+            }
+        }
         if (capsules.Length + boxes.Length > 0)
         {
             var pb = new Bounds(capsules.Length > 0 ? capsules[0].bounds.center : boxes[0].bounds.center, Vector3.zero);

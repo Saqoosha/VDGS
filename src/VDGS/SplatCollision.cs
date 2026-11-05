@@ -62,8 +62,7 @@ namespace VDGS
         /// Built on demand, kept until destroyed.</summary>
         private Mesh m_DisplayMesh;
 
-        // What parts.json holds. Float arrays only, so that JsonUtility can read it in the
-        // editor, which is why a box carries three axis vectors rather than one 3x3.
+        // What parts.json holds. A box carries three axis vectors rather than one 3x3.
         [Serializable] private class PartCapsule { public float[] a; public float[] b; public float r; }
         [Serializable] private class PartBox { public float[] c; public float[] u; public float[] v; public float[] w; public float[] size; }
         [Serializable] private class PartsFile { public int version; public string frame; public PartCapsule[] capsules; public PartBox[] boxes; }
@@ -423,13 +422,9 @@ namespace VDGS
             try
             {
                 var json = File.ReadAllText(path);
-                // In the game JsonUtility reads "version" and silently leaves the nested
-                // arrays null. unity/VDGSConverter shares this file and has no Newtonsoft.
-#if UNITY_EDITOR
-                parts = JsonUtility.FromJson<PartsFile>(json);
-#else
+                // Not JsonUtility: in the game it reads "version" and silently leaves the
+                // nested arrays null, while the same call works in the editor.
                 parts = Newtonsoft.Json.JsonConvert.DeserializeObject<PartsFile>(json);
-#endif
                 if (parts == null) throw new InvalidDataException("not a JSON object");
                 if (parts.version != 1) throw new InvalidDataException($"parts.json version {parts.version}, expected 1");
             }
@@ -442,7 +437,7 @@ namespace VDGS
             int nc = 0, nb = 0, bad = 0;
             foreach (var c in parts.capsules ?? new PartCapsule[0])
             {
-                if (!Finite3(c.a) || !Finite3(c.b) || !(c.r > 0f))
+                if (c == null || !Finite3(c.a) || !Finite3(c.b) || !(c.r > 0f) || c.r > kMaxPartExtent)
                 {
                     bad++; continue;
                 }
@@ -466,7 +461,7 @@ namespace VDGS
             }
             foreach (var bx in parts.boxes ?? new PartBox[0])
             {
-                if (!Finite3(bx.c) || !Finite3(bx.u) || !Finite3(bx.v) || !Finite3(bx.size)
+                if (bx == null || !Finite3(bx.c) || !Finite3(bx.u) || !Finite3(bx.v) || !Finite3(bx.size)
                     || !(bx.size[0] > 0f && bx.size[1] > 0f && bx.size[2] > 0f))
                 {
                     bad++; continue;
@@ -496,11 +491,14 @@ namespace VDGS
             return nc + nb > 0;
         }
 
+        // Past this a squared length overflows float and PhysX gets a NaN rotation.
+        private const float kMaxPartExtent = 1e5f;
+
         private static bool Finite3(float[] f)
         {
             if (f == null || f.Length != 3) return false;
             foreach (var x in f)
-                if (float.IsNaN(x) || float.IsInfinity(x)) return false;
+                if (float.IsNaN(x) || !(Mathf.Abs(x) <= kMaxPartExtent)) return false;
             return true;
         }
 

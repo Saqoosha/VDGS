@@ -33,6 +33,7 @@ py tools/fit_scene_parts.py $PLY --track x.track.json --placement placement.json
 py tools/collision_pack.py <scene dir> --mesh $G/ground-300k.ply --parts build/collision-compare/parts/<name>.parts.json --mirror-y
 ```
 
+`field-splats.ply` は `$PLY` からトラックの位置 ±5 m を切り出したもの。切り出しの道具はリポジトリに無い。
 `--bounds=-33,-5,46,61` は `=` が要る（負の値を引数と読まれる）。`--gates` の番号は
 `--list` を回すたびに同じだが、範囲や閾値を変えると詰め直されるので、絵で確かめてから渡す。
 
@@ -141,16 +142,16 @@ PhysX で撃った（400 Hz、重力 −10.78、球 5 / 12.5 cm、離散と連�
  "boxes":    [{"c": [x,y,z], "u": [..], "v": [..], "w": [..], "size": [長さ, 幅, 厚み]}]}
 ```
 
+`.ply` 直置きでは 2 ファイルを `<name>.collision.bin` と `<name>.parts.json` に改名して置く。
 座標の規則は `collision.bin` と同じ：`.ply` 直置きは ply 座標で置いてランタイムが鏡映、
 変換済みフォルダは `--mirror-y` で鏡映済みを置く。鏡映は Y の反転に加えて、メッシュは
 巻き順の入れ替え、箱は `w = u × v` の取り直し（反射で左手系になる）。間違えてもエラーは
 出ず、地面が 2 m 上の天井になる。
 
 ランタイム（`SplatCollision.cs`）は同じ子の下に CapsuleCollider / BoxCollider を並べる。
-ゲームは Newtonsoft、エディタは `JsonUtility` で読む（Unity 側プロジェクトに Newtonsoft が
-無い）。ゲームの `JsonUtility` は `version` を読めても入れ子の配列を黙って空にするので、
-エディタの落下テストが通っても `parts: 0 capsules` になる。エディタ側の都合で入れ子の配列が
-使えず、箱の軸は `u` `v` `w` の 3 本。どちらか一方のファイルだけでも有効で、on/off と表示
+読むのは Newtonsoft。ゲームの `JsonUtility` は `version` を読めても入れ子の配列を黙って空に
+する（エディタでは読める）ので、`parts: 0 capsules` になる。箱の軸は `u` `v` `w` の 3 本。
+どちらか一方のファイルだけでも有効で、on/off と表示
 （solid / wire）は地面とプリミティブをまとめて扱う。表示用の三角形は
 `Cross(p1-p0, p2-p0)` が外を向くように巻く（Unity の前面の向きと一致することを
 `CollisionTest` が立方体で検算する）。`make-release.sh` は `parts.json` も同梱する。

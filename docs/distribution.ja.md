@@ -135,7 +135,7 @@ sha256 を固定して。**「先に BepInEx を入れて」は全インスト�
 
 | 変数 | どの機械 | 何をする |
 |---|---|---|
-| `VDGS_HOST` | ゲーム機 | VelociDrone と Unity。D3D12 シェーダーを焼く。**Rust は無い** |
+| `VDGS_HOST` | ゲーム機 | VelociDrone と Unity。D3D12 シェーダーを焼く |
 | `VDGS_WIN_BUILD_HOST` | ビルド機 | Rust（`x86_64-pc-windows-msvc`）+ VS のリンカ + `cargo-tauri`。ゲーム機と同じ機械でもよい。PowerShell 7 が無ければ `VDGS_WIN_BUILD_SHELL=powershell` |
 
 出すのは**素の exe を zip**（`--no-bundle`）で、`VDGS.exe` と `resources/` の 2 つ。名前も

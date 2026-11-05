@@ -177,6 +177,7 @@ say "building on $BUILD_HOST"
 # The user's environment is not touched; this only shapes what this build sees.
 set +e
 remote_pwsh <<'PS' > "$WORK/build.log" 2>&1
+  # exit 1, never throw: fed on stdin, a throw does not end the script.
   $ErrorActionPreference = 'Stop'
   $root = Join-Path $env:USERPROFILE 'VDGS'
   $work = Join-Path $root 'companion-win'
@@ -187,15 +188,15 @@ remote_pwsh <<'PS' > "$WORK/build.log" 2>&1
   # PATH and reads C:\... as a remote host. The short PATH reaches System32's bsdtar.
   $env:PATH = "$env:USERPROFILE\.cargo\bin;C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0"
   tar xzf (Join-Path $root 'companion-win.tgz')
-  if ($LASTEXITCODE -ne 0) { throw 'unpacking the source failed' }
+  if ($LASTEXITCODE -ne 0) { Write-Output 'unpacking the source failed'; exit 1 }
   Set-Location (Join-Path $work 'companion-tauri\src-tauri')
   # The pin check runs here and not on the Mac that drives this script. release() is
   # cfg-split, so a cargo test on macOS fetches the macOS loader - it would have
   # reported the Windows pin healthy while never having looked at it.
   cargo test -- --ignored the_pinned_release_is_still_there
-  if ($LASTEXITCODE -ne 0) { throw 'the pinned BepInEx release did not fetch' }
+  if ($LASTEXITCODE -ne 0) { Write-Output 'the pinned BepInEx release did not fetch'; exit 1 }
   cargo-tauri.exe build --no-bundle
-  if ($LASTEXITCODE -ne 0) { throw 'cargo tauri build failed' }
+  if ($LASTEXITCODE -ne 0) { Write-Output 'cargo tauri build failed'; exit 1 }
   exit 0
 PS
 BUILD_STATUS=$?
@@ -229,9 +230,9 @@ remote_pwsh <<'PS' 2>&1 | quiet
   $root = Join-Path $env:USERPROFILE 'VDGS'
   $rel = Join-Path $root 'companion-win\companion-tauri\src-tauri\target\release'
   $exe = Join-Path $rel 'vdgs-companion.exe'
-  if (-not (Test-Path $exe)) { throw 'no vdgs-companion.exe produced' }
+  if (-not (Test-Path $exe)) { Write-Output 'no vdgs-companion.exe produced'; exit 1 }
   $res = Join-Path $rel 'resources'
-  if (-not (Test-Path $res)) { throw 'no resources beside the exe - the app would carry no payload' }
+  if (-not (Test-Path $res)) { Write-Output 'no resources beside the exe - the app would carry no payload'; exit 1 }
   $stage = Join-Path $root 'companion-win-stage'
   Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
   New-Item -ItemType Directory -Force -Path $stage | Out-Null
@@ -241,7 +242,7 @@ remote_pwsh <<'PS' 2>&1 | quiet
   Remove-Item $zip -ErrorAction SilentlyContinue
   # Not Compress-Archive: under Windows PowerShell 5 it writes backslashes into entry names.
   & "$env:SystemRoot\System32\tar.exe" -a -c -f $zip -C $stage VDGS.exe resources
-  if ($LASTEXITCODE -ne 0) { throw 'zipping failed' }
+  if ($LASTEXITCODE -ne 0) { Write-Output 'zipping failed'; exit 1 }
   'zip: ' + (Get-Item $zip).Length
 PS
 
