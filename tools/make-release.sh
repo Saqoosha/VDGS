@@ -166,8 +166,6 @@ if [ -n "$SCENE" ]; then
   mkdir -p "$STAGE/scene/vdgs/$SCENE"
   cp "$SCENE_DIR"/*.bin "$SCENE_DIR"/meta.json "$STAGE/scene/vdgs/$SCENE/"
   [ -f "$SCENE_DIR/placement.json" ] && cp "$SCENE_DIR/placement.json" "$STAGE/scene/vdgs/$SCENE/"
-  # The gates and flags: capsules and boxes beside the ground mesh (tools/collision_pack.py).
-  [ -f "$SCENE_DIR/parts.json" ] && cp "$SCENE_DIR/parts.json" "$STAGE/scene/vdgs/$SCENE/"
   # The captured sky rides inside the folder, not beside it: the companion installs,
   # updates and removes a capture as one folder, so a sibling file would never arrive,
   # would not be swapped on Update, and would outlive Remove.

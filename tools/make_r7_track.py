@@ -14,10 +14,11 @@ centimetres. Both are in Unity's frame; the scan is x east, y up, z south, which
 
     python3 tools/make_r7_track.py <course.json> <fit.json> <out.track.json> [--check]
 
-course.json is ghostline's rt/tracks/jdl-2026-r7-v1.json, for the line and the launch pad. fit.json is what was measured from
-the scan's splats: each flag's base, each arch's legs (centre, width direction, inner width) and banner underside, and the
-ground under each.
---check flies the course line through the finished triggers and fails unless every gate is hit in order.
+course.json is ghostline's rt/tracks/jdl-2026-r7-v1.json, for the line and the launch pad. fit.json is tools/r7_fit.json, what
+was measured from the scan's splats: each flag's base, each arch's centre, width direction, inner width, banner underside and
+top, the ground under each, the pad's height (`launch`), and the scene's height (`_course`, which sets the placement's y).
+--check flies the course line through the finished triggers and writes nothing unless every lap gate is hit in order. The
+first-lap flag is not on the line, so it is not checked.
 """
 import json
 import math
@@ -163,7 +164,7 @@ def crossings(a, b, g):
 
 
 def check(gates, line):
-    """Fly two laps of the course line; each gate must fire in turn. Prints where, returns the number missed.
+    """Fly two laps of the course line; each gate must fire in turn. Prints where, returns whether the count is right.
 
     The line starts just past the start gate, so two laps fire it at the end of each: one full lap plus that first gate."""
     pts = np.array([to_unity(*p) for p in line])
@@ -181,20 +182,18 @@ def check(gates, line):
     print(f"{nxt} gates fired in 2 laps, {len(order)} per lap")
     for h in hits[:len(order) + 1]:
         print(f"  lap {h[0]} line #{h[1]:4d} gate {h[2]}")
-    return len(order) + 1 - nxt
+    return nxt == len(order) + 1
 
 
 def main():
     args = [a for a in sys.argv[1:] if a != "--check"]
     course, fit = json.load(open(args[0])), json.load(open(args[1]))
     gates, grid, line, seq = build(course, fit)
+    if "--check" in sys.argv and not check(gates, line):
+        sys.exit("the course line does not fire the gates in order; nothing written")
     value = json.dumps({"gates": gates, "barriers": [grid]}, separators=(",", ":"))
     json.dump({"name": NAME, "scene_id": SCENE_ID, "type": 0, "value": value}, open(args[2], "w"), indent=2)
     print(f"{len(gates)} gates, placement position {OFFSET.round(3).tolist()}")
-    if "--check" in sys.argv:
-        missed = check(gates, line)
-        if missed:
-            sys.exit(f"{missed} gates missed")
 
 
 if __name__ == "__main__":
