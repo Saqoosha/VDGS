@@ -1,0 +1,11 @@
+{
+  "id": "jdl-2026-r7",
+  "name": "VDGS JDL 2026 R7",
+  "description": "The Japan Drone League 2026 Round 7 race site at the Kaizuka cricket ground, Osaka, Japan, reconstructed from Saqoosha's own Insta360 X6 and DJI footage, with the sky photographed on the same day. The gates and flags are invisible VelociDrone gates placed on the real ones. One extra flag is rounded only before the first pass of the start gate. Gate B is an over-and-under: fly over it, turn behind it, and come back through it. The ground, gates and flags are solid.",
+  "author": "Saqoosha",
+  "licence": "CC0-1.0",
+  "captured": "2026-10-23",
+  "installAs": "JDL-2026-R7",
+  "revision": 1,
+  "track": "VDGS-JDL-2026-R7.track.json"
+}
