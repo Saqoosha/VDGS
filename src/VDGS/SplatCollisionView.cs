@@ -65,15 +65,14 @@ namespace VDGS
             }
 
             var child = parent.Find(SplatCollision.CollisionChildName(parent.name));
-            var col = child != null ? child.GetComponent<MeshCollider>() : null;
-            if (col == null)
+            if (child == null || child.GetComponent<SplatCollision>() == null)
             {
                 log?.AppendLine("  no collider to draw - is collision on?");
                 return false;
             }
 
             var view = child.GetComponent<SplatCollisionView>() ?? child.gameObject.AddComponent<SplatCollisionView>();
-            return view.Apply(col, mode, log);
+            return view.Apply(parent, mode, log);
         }
 
         private static SplatCollisionView Find(Transform parent)
@@ -90,7 +89,7 @@ namespace VDGS
         /// view asked for at spawn - before the off-thread cook finishes - was dropped for
         /// good rather than applied a frame later.
         /// </summary>
-        private bool Apply(MeshCollider col, string mode, StringBuilder log)
+        private bool Apply(Transform parent, string mode, StringBuilder log)
         {
             if (mode == kOff)
             {
@@ -100,7 +99,10 @@ namespace VDGS
                 return true;
             }
 
-            var solidMesh = col.sharedMesh;
+            // The shell and the primitives of parts.json as one mesh - the capsules a gate
+            // is made of are as invisible as a MeshCollider, and the point of this view
+            // is to see what stops the drone.
+            var solidMesh = SplatCollision.DisplayMeshOn(parent, log);
             if (solidMesh == null)
             {
                 // The cook runs off-thread, so the mesh can still be missing for a frame or

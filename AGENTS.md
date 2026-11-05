@@ -392,6 +392,9 @@ R6（Avata 2）は採用、R5 の 360（Insta360 X3）は不採用。
 
 ### 屋外キャプチャの掃除とコリジョン（全文は docs/cleanup.ja.md）
 
+**ゲート・旗・地面だけを当てるなら [docs/collision-parts.ja.md](docs/collision-parts.ja.md)。** 地面は高さ地図、
+ゲートと旗はカプセルと箱（`parts.json`）。FDF CUP 2026 R6 はこれ。下の密度場の殻は細い部材が太る。
+
 屋内シーンと前提が違うところだけ：
 
 - **大きい splat は削除せず、ワールド Y で寝かせる**（`σ_y = sqrt(Σ_yy)` を上限で潰し、

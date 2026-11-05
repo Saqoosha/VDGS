@@ -7,10 +7,10 @@
 # Version defaults to today, the same as make-release.sh and make-mac-app.sh. Passing
 # different ones on the same day is how a release ends up advertising two versions.
 #
-# Two machines, and they are not the same machine:
+# Two roles, which one machine can fill if it has both toolchains:
 #
 #   VDGS_HOST            the game box. Has VelociDrone and Unity, bakes the D3D12
-#                        shader bundle. No Rust toolchain.
+#                        shader bundle.
 #   VDGS_WIN_BUILD_HOST  a Windows box with Rust (x86_64-pc-windows-msvc), Visual
 #                        Studio's linker, and cargo-tauri. Builds the app.
 #
@@ -25,12 +25,13 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/tools/_remote.sh"
 quiet() { grep -vE "WARNING: |store now, decrypt later|may need to be upgraded|openssh.com/pq" || true; }
 
-: "${VDGS_WIN_BUILD_HOST:?set VDGS_WIN_BUILD_HOST in tools/local.env - the game box has no Rust toolchain}"
+: "${VDGS_WIN_BUILD_HOST:?set VDGS_WIN_BUILD_HOST in tools/local.env}"
 BUILD_HOST="$VDGS_WIN_BUILD_HOST"
 # PowerShell on the build box, whatever its login shell is. The box's OpenSSH default
 # shell has been both pwsh and Git Bash; a script sent as the ssh command line only
 # works under one of them, a script fed to pwsh on stdin works under either.
-remote_pwsh() { ssh -o BatchMode=yes "$BUILD_HOST" 'pwsh -NoProfile -NonInteractive -Command -'; }
+# A box without PowerShell 7 sets VDGS_WIN_BUILD_SHELL=powershell.
+remote_pwsh() { ssh -o BatchMode=yes "$BUILD_HOST" "${VDGS_WIN_BUILD_SHELL:-pwsh} -NoProfile -NonInteractive -Command -"; }
 
 OUT="$ROOT/build/release"
 VER="${1:-${VDGS_VERSION:-$(date +%Y.%m.%d)}}"
@@ -238,7 +239,9 @@ remote_pwsh <<'PS' 2>&1 | quiet
   Copy-Item -Recurse $res (Join-Path $stage 'resources')
   $zip = Join-Path $root 'vdgs-companion.zip'
   Remove-Item $zip -ErrorAction SilentlyContinue
-  Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip
+  # Not Compress-Archive: under Windows PowerShell 5 it writes backslashes into entry names.
+  & "$env:SystemRoot\System32\tar.exe" -a -c -f $zip -C $stage VDGS.exe resources
+  if ($LASTEXITCODE -ne 0) { throw 'zipping failed' }
   'zip: ' + (Get-Item $zip).Length
 PS
 
@@ -255,8 +258,10 @@ import sys, zipfile
 path, want = sys.argv[1], int(sys.argv[2])
 z = zipfile.ZipFile(path)
 names = z.namelist()
+if any("\\" in n for n in names):
+    sys.exit("the zip has backslashes in its entry names")
 def need(suffix):
-    hit = [n for n in names if n.replace("\\", "/").endswith(suffix)]
+    hit = [n for n in names if n.endswith(suffix)]
     if not hit:
         sys.exit("the zip has no %s" % suffix)
     return hit[0]

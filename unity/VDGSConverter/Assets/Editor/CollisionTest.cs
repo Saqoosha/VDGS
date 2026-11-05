@@ -73,6 +73,33 @@ public static class CollisionTest
 
         var b = col.bounds;
         Debug.Log($"[VDGS] collider bounds {b.min} .. {b.max}");
+
+        // parts.json, when present, adds primitives beside the shell. Counted here so a
+        // file that loaded nothing shows up as "0 capsules" rather than as silence.
+        var capsules = child.GetComponentsInChildren<CapsuleCollider>(true);
+        var boxes = child.GetComponentsInChildren<BoxCollider>(true);
+        if (capsules.Length + boxes.Length > 0)
+        {
+            var pb = new Bounds(capsules.Length > 0 ? capsules[0].bounds.center : boxes[0].bounds.center, Vector3.zero);
+            foreach (var c in capsules) pb.Encapsulate(c.bounds);
+            foreach (var c in boxes) pb.Encapsulate(c.bounds);
+            Debug.Log($"[VDGS] parts: {capsules.Length} capsules, {boxes.Length} boxes, bounds {pb.min} .. {pb.max}");
+        }
+
+        // The view winds its primitive triangles by Cross(p1 - p0, p2 - p0) and relies on
+        // that being the side Unity calls the front. Checked against a built-in cube, whose
+        // winding is Unity's own: if its stored normal disagrees with the cross product,
+        // every capsule drawn in `solid` mode is inside out.
+        {
+            var cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            var m = cube.GetComponent<MeshFilter>().sharedMesh;
+            var v = m.vertices; var n = m.normals; var t = m.triangles;
+            var cross = Vector3.Cross(v[t[1]] - v[t[0]], v[t[2]] - v[t[0]]);
+            var agree = Vector3.Dot(cross, n[t[0]]) > 0f;
+            Debug.Log("[VDGS] front-face convention: Cross(p1-p0, p2-p0) " + (agree ? "matches" : "OPPOSES")
+                      + " Unity's cube normal" + (agree ? "" : " - SplatCollision.AddTri winds the wrong way"));
+            Object.DestroyImmediate(cube);
+        }
         Debug.Log($"[VDGS] convex={col.convex} cooking={col.cookingOptions} "
                   + $"layer={child.gameObject.layer} isTrigger={col.isTrigger} "
                   + $"material={(col.sharedMaterial == null ? "none" : col.sharedMaterial.name)}");
