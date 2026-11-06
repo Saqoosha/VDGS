@@ -19,6 +19,7 @@ param(
     [int]$Size = 1024,
     [int]$Frames = 120,
     [int]$SortNth = 1,
+    [int]$ShOrder = 3,
     [int]$Inside = 0,
     [int]$Cull = 1,
     [double]$CullMargin = 4,
@@ -53,7 +54,7 @@ function Invoke-Bench([string]$sceneDir, [string]$label) {
 
     $argv = "-batchmode -quit -force-d3d12 -projectPath `"$Project`" " +
             "-executeMethod RenderBench.Run -vdgsScene `"$sceneDir`" " +
-            "-vdgsSize $Size -vdgsFrames $Frames -vdgsSortNth $SortNth " +
+            "-vdgsSize $Size -vdgsFrames $Frames -vdgsSortNth $SortNth -vdgsShOrder $ShOrder " +
             "-vdgsInside $Inside -vdgsCull $Cull -vdgsCullMargin $CullMargin " +
             "-vdgsLodDetail $LodDetail -vdgsLodBudget $LodBudget " +
             $(if ($Cam) { "-vdgsCam $Cam " } else { '' }) +

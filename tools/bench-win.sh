@@ -16,6 +16,7 @@ SCENES="${1:-playroom,bonsai,drjohnson,drjohnson-shc}"
 SIZE="${VDGS_BENCH_SIZE:-1024}"
 FRAMES="${VDGS_BENCH_FRAMES:-120}"
 SORTNTH="${VDGS_BENCH_SORTNTH:-1}"
+SHORDER="${VDGS_BENCH_SHORDER:-3}"
 # Framing the whole capture culls nothing; the drone flies inside it.
 INSIDE="${VDGS_BENCH_INSIDE:-0}"
 CULL="${VDGS_BENCH_CULL:-1}"
@@ -48,5 +49,5 @@ rm -f "$TAR"
 
 echo "== benchmarking on $HOST =="
 ssh -o BatchMode=yes "$HOST" \
-  "${REMOTE_GAME}powershell -ExecutionPolicy Bypass -File (Join-Path $REMOTE_ROOT_PS 'bench-win.ps1') -Scenes $SCENES -Size $SIZE -Frames $FRAMES -SortNth $SORTNTH -Inside $INSIDE -Cull $CULL -CullMargin $CULLMARGIN -LodDetail $LODDETAIL -LodBudget $LODBUDGET${CAM:+ -Cam '$CAM'}" \
+  "${REMOTE_GAME}powershell -ExecutionPolicy Bypass -File (Join-Path $REMOTE_ROOT_PS 'bench-win.ps1') -Scenes $SCENES -Size $SIZE -Frames $FRAMES -SortNth $SORTNTH -ShOrder $SHORDER -Inside $INSIDE -Cull $CULL -CullMargin $CULLMARGIN -LodDetail $LODDETAIL -LodBudget $LODBUDGET${CAM:+ -Cam '$CAM'}" \
   2>&1 | quiet

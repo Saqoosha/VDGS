@@ -99,6 +99,7 @@ public static class RenderBench
             // share measurable. A high value renders with a stale order, which is wrong
             // to look at but exactly right for attributing time.
             r.m_SortNthFrame = ParseInt("-vdgsSortNth", 1);
+            r.m_SHOrder = ParseInt("-vdgsShOrder", 3);
             r.m_FrustumCulling = cull != 0;
             r.m_CullMargin = ParseFloat("-vdgsCullMargin", r.m_CullMargin);
             r.LodDetail = ParseFloat("-vdgsLodDetail", r.LodDetail);
